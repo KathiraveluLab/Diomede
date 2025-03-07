@@ -26,6 +26,6 @@ Telemedicine is vital for delivering healthcare to remote areas like rural Alask
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/<username>/diomede.git
+   git clone https://github.com/KathiraveluLab/diomede.git
    cd diomede
    ```
