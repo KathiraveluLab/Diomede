@@ -13,6 +13,3 @@ def extract_metadata(dicom_files):
         })
     return pd.DataFrame(metadata)
 
-# Example usage
-metadata_df = extract_metadata(dicom_files)
-print(metadata_df.head())  # Display the first few rows of the DataFrame

@@ -3,15 +3,18 @@ import pandas as pd
 import os
 import shutil
 
+
 # Import your existing functions
-from Scripts.load_dicom_files import load_dicom_files
+from Scripts.load_dicom import load_dicom_files
 from Scripts.extract_metadata import extract_metadata
 from Scripts.query_metadata import query_metadata
 
 app = Flask(__name__)
 
 # Load DICOM files and extract metadata (run once when the app starts)
-dicom_directory = "data/dicom_files"  # Update this path
+current_path = os.path.join(os.getcwd(), os.path.dirname(__file__))
+print(current_path)
+dicom_directory = current_path + "/data/dicom_files"  
 dicom_files = load_dicom_files(dicom_directory)
 metadata_df = extract_metadata(dicom_files)
 
