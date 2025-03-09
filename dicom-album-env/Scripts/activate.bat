@@ -8,7 +8,16 @@ if defined _OLD_CODEPAGE (
     "%SystemRoot%\System32\chcp.com" 65001 > nul
 )
 
-set VIRTUAL_ENV=C:\Users\asish\OneDrive\Desktop\dicom_easy\Diomede\dicom-album-env
+rem Determine the directory of the script
+set SCRIPT_DIR=%~dp0
+rem Remove the trailing backslash
+set SCRIPT_DIR=%SCRIPT_DIR:~0,-1%
+
+rem Determine the project root directory (one level up from Scripts)
+set PROJECT_ROOT=%SCRIPT_DIR%\..
+
+rem Determine the virtual environment directory
+set VIRTUAL_ENV=%PROJECT_ROOT%\dicom-album-env
 
 if not defined PROMPT set PROMPT=$P$G
 
