@@ -1,6 +1,6 @@
 @echo off
 
-rem This file is UTF-8 encoded, so we need to update the current code page while executing it
+rem Update the current code page to UTF-8
 for /f "tokens=2 delims=:." %%a in ('"%SystemRoot%\System32\chcp.com"') do (
     set _OLD_CODEPAGE=%%a
 )
@@ -8,16 +8,8 @@ if defined _OLD_CODEPAGE (
     "%SystemRoot%\System32\chcp.com" 65001 > nul
 )
 
-rem Determine the directory of the script
-set SCRIPT_DIR=%~dp0
-rem Remove the trailing backslash
-set SCRIPT_DIR=%SCRIPT_DIR:~0,-1%
-
-rem Determine the project root directory (one level up from Scripts)
-set PROJECT_ROOT=%SCRIPT_DIR%\..
-
-rem Determine the virtual environment directory
-set VIRTUAL_ENV=%PROJECT_ROOT%\dicom-album-env
+rem Set virtual environment path dynamically
+set VIRTUAL_ENV=%~dp0dicom-album-env
 
 if not defined PROMPT set PROMPT=$P$G
 

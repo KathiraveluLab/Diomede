@@ -2,12 +2,15 @@ from flask import Flask, request, render_template
 import pandas as pd
 import os
 import shutil
+import sys
+sys.path.append("Scripts")
 
 
 # Import your existing functions
 from Scripts.load_dicom import load_dicom_files
 from Scripts.extract_metadata import extract_metadata
 from Scripts.query_metadata import query_metadata
+
 
 app = Flask(__name__)
 
