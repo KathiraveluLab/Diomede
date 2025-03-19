@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Create Album</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Create DICOM Album</h1>
+        <form method="POST" class="mt-4">
+            <div class="form-group">
+                <label for="query">Query:</label>
+                <input type="text" class="form-control" id="query" name="query" placeholder="Enter query (e.g., Modality == 'CT')">
+            </div>
+            <div class="form-group">
+                <label for="album_name">Album Name:</label>
+                <input type="text" class="form-control" id="album_name" name="album_name" placeholder="Enter album name (e.g., CT_Studies)">
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Submit</button>
+        </form>
+    </div>
+</body>
+</html>

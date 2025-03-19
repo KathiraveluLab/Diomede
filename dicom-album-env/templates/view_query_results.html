@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Query Results</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Query Results</h1>
+        <div class="mt-4">
+            {{ tables|safe }}
+        </div>
+        <form method="POST" class="mt-4">
+            <button type="submit" class="btn btn-primary btn-block">Create Album</button>
+        </form>
+    </div>
+</body>
+</html>
