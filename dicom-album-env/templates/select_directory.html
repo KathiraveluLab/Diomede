@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Select Directory</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Select DICOM Directory</h1>
+        {% if not files_exist %}
+        <form method="POST" enctype="multipart/form-data" class="mt-4">
+            <div class="form-group">
+                <label for="dicom_directory">Upload DICOM Files:</label>
+                <input type="file" class="form-control-file" id="dicom_directory" name="dicom_directory" multiple>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Upload</button>
+        </form>
+        {% else %}
+        <div class="alert alert-info text-center">
+            DICOM files already exist in the directory.
+        </div>
+        <form method="POST" class="mt-4">
+            <button type="submit" name="action" value="remove" class="btn btn-danger btn-block">Remove Files</button>
+            <button type="submit" name="action" value="proceed" class="btn btn-success btn-block">Proceed</button>
+        </form>
+        {% endif %}
+    </div>
+</body>
+</html>
