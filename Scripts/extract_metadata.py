@@ -1,6 +1,9 @@
 import os
 import pydicom
 import pandas as pd
+import logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(message)s')
+
 
 def extract_metadata(dicom_dir):
     """
@@ -26,7 +29,9 @@ def extract_metadata(dicom_dir):
                     }
                     metadata_list.append(metadata)
                 except Exception as e:
-                    print(f"Error reading {file}: {e}")
+                    logging.error(f"Error reading {file}: {e}")
+                    continue  # this makes the script skip the file and continue
+
 
     return pd.DataFrame(metadata_list)
 
