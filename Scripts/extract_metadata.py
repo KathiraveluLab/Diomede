@@ -1,6 +1,7 @@
 import os
 import pydicom
 import pandas as pd
+import argparse
 import logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(message)s')
 
@@ -37,6 +38,17 @@ def extract_metadata(dicom_dir):
 
 
 if __name__ == "__main__":
-    path = "path/to/dicom/files"  # Replace this with the actual folder path
-    df = extract_metadata(path)
-    print(df.head())
+    path = "C:\Users\asus\Diomede"  # Replace this with the actual folder path
+    # Parse command-line arguments
+parser = argparse.ArgumentParser(description="Extract metadata from DICOM files and save to CSV.")
+parser.add_argument("input_folder", help="Path to the folder containing DICOM files")
+parser.add_argument("output_file", nargs="?", default="dicom_metadata.csv", help="Output CSV file name (default: dicom_metadata.csv)")
+args = parser.parse_args()
+
+# Run metadata extraction
+df = extract_metadata(args.input_folder)
+
+# Save to CSV
+df.to_csv(args.output_file, index=False)
+print(f"Metadata saved to {args.output_file}")
+
