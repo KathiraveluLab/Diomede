@@ -11,6 +11,7 @@ def extract_metadata(dicom_dir):
     for root, _, files in os.walk(dicom_dir):
         for file in files:
             if file.endswith(".dcm"):
+                print(f"Found DICOM file: {file}")  # Debug line
                 try:
                     dcm = pydicom.dcmread(os.path.join(root, file))
                     metadata = {
