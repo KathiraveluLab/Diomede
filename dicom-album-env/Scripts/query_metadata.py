@@ -1,4 +1,5 @@
 import pandas as pd
+import re
 from Scripts import load_dicom_files, extract_metadata
 
 # Whitelist of allowed DICOM metadata fields for querying
@@ -16,7 +17,11 @@ DANGEROUS_PATTERNS = [
     'exec',
     'eval',
     'lambda',
-    '__',
+    '__import__',
+    '__builtins__',
+    '__class__',
+    '__subclasses__',
+    '__globals__',
     'os.system',
     'subprocess',
     'open(',
@@ -47,8 +52,11 @@ def validate_query(query):
         if pattern.lower() in query.lower():
             raise ValueError(f"Unsafe pattern detected: {pattern}")
     
-    # Check that at least one allowed field is mentioned
-    has_valid_field = any(field in query for field in ALLOWED_FIELDS)
+    # Check that at least one allowed field is mentioned (using word boundaries to prevent bypass)
+    has_valid_field = any(
+        re.search(r'\b' + field + r'\b', query)
+        for field in ALLOWED_FIELDS
+    )
     if not has_valid_field:
         raise ValueError(
             f"Query must reference at least one allowed field: {', '.join(sorted(ALLOWED_FIELDS))}"
