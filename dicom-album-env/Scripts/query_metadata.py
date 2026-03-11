@@ -4,15 +4,84 @@ from Scripts import load_dicom_files, extract_metadata
 
 # Whitelist of allowed DICOM metadata fields for querying
 ALLOWED_FIELDS = {
-    "PatientID",
-    "StudyDate", 
+    "AccessionNumber",
+    "FilePath",
     "Modality",
+    "PatientAge",
+    "PatientID",
+    "PatientSex",
     "SeriesDescription",
-    "FilePath"
+    "SeriesNumber",
+    "StudyDate",
+    "StudyDescription",
 }
 
 # Only allow safe, well-defined operators
 SAFE_OPERATORS = {'==', '!=', '<', '>', '<=', '>=', 'in'}
+
+
+def split_by_keyword(query, keyword):
+    """
+    Split query by keyword (and/or), ignoring keywords inside quoted strings.
+    
+    This ensures that strings like "SeriesDescription == 'Anterior and Posterior'"
+    are not incorrectly split by the 'and' keyword inside the quoted value.
+    
+    Args:
+        query: Query string to split
+        keyword: Keyword to split by ('and' or 'or')
+        
+    Returns:
+        List of substrings split by the keyword, excluding quoted content
+    """
+    parts = []
+    current = []
+    in_quotes = False
+    quote_char = None
+    i = 0
+    
+    while i < len(query):
+        # Handle quote transitions
+        if query[i] in ('"', "'") and (i == 0 or query[i-1] != '\\'):
+            if not in_quotes:
+                in_quotes = True
+                quote_char = query[i]
+            elif query[i] == quote_char:
+                in_quotes = False
+                quote_char = None
+            current.append(query[i])
+            i += 1
+        # Check for keyword match outside quotes
+        elif not in_quotes and i + len(keyword) <= len(query):
+            chunk = query[i:i+len(keyword)]
+            # Check if this is a whole word (surrounded by spaces or boundaries)
+            if chunk.lower() == keyword.lower():
+                # Verify it's a word boundary before
+                before_ok = i == 0 or query[i-1].isspace()
+                # Verify it's a word boundary after
+                after_ok = i + len(keyword) >= len(query) or query[i+len(keyword)].isspace()
+                
+                if before_ok and after_ok:
+                    # Found a keyword - split here
+                    if current:
+                        parts.append(''.join(current).strip())
+                        current = []
+                    i += len(keyword)
+                    # Skip whitespace after keyword
+                    while i < len(query) and query[i].isspace():
+                        i += 1
+                    continue
+            
+            current.append(query[i])
+            i += 1
+        else:
+            current.append(query[i])
+            i += 1
+    
+    if current:
+        parts.append(''.join(current).strip())
+    
+    return parts
 
 
 def parse_condition(condition):
@@ -138,16 +207,16 @@ def query_metadata(metadata_df, query):
     
     query = query.strip()
     
-    # Split by 'or' first (lowest precedence)
-    # Use case-insensitive split to handle "Modality == 'CT' OR PatientID == 'P001'"
-    or_conditions = re.split(r'\s+or\s+', query, flags=re.IGNORECASE)
+    # Split by 'or' first (lowest precedence) using quote-aware splitting
+    # This correctly handles strings like "SeriesDescription == 'Anterior and Posterior'"
+    or_conditions = split_by_keyword(query, 'or')
     
     result_mask = None
     
     # Process each OR branch
     for or_part in or_conditions:
-        # Split by 'and' (higher precedence)
-        and_conditions = re.split(r'\s+and\s+', or_part, flags=re.IGNORECASE)
+        # Split by 'and' (higher precedence) using quote-aware splitting
+        and_conditions = split_by_keyword(or_part, 'and')
         
         and_mask = None
         
