@@ -11,33 +11,124 @@ ALLOWED_FIELDS = {
     "FilePath"
 }
 
-# Dangerous patterns that should never appear in queries
-DANGEROUS_PATTERNS = [
-    'import',
-    'exec',
-    'eval',
-    'lambda',
-    '__import__',
-    '__builtins__',
-    '__class__',
-    '__subclasses__',
-    '__globals__',
-    'os.system',
-    'subprocess',
-    'open(',
-    'file('
-]
+# Only allow safe, well-defined operators
+SAFE_OPERATORS = {'==', '!=', '<', '>', '<=', '>=', 'in'}
 
 
-def validate_query(query):
+def parse_condition(condition):
     """
-    Validate a query string to prevent code injection attacks.
+    Parse a single condition like "Modality == 'CT'" into components.
     
     Args:
-        query: The query string provided by the user
+        condition: String representation of a single comparison
         
     Returns:
-        True if query is valid
+        (field, operator, value) tuple
+        
+    Raises:
+        ValueError: If condition cannot be parsed
+    """
+    condition = condition.strip()
+    
+    # Try each operator, longest first to avoid partial matches
+    for op in sorted(SAFE_OPERATORS, key=len, reverse=True):
+        pattern = r'(\w+)\s*' + re.escape(op) + r'\s*(.+)'
+        match = re.match(pattern, condition)
+        
+        if match:
+            field = match.group(1)
+            value = match.group(2).strip()
+            return field, op, value
+    
+    raise ValueError(f"Invalid condition: {condition}. Must use format: field operator value")
+
+
+def evaluate_condition(df, field, op, value):
+    """
+    Evaluate a single condition safely using boolean indexing.
+    
+    Args:
+        df: DataFrame to query
+        field: Column name
+        op: Operator (==, !=, <, >, <=, >=, in)
+        value: Value to compare (quoted string or list)
+        
+    Returns:
+        Boolean Series for indexing
+        
+    Raises:
+        ValueError: If field/operator invalid or condition cannot be evaluated
+    """
+    if field not in ALLOWED_FIELDS:
+        raise ValueError(
+            f"Field '{field}' not allowed. Allowed fields: {', '.join(sorted(ALLOWED_FIELDS))}"
+        )
+    
+    if op not in SAFE_OPERATORS:
+        raise ValueError(
+            f"Operator '{op}' not allowed. Allowed operators: {', '.join(sorted(SAFE_OPERATORS))}"
+        )
+    
+    # Handle list literals: ['CT', 'MR']
+    if value.startswith('[') and value.endswith(']'):
+        if op != 'in':
+            raise ValueError(f"List values only allowed with 'in' operator, got '{op}'")
+        
+        # Parse list manually without eval for safety
+        list_content = value[1:-1]  # Remove brackets
+        # Extract all quoted strings
+        items = re.findall(r"['\"]([^'\"]*)['\"]", list_content)
+        
+        if not items:
+            raise ValueError(f"Invalid list value: {value}")
+        
+        return df[field].isin(items)
+    
+    # Handle string literals: 'CT' or "CT"
+    if (value.startswith("'") and value.endswith("'")) or \
+       (value.startswith('"') and value.endswith('"')):
+        parsed_value = value[1:-1]  # Remove quotes
+    else:
+        raise ValueError(f"String values must be quoted: {value}")
+    
+    # Apply operator using safe boolean indexing
+    if op == '==':
+        return df[field] == parsed_value
+    elif op == '!=':
+        return df[field] != parsed_value
+    elif op == '<':
+        return df[field] < parsed_value
+    elif op == '>':
+        return df[field] > parsed_value
+    elif op == '<=':
+        return df[field] <= parsed_value
+    elif op == '>=':
+        return df[field] >= parsed_value
+    else:
+        # Should never reach here due to earlier validation
+        raise ValueError(f"Unknown operator: {op}")
+
+
+def query_metadata(metadata_df, query):
+    """
+    Query the metadata DataFrame using safe boolean indexing.
+    
+    Safely filters DataFrame by parsing queries into atomic conditions,
+    validating each component, and using pandas boolean indexing instead
+    of DataFrame.query(). This eliminates code injection vulnerabilities.
+    
+    Supported syntax:
+        - Single condition: "Modality == 'CT'"
+        - Multiple conditions: "Modality == 'CT' and StudyDate > '20220101'"
+        - Logical OR: "Modality == 'CT' or Modality == 'MR'"
+        - List membership: "Modality in ['CT', 'MR']"
+    
+    Args:
+        metadata_df: DataFrame containing DICOM metadata
+        query: Query string using supported syntax
+        
+    Returns:
+        Filtered DataFrame containing rows matching the query
         
     Raises:
         ValueError: If query is invalid or unsafe
@@ -47,47 +138,36 @@ def validate_query(query):
     
     query = query.strip()
     
-    # Check for dangerous patterns
-    for pattern in DANGEROUS_PATTERNS:
-        if pattern.lower() in query.lower():
-            raise ValueError(f"Unsafe pattern detected: {pattern}")
+    # Split by 'or' first (lowest precedence)
+    # Use case-insensitive split to handle "Modality == 'CT' OR PatientID == 'P001'"
+    or_conditions = re.split(r'\s+or\s+', query, flags=re.IGNORECASE)
     
-    # Check that at least one allowed field is mentioned (using word boundaries to prevent bypass)
-    has_valid_field = any(
-        re.search(r'\b' + field + r'\b', query)
-        for field in ALLOWED_FIELDS
-    )
-    if not has_valid_field:
-        raise ValueError(
-            f"Query must reference at least one allowed field: {', '.join(sorted(ALLOWED_FIELDS))}"
-        )
+    result_mask = None
     
-    return True
-
-
-def query_metadata(metadata_df, query):
-    """
-    Query the metadata DataFrame and return matching rows.
-    
-    Validates the input query to prevent code injection attacks
-    before executing it against the DataFrame.
-    
-    Args:
-        metadata_df: DataFrame containing DICOM metadata
-        query: Query string using Pandas query syntax
+    # Process each OR branch
+    for or_part in or_conditions:
+        # Split by 'and' (higher precedence)
+        and_conditions = re.split(r'\s+and\s+', or_part, flags=re.IGNORECASE)
         
-    Returns:
-        Filtered DataFrame containing rows matching the query
+        and_mask = None
         
-    Raises:
-        ValueError: If query is invalid or unsafe
-    """
-    # Validate query before execution
-    validate_query(query)
+        # Process each AND condition within this OR branch
+        for condition in and_conditions:
+            try:
+                field, op, value = parse_condition(condition)
+                cond_mask = evaluate_condition(metadata_df, field, op, value)
+                
+                if and_mask is None:
+                    and_mask = cond_mask
+                else:
+                    and_mask = and_mask & cond_mask
+            except Exception as e:
+                raise ValueError(f"Error evaluating condition '{condition}': {str(e)}")
+        
+        # Combine with previous OR conditions
+        if result_mask is None:
+            result_mask = and_mask
+        else:
+            result_mask = result_mask | and_mask
     
-    try:
-        return metadata_df.query(query)
-    except ValueError:
-        raise
-    except Exception as e:
-        raise ValueError(f"Error executing query: {str(e)}")
+    return metadata_df[result_mask]
