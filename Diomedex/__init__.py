@@ -1,3 +1,4 @@
+from flask import Flask
 from .albums.routes import bp as albums_bp
 
 def create_app():

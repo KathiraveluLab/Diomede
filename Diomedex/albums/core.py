@@ -1,7 +1,7 @@
 import pydicom
 from pathlib import Path
 from typing import List, Dict
-from ..models import db
+from .models import db
 
 class DICOMAlbumCreator:
     def __init__(self, storage_path: str):

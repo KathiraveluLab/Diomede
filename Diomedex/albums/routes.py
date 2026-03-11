@@ -1,22 +1,20 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from .core import DICOMAlbumCreator
 from .kheops import KheopsAdapter
 from .models import Album, DICOMFile, db
-from .. import csrf
 
 albums_bp = Blueprint('albums', __name__)
-creator = DICOMAlbumCreator(current_app.config['STORAGE_PATH'])
-kheops = KheopsAdapter()
 
 @albums_bp.route('/scan', methods=['POST'])
-@csrf.exempt
 def scan_directory():
     """Scan directory for DICOM files"""
     try:
         data = request.get_json()
         if not data or 'path' not in data:
             return jsonify({'error': 'Path parameter is required'}), 400
-            
+        
+        # Initialize creator with config from current_app
+        creator = DICOMAlbumCreator(current_app.config['STORAGE_PATH'])
         files = creator.scan_directory(data['path'])
         if creator.create_album_index(files):
             return jsonify({
@@ -35,7 +33,9 @@ def create_album():
         data = request.get_json()
         if not data or 'name' not in data:
             return jsonify({'error': 'Name is required'}), 400
-            
+        
+        # Initialize kheops adapter
+        kheops = KheopsAdapter()
         # Create in Kheops
         album = kheops.create_album(data['name'], data.get('description', ''))
         if not album:
