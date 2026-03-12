@@ -1,5 +1,13 @@
 from enum import Enum
 import time
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Scoring weights
+PRIORITY_WEIGHT = 10
+LOAD_WEIGHT = 5
+RESPONSE_TIME_WEIGHT = 2
 
 class DestinationStatus(Enum):
     HEALTHY = "healthy"
@@ -38,8 +46,9 @@ class Destination:
         load_score = 1.0 - self.load_factor
         response_score = 1.0 / (1.0 + self.response_time) if self.response_time > 0 else 1.0
         
-        # Weight: priority matters most, then load, then response time
-        score = self.priority * 10 + load_score * 5 + response_score * 2
+        score = (self.priority * PRIORITY_WEIGHT + 
+                 load_score * LOAD_WEIGHT + 
+                 response_score * RESPONSE_TIME_WEIGHT)
         return score
 
 class DestinationManager:
@@ -91,8 +100,6 @@ class DestinationManager:
         dest.sent_count += 1
         if not success:
             dest.failed_count += 1
-        else:
-            dest.current_queue += 1
     
     def record_complete(self, name):
         dest = self.get_destination(name)

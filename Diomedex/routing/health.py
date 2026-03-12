@@ -1,7 +1,10 @@
 import time
 import requests
+import logging
 from threading import Thread, Event
 from .destinations import DestinationManager, DestinationStatus
+
+logger = logging.getLogger(__name__)
 
 class HealthChecker:
     def __init__(self, destination_manager, check_interval=30):
@@ -34,7 +37,7 @@ class HealthChecker:
             try:
                 self.check_all()
             except Exception:
-                pass
+                logger.exception('Unhandled exception in health check loop')
             
             self._stop_event.wait(self.check_interval)
     
@@ -44,7 +47,7 @@ class HealthChecker:
             try:
                 self.check_destination(dest.name)
             except Exception:
-                pass
+                logger.exception(f'Failed to check destination {dest.name}')
     
     def check_destination(self, name):
         dest = self.destination_manager.get_destination(name)
@@ -56,7 +59,9 @@ class HealthChecker:
         try:
             # Try HTTP health check for Orthanc
             # TODO: use pynetdicom C-ECHO for real DICOM verification
-            url = f"http://{dest.host}:{dest.port}/system"
+            # Note: Orthanc HTTP API typically on different port (e.g., 8042) than DICOM port
+            http_port = getattr(dest, 'http_port', 8042)
+            url = f"http://{dest.host}:{http_port}/system"
             response = requests.get(url, timeout=5)
             response_time = time.time() - start
             

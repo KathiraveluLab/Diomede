@@ -1,5 +1,8 @@
 from .destinations import DestinationManager, Destination
 from .health import HealthChecker
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DICOMRouter:
     def __init__(self, ae_title="DIOMEDE_ROUTER", port=11112):
@@ -40,6 +43,7 @@ class DICOMRouter:
             
             if success:
                 self.destination_manager.record_send(destination.name, success=True)
+                self.destination_manager.record_complete(destination.name)
                 self.total_routed += 1
                 return True
             else:
@@ -48,13 +52,27 @@ class DICOMRouter:
                 return False
                 
         except Exception as e:
+            logger.exception('Failed to route dataset')
             self.total_failed += 1
             return False
     
     def get_stats(self):
+        destinations = self.destination_manager.get_all_destinations()
         return {
             'total_received': self.total_received,
             'total_routed': self.total_routed,
             'total_failed': self.total_failed,
-            'destinations': self.destination_manager.get_all_destinations()
+            'destinations': [
+                {
+                    'name': d.name,
+                    'ae_title': d.ae_title,
+                    'host': d.host,
+                    'port': d.port,
+                    'priority': d.priority,
+                    'status': d.status.value,
+                    'load': d.load_factor,
+                    'score': d.calculate_score()
+                }
+                for d in destinations
+            ]
         }

@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, jsonify, current_app
 
 routing_bp = Blueprint('routing', __name__, url_prefix='/routing')
 
@@ -53,7 +53,8 @@ def get_destination(name):
         'port': dest.port,
         'priority': dest.priority,
         'status': dest.status.value,
-        'queue': f"{dest.current_queue}/{dest.max_queue_size}",
-        'sent': dest.sent_count,
-        'failed': dest.failed_count
+        'current_queue': dest.current_queue,
+        'max_queue_size': dest.max_queue_size,
+        'load': dest.load_factor,
+        'score': dest.calculate_score()
     }), 200

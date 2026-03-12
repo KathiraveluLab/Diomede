@@ -1,15 +1,13 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from .core import DICOMAlbumCreator
 from .kheops import KheopsAdapter
 from .models import Album, DICOMFile, db
-from .. import csrf
 
 albums_bp = Blueprint('albums', __name__)
 creator = DICOMAlbumCreator(current_app.config['STORAGE_PATH'])
 kheops = KheopsAdapter()
 
 @albums_bp.route('/scan', methods=['POST'])
-@csrf.exempt
 def scan_directory():
     """Scan directory for DICOM files"""
     try:
