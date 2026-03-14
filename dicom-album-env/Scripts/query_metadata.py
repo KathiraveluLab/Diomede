@@ -75,12 +75,24 @@ def evaluate_condition(df, field, op, value):
             raise ValueError(f"List values only allowed with 'in' operator, got '{op}'")
         
         # Parse list manually without eval for safety
-        list_content = value[1:-1]  # Remove brackets
-        # Extract all quoted strings
-        items = re.findall(r"['\"]([^'\"]*)['\"]", list_content)
+        list_content = value[1:-1]
+        items = []
+
+        # Use a robust parser that iterates through quoted strings and ensures no other unquoted values exist.
+        last_end = 0
+        for match in re.finditer(r"'([^']*)'|\"([^\"]*)\"", list_content):
+            gap = list_content[last_end:match.start()]
+            # Ensure gaps only contain whitespace and commas.
+            if any(c not in ' \t\n\r,' for c in gap):
+                raise ValueError(f"Invalid list value: {value}. Contains unquoted items.")
+            
+            items.append(match.group(1) if match.group(1) is not None else match.group(2))
+            last_end = match.end()
         
-        if not items:
-            raise ValueError(f"Invalid list value: {value}")
+        # Check for trailing unquoted content.
+        trailing_content = list_content[last_end:]
+        if any(c not in ' \t\n\r,' for c in trailing_content):
+            raise ValueError(f"Invalid list value: {value}. Contains unquoted items.")
         
         return df[field].isin(items)
     
