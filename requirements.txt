@@ -5,3 +5,4 @@ python-dotenv>=0.19.0
 requests>=2.26.0
 pytest>=6.2.0
 flask-cors>=3.0.10
+pynetdicom>=3.0.4
