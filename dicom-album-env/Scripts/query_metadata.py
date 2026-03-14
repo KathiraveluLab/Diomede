@@ -173,7 +173,7 @@ def query_metadata(metadata_df, query):
                     and_mask = cond_mask
                 else:
                     and_mask = and_mask & cond_mask
-            except Exception as e:
+            except (ValueError, KeyError) as e:
                 raise ValueError(f"Error evaluating condition '{condition}': {str(e)}")
         
         # Combine with previous OR conditions
