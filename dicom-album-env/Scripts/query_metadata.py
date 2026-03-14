@@ -8,6 +8,11 @@ ALLOWED_FIELDS = {
     "FilePath",
     "Modality",
     "PatientAge",
+ALLOWED_FIELDS = {
+    "AccessionNumber",
+    "FilePath",
+    "Modality",
+    "PatientAge",
     "PatientID",
     "PatientSex",
     "SeriesDescription",
