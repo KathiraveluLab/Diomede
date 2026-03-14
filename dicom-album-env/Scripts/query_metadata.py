@@ -165,9 +165,10 @@ def query_metadata(metadata_df, query):
                 raise ValueError(f"Error evaluating condition '{condition}': {str(e)}")
         
         # Combine with previous OR conditions
-        if result_mask is None:
-            result_mask = and_mask
-        else:
-            result_mask = result_mask | and_mask
+        if and_mask is not None:
+            if result_mask is None:
+                result_mask = and_mask
+            else:
+                result_mask = result_mask | and_mask
     
     return metadata_df[result_mask]
