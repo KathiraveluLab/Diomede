@@ -127,13 +127,14 @@ class TestQueryValidation:
             query_metadata(sample_metadata, "Modality == CT")
 
     def test_complex_and_or_query(self, sample_metadata):
-        """Test complex query with mixed AND/OR."""
-        result = query_metadata(
-            sample_metadata,
-            "Modality == 'CT' and (StudyDate > '20220101' or PatientID == 'P002')"
-        )
-        # Note: parentheses aren't explicitly supported, but this tests robustness
-        # The current implementation will treat this as trying to find PatientID "(StudyDate"
+        """Test that queries with parentheses are safely rejected."""
+        # Note: parentheses aren't explicitly supported. This test verifies that
+        # such a query is safely rejected instead of being misinterpreted.
+        with pytest.raises(ValueError, match="Invalid condition"):
+            query_metadata(
+                sample_metadata,
+                "Modality == 'CT' and (StudyDate > '20220101' or PatientID == 'P002')"
+            )
 
 
 if __name__ == "__main__":
