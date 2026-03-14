@@ -183,4 +183,7 @@ def query_metadata(metadata_df, query):
             else:
                 result_mask = result_mask | and_mask
     
+    if result_mask is None:
+        return metadata_df.iloc[0:0]  # Return an empty DataFrame
+    
     return metadata_df[result_mask]
