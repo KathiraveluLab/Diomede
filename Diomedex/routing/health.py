@@ -1,0 +1,85 @@
+import time
+import requests
+import logging
+from threading import Thread, Event
+from .destinations import DestinationManager, DestinationStatus
+
+logger = logging.getLogger(__name__)
+
+class HealthChecker:
+    def __init__(self, destination_manager, check_interval=30):
+        self.destination_manager = destination_manager
+        self.check_interval = check_interval
+        self.running = False
+        self._stop_event = Event()
+        self._thread = None
+    
+    def start(self):
+        if self.running:
+            return
+        
+        self.running = True
+        self._stop_event.clear()
+        self._thread = Thread(target=self._check_loop, daemon=True)
+        self._thread.start()
+    
+    def stop(self):
+        if not self.running:
+            return
+        
+        self.running = False
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+    
+    def _check_loop(self):
+        while self.running and not self._stop_event.is_set():
+            try:
+                self.check_all()
+            except Exception:
+                logger.exception('Unhandled exception in health check loop')
+            
+            self._stop_event.wait(self.check_interval)
+    
+    def check_all(self):
+        destinations = self.destination_manager.get_all_destinations()
+        for dest in destinations:
+            try:
+                self.check_destination(dest.name)
+            except Exception:
+                logger.exception(f'Failed to check destination {dest.name}')
+    
+    def check_destination(self, name):
+        dest = self.destination_manager.get_destination(name)
+        if not dest:
+            return False
+        
+        start = time.time()
+        
+        try:
+            # Try HTTP health check for Orthanc
+            # TODO: use pynetdicom C-ECHO for real DICOM verification
+            # Note: Orthanc HTTP API typically on different port (e.g., 8042) than DICOM port
+            http_port = getattr(dest, 'http_port', 8042)
+            url = f"http://{dest.host}:{http_port}/system"
+            response = requests.get(url, timeout=5)
+            response_time = time.time() - start
+            
+            if response.status_code == 200:
+                self.destination_manager.update_status(
+                    name,
+                    DestinationStatus.HEALTHY,
+                    response_time=response_time
+                )
+                return True
+            else:
+                self.destination_manager.update_status(name, DestinationStatus.DEGRADED)
+                return False
+                
+        except requests.Timeout:
+            self.destination_manager.update_status(name, DestinationStatus.DEGRADED)
+            return False
+            
+        except Exception:
+            self.destination_manager.update_status(name, DestinationStatus.UNAVAILABLE)
+            return False
