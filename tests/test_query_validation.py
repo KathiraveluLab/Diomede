@@ -193,9 +193,18 @@ class TestQueryValidation:
         
         result = query_metadata(sample_metadata, "PatientSex == 'F'")
         assert len(result) == 1
+        assert result.iloc[0]['PatientSex'] == 'F'
         
         result = query_metadata(sample_metadata, "StudyDescription == 'Brain Study'")
         assert len(result) == 1
+        assert result.iloc[0]['StudyDescription'] == 'Brain Study'
+
+        result = query_metadata(sample_metadata, "AccessionNumber == 'ACC002'")
+        assert len(result) == 1
+        assert result.iloc[0]['AccessionNumber'] == 'ACC002'
+
+        result = query_metadata(sample_metadata, "SeriesNumber > '1'")
+        assert len(result) == 2
 
 
 if __name__ == "__main__":
