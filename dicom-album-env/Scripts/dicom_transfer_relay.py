@@ -41,7 +41,7 @@ def handle_store(event):
     try:
         status = forward_dataset(dataset)
         return status.Status
-    except Exception as e:
+    except ConnectionError as e:
         print("Relay error:", e)
         return 0xA700
 
