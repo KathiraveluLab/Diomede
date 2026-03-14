@@ -127,6 +127,22 @@ class TestQueryValidation:
             query_metadata(sample_metadata, "Modality == CT")
 
     def test_complex_and_or_query(self, sample_metadata):
+        """Test complex query with mixed AND/OR operators."""
+        # Valid query with multiple conditions
+        result = query_metadata(
+            sample_metadata,
+            "Modality == 'CT' and StudyDate > '20220101' or PatientID == 'P002'"
+        )
+        # Should return rows matching either condition group
+        assert len(result) > 0
+        assert all(
+            ((result['Modality'] == 'CT') & (result['StudyDate'] > '20220101')) |
+            (result['PatientID'] == 'P002')
+        )
+
+    def test_complex_query_with_parentheses_rejected(self, sample_metadata):
+        """Reject: query with parentheses, which are not supported."""
+        # Parentheses are not supported by the simple parser
         """Test that queries with parentheses are safely rejected."""
         # Note: parentheses aren't explicitly supported. This test verifies that
         # such a query is safely rejected instead of being misinterpreted.
@@ -135,6 +151,60 @@ class TestQueryValidation:
                 sample_metadata,
                 "Modality == 'CT' and (StudyDate > '20220101' or PatientID == 'P002')"
             )
+
+    def test_quoted_string_with_and_operator(self, sample_metadata):
+        """Test: quoted string values containing 'and' keyword."""
+        # This tests the critical fix for quote-aware splitting
+        # SeriesDescription values might contain 'and', 'or', etc.
+        sample_metadata.loc[0, 'SeriesDescription'] = 'Anterior and Posterior'
+        
+        result = query_metadata(
+            sample_metadata,
+            "SeriesDescription == 'Anterior and Posterior'"
+        )
+        assert len(result) == 1
+        assert result.iloc[0]['SeriesDescription'] == 'Anterior and Posterior'
+
+    def test_quoted_string_with_or_operator(self, sample_metadata):
+        """Test: quoted string values containing 'or' keyword."""
+        # This tests the critical fix for quote-aware splitting
+        sample_metadata.loc[1, 'SeriesDescription'] = 'Left or Right'
+        
+        result = query_metadata(
+            sample_metadata,
+            "SeriesDescription == 'Left or Right'"
+        )
+        assert len(result) == 1
+        assert result.iloc[0]['SeriesDescription'] == 'Left or Right'
+
+    def test_new_metadata_fields_queryable(self, sample_metadata):
+        """Test: newly added metadata fields are queryable."""
+        # Add test data for new fields
+        sample_metadata['PatientAge'] = ['045Y', '060Y', '070Y']
+        sample_metadata['PatientSex'] = ['M', 'F', 'M']
+        sample_metadata['StudyDescription'] = ['Brain Study', 'Chest Study', 'Abdomen Study']
+        sample_metadata['AccessionNumber'] = ['ACC001', 'ACC002', 'ACC003']
+        sample_metadata['SeriesNumber'] = ['1', '2', '3']
+        
+        # Test querying new fields
+        result = query_metadata(sample_metadata, "PatientAge == '045Y'")
+        assert len(result) == 1
+        assert result.iloc[0]['PatientAge'] == '045Y'
+        
+        result = query_metadata(sample_metadata, "PatientSex == 'F'")
+        assert len(result) == 1
+        assert result.iloc[0]['PatientSex'] == 'F'
+        
+        result = query_metadata(sample_metadata, "StudyDescription == 'Brain Study'")
+        assert len(result) == 1
+        assert result.iloc[0]['StudyDescription'] == 'Brain Study'
+
+        result = query_metadata(sample_metadata, "AccessionNumber == 'ACC002'")
+        assert len(result) == 1
+        assert result.iloc[0]['AccessionNumber'] == 'ACC002'
+
+        result = query_metadata(sample_metadata, "SeriesNumber > '1'")
+        assert len(result) == 2
 
 
 if __name__ == "__main__":
