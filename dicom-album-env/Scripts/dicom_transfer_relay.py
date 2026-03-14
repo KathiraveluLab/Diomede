@@ -25,8 +25,10 @@ def forward_dataset(dataset):
 
     if assoc.is_established:
         print(f"Forwarding dataset: StudyUID={dataset.StudyInstanceUID}")
-        status = assoc.send_c_store(dataset)
-        assoc.release()
+        try:
+            status = assoc.send_c_store(dataset)
+        finally:
+            assoc.release()
         return status
     else:
         raise ConnectionError(f"Could not associate with destination AE: {DEST_AE}")
