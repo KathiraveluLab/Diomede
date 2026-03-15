@@ -1,7 +1,7 @@
 """
 Tests for secret key configuration.
 
-Verifies that both apps load the Flask secret key from the DIOMEDE_SECRET_KEY
+Verifies that the Diomedex application loads the Flask secret key from the DIOMEDE_SECRET_KEY
 environment variable rather than using a hardcoded string.
 """
 
@@ -27,13 +27,12 @@ class TestSecretKeyConfig:
     def test_DIOMEDE_SECRET_KEY_not_hardcoded_when_env_missing(self):
         """When DIOMEDE_SECRET_KEY is absent, the key must not be the old hardcoded string."""
         with _db_patch, patch.dict(os.environ, {}, clear=True):
-            app = create_app()
-        assert app.config['SECRET_KEY'] != 'your_secure-test-key'
-        assert len(app.secret_key) > 0
+            with pytest.raises(ValueError, match="DIOMEDE_SECRET_KEY is not set for production environment"):
+                create_app()
 
     def test_fallback_key_is_random_per_call(self):
         """Without DIOMEDE_SECRET_KEY, each create_app() call gets a different random key."""
-        with _db_patch, patch.dict(os.environ, {}, clear=True):
+        with _db_patch, patch.dict(os.environ, {'FLASK_DEBUG': '1'}, clear=True):
             app1 = create_app()
             app2 = create_app()
         assert app1.config['SECRET_KEY'] != app2.config['SECRET_KEY']

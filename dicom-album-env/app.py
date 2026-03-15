@@ -1,12 +1,12 @@
 from flask import Flask, request, render_template, redirect, url_for, session
 import pandas as pd
 import os
-import secrets
 import shutil
 import sys
 import requests
 import pydicom
 from dotenv import load_dotenv
+from Diomedex import create_app
 sys.path.append("Scripts")
 
 load_dotenv()
@@ -16,8 +16,8 @@ from Scripts.load_dicom import load_dicom_files
 from Scripts.extract_metadata import extract_metadata
 from Scripts.query_metadata import query_metadata
 
-app = Flask(__name__)
-app.secret_key = os.environ.get('DIOMEDE_SECRET_KEY') or secrets.token_hex(32)
+# Load app secret key from environment variable
+app = create_app()
 
 @app.route("/", methods=["GET", "POST"])
 def select_directory():

@@ -17,7 +17,13 @@ from .albums.routes import albums_bp
 def create_app():
     app = Flask(__name__)
 
-    app.config['SECRET_KEY'] = os.environ.get('DIOMEDE_SECRET_KEY') or secrets.token_hex(32)
+    secret_key = os.environ.get('DIOMEDE_SECRET_KEY')
+    if not secret_key:
+        if not app.debug:
+            raise ValueError('DIOMEDE_SECRET_KEY is not set for production environment')
+        # For development, a random key is acceptable.
+        secret_key = secrets.token_hex(32)
+    app.config['SECRET_KEY'] = secret_key
 
     # Initialize db with app
     db.init_app(app)
