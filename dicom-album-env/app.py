@@ -1,11 +1,15 @@
 from flask import Flask, request, render_template, redirect, url_for, session
 import pandas as pd
 import os
+import secrets
 import shutil
 import sys
 import requests
 import pydicom
+from dotenv import load_dotenv
 sys.path.append("Scripts")
+
+load_dotenv()
 
 # Import your existing functions
 from Scripts.load_dicom import load_dicom_files
@@ -13,7 +17,7 @@ from Scripts.extract_metadata import extract_metadata
 from Scripts.query_metadata import query_metadata
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Needed for session management
+app.secret_key = os.environ.get('DIOMEDE_SECRET_KEY') or secrets.token_hex(32)
 
 @app.route("/", methods=["GET", "POST"])
 def select_directory():
@@ -31,17 +35,17 @@ def select_directory():
                 return redirect(url_for('create_album'))
         else:
             files = request.files.getlist("dicom_directory")
-            
+
             # Create target directory if it doesn't exist
             if not os.path.exists(target_directory):
                 os.makedirs(target_directory)
-            
+
             # Save uploaded files to target directory
             for file in files:
                 # Save each file directly to the target directory
                 file_path = os.path.join(target_directory, os.path.basename(file.filename))
                 file.save(file_path)
-            
+
             return redirect(url_for('create_album'))
 
     return render_template("select_directory.html", files_exist=files_exist)
@@ -51,17 +55,17 @@ def create_album():
     if request.method == "POST":
         query = request.form["query"]
         album_name = request.form["album_name"]
-        
+
         # Load DICOM files and extract metadata
         target_directory = os.path.join(os.getcwd(), "data", "dicom_files")
         dicom_files = load_dicom_files(target_directory)
         metadata_df = extract_metadata(dicom_files)
-        
+
         # Query metadata
         subset_df = query_metadata(metadata_df, query)
         session['subset_df'] = subset_df.to_dict()  # Store the DataFrame in session
         session['album_name'] = album_name
-        
+
         return redirect(url_for('view_query_results'))
     return render_template("create_album.html")
 
@@ -69,19 +73,19 @@ def create_album():
 def view_query_results():
     subset_df = pd.DataFrame(session.get('subset_df'))
     album_name = session.get('album_name')
-    
+
     if request.method == "POST":
         # Create album
         create_album(subset_df, album_name)
         return f"Album '{album_name}' created successfully!"
-    
+
     return render_template("view_query_results.html", tables=[subset_df.to_html(classes='data')], titles=subset_df.columns.values)
 
 def create_album(subset_df, album_name):
     # album_directory = os.path.join(os.getcwd(), "albums", album_name)
     # if not os.path.exists(album_directory):
     #     os.makedirs(album_directory)
-    
+
     # for index, row in subset_df.iterrows():
     #     dicom_file_path = row['FilePath']
     #     shutil.copy(dicom_file_path, album_directory)
