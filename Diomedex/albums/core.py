@@ -2,14 +2,8 @@ import logging
 from pathlib import Path
 from typing import List, Dict
 
-import pydicom
 from ..models import db, DICOMFile
-
-# avoid import cycle/resolution issues; prefer local helper when possible
-try:
-    from Scripts.load_dicom import safe_load_dicom_file
-except ImportError:
-    safe_load_dicom_file = None
+from ..utils.dicom_helpers import safe_load_dicom_file
 
 LOG = logging.getLogger(__name__)
 
@@ -17,22 +11,13 @@ LOG = logging.getLogger(__name__)
 def _safe_load_dicom_file(file_path):
     """Wrapper for safe DICOM file loading.
 
-    Uses the shared safe loader from Scripts.load_dicom if available, else falls
-    back to a local equivalent implementation.
+    Keeps the same API for scan_directory but delegates to a shared helper.
     """
-    if callable(safe_load_dicom_file):
-        return safe_load_dicom_file(file_path)
-
-    # best-effort fallback: explicit catch semantics in core module
     try:
-        dataset = pydicom.dcmread(file_path)
-        try:
-            dataset.filename = str(file_path)
-        except Exception:
-            pass
-        return dataset
-    except (pydicom.errors.InvalidDicomError, pydicom.errors.PydicomError, EOFError, ValueError, OSError) as ex:
-        LOG.warning("Skipping invalid or corrupted DICOM file: %s (%s)", file_path, ex)
+        return safe_load_dicom_file(file_path)
+    except Exception as ex:
+        # Should not normally happen; preserve scanning behavior even on edge cases
+        LOG.warning("Unexpected error while loading DICOM file %s: %s", file_path, ex)
         return None
 
 
