@@ -16,8 +16,8 @@ class DICOMRouter:
         self.total_routed = 0
         self.total_failed = 0
     
-    def add_destination(self, name, ae_title, host, port, priority=1, max_queue=100):
-        destination = Destination(name, ae_title, host, port, priority, max_queue)
+    def add_destination(self, name, ae_title, host, port, priority=1, max_queue=100, http_port=8042):
+        destination = Destination(name, ae_title, host, port, priority, max_queue, http_port)
         self.destination_manager.add_destination(destination)
     
     def start_health_monitoring(self, interval=30):
@@ -31,30 +31,32 @@ class DICOMRouter:
         """Route DICOM dataset to best available destination"""
         self.total_received += 1
         
+        destination = self.destination_manager.select_best()
+        if not destination:
+            self.total_failed += 1
+            return False
+        
         try:
-            destination = self.destination_manager.select_best()
-            if not destination:
-                self.total_failed += 1
-                return False
-            
             # TODO: actual DICOM C-STORE with pynetdicom  
             # For now just track the routing decision
+            self.destination_manager.record_send(destination.name, success=True)
+            
             success = True  # simulated
             
             if success:
-                self.destination_manager.record_send(destination.name, success=True)
-                self.destination_manager.record_complete(destination.name)
                 self.total_routed += 1
                 return True
             else:
                 self.destination_manager.record_send(destination.name, success=False)
                 self.total_failed += 1
                 return False
-                
         except Exception as e:
             logger.exception('Failed to route dataset')
             self.total_failed += 1
             return False
+        finally:
+            # Always decrement queue regardless of success/failure
+            self.destination_manager.record_complete(destination.name)
     
     def get_stats(self):
         destinations = self.destination_manager.get_all_destinations()

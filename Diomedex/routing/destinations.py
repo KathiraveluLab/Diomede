@@ -15,11 +15,12 @@ class DestinationStatus(Enum):
     UNAVAILABLE = "unavailable"
 
 class Destination:
-    def __init__(self, name, ae_title, host, port, priority=1, max_queue=100):
+    def __init__(self, name, ae_title, host, port, priority=1, max_queue=100, http_port=8042):
         self.name = name
         self.ae_title = ae_title
         self.host = host
         self.port = port
+        self.http_port = http_port
         self.priority = priority
         self.max_queue_size = max_queue
         self.status = DestinationStatus.HEALTHY
@@ -97,6 +98,7 @@ class DestinationManager:
         if not dest:
             return
         
+        dest.current_queue += 1
         dest.sent_count += 1
         if not success:
             dest.failed_count += 1
