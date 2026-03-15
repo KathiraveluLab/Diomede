@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List, Dict
 
 import pydicom
-from ..models import db
+from ..models import db, DICOMFile
 
 # avoid import cycle/resolution issues; prefer local helper when possible
 try:

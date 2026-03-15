@@ -143,6 +143,9 @@ class TestQueryValidation:
     def test_complex_query_with_parentheses_rejected(self, sample_metadata):
         """Reject: query with parentheses, which are not supported."""
         # Parentheses are not supported by the simple parser
+        """Test that queries with parentheses are safely rejected."""
+        # Note: parentheses aren't explicitly supported. This test verifies that
+        # such a query is safely rejected instead of being misinterpreted.
         with pytest.raises(ValueError, match="Invalid condition"):
             query_metadata(
                 sample_metadata,
@@ -190,9 +193,18 @@ class TestQueryValidation:
         
         result = query_metadata(sample_metadata, "PatientSex == 'F'")
         assert len(result) == 1
+        assert result.iloc[0]['PatientSex'] == 'F'
         
         result = query_metadata(sample_metadata, "StudyDescription == 'Brain Study'")
         assert len(result) == 1
+        assert result.iloc[0]['StudyDescription'] == 'Brain Study'
+
+        result = query_metadata(sample_metadata, "AccessionNumber == 'ACC002'")
+        assert len(result) == 1
+        assert result.iloc[0]['AccessionNumber'] == 'ACC002'
+
+        result = query_metadata(sample_metadata, "SeriesNumber > '1'")
+        assert len(result) == 2
 
 
 if __name__ == "__main__":

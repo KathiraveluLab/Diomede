@@ -10,7 +10,8 @@ setup(
         'pydicom>=2.3.0',
         'flask-sqlalchemy>=2.5.0',
         'python-dotenv>=0.19.0',
-        'requests>=2.26.0'
+        'requests>=2.26.0',
+        'pandas>=1.3.0'
     ],
     entry_points={
         'console_scripts': [
