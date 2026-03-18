@@ -1,7 +1,12 @@
-import pydicom
+import logging
 from pathlib import Path
 from typing import List, Dict
-from .models import db, DICOMFile
+
+from ..models import db, DICOMFile
+from ..utils.dicom_helpers import safe_load_dicom_file
+
+LOG = logging.getLogger(__name__)
+
 
 class DICOMAlbumCreator:
     def __init__(self, storage_path: str):
@@ -12,17 +17,18 @@ class DICOMAlbumCreator:
         dicom_files = []
         for dcm_path in Path(path).rglob('*'):
             if dcm_path.is_file():
-                try:
-                    ds = pydicom.dcmread(dcm_path)
-                    dicom_files.append({
-                        'path': str(dcm_path),
-                        'patient_id': getattr(ds, 'PatientID', ''),
-                        'study_uid': getattr(ds, 'StudyInstanceUID', ''),
-                        'modality': getattr(ds, 'Modality', '')
-                    })
-                except Exception as e:
-                    print(f"Error reading {dcm_path}: {str(e)}")
+                ds = safe_load_dicom_file(dcm_path)
+                if ds is None:
                     continue
+
+                # Use safe .get field access and defaults for partially broken datasets
+                # .get is explicit and avoids reflection-style behaviors.
+                dicom_files.append({
+                    'path': str(dcm_path),
+                    'patient_id': ds.get('PatientID', ''),
+                    'study_uid': ds.get('StudyInstanceUID', ''),
+                    'modality': ds.get('Modality', ''),
+                })
         return dicom_files
 
     def create_album_index(self, files: List[Dict]) -> bool:
