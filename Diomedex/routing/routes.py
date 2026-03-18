@@ -19,8 +19,22 @@ def list_destinations():
     if not router:
         return jsonify({'error': 'Router not running'}), 503
     
-    stats = router.get_stats()
-    return jsonify({'destinations': stats.get('destinations', [])}), 200
+    destinations = router.destination_manager.get_all_destinations()
+    return jsonify({
+        'destinations': [
+            {
+                'name': d.name,
+                'ae_title': d.ae_title,
+                'host': d.host,
+                'port': d.port,
+                'priority': d.priority,
+                'status': d.status.value,
+                'load': d.load_factor,
+                'score': d.calculate_score()
+            }
+            for d in destinations
+        ]
+    }), 200
 
 @routing_bp.route('/destinations/<name>', methods=['GET'])
 def get_destination(name):

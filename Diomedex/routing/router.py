@@ -37,21 +37,25 @@ class DICOMRouter:
             return False
         
         try:
+            # Optimistically record the send attempt. This increments the queue and sent_count.
+            self.destination_manager.record_send(destination.name)
+            
             # TODO: actual DICOM C-STORE with pynetdicom  
             # For now just track the routing decision
-            self.destination_manager.record_send(destination.name, success=True)
-            
             success = True  # simulated
             
             if success:
                 self.total_routed += 1
-                return True
             else:
-                self.destination_manager.record_send(destination.name, success=False)
+                # The attempt failed, so we need to correct the failure count.
+                self.destination_manager.record_failure(destination.name)
                 self.total_failed += 1
-                return False
+            
+            return success
         except Exception as e:
             logger.exception('Failed to route dataset')
+            # The attempt failed due to an exception. Correct the failure count.
+            self.destination_manager.record_failure(destination.name)
             self.total_failed += 1
             return False
         finally:

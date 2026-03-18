@@ -1,6 +1,7 @@
 from enum import Enum
 import time
 import logging
+from threading import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -55,55 +56,69 @@ class Destination:
 class DestinationManager:
     def __init__(self):
         self.destinations = {}
+        self._lock = Lock()
     
     def add_destination(self, destination):
-        self.destinations[destination.name] = destination
+        with self._lock:
+            self.destinations[destination.name] = destination
     
     def remove_destination(self, name):
-        if name in self.destinations:
-            del self.destinations[name]
+        with self._lock:
+            if name in self.destinations:
+                del self.destinations[name]
     
     def get_destination(self, name):
-        return self.destinations.get(name)
+        with self._lock:
+            return self.destinations.get(name)
     
     def get_all_destinations(self):
-        return list(self.destinations.values())
+        with self._lock:
+            return list(self.destinations.values())
     
     def get_available(self):
-        return [d for d in self.destinations.values() if d.is_available]
+        with self._lock:
+            return [d for d in self.destinations.values() if d.is_available]
     
     def select_best(self):
-        available = self.get_available()
-        if not available:
-            return None
-        
-        available.sort(key=lambda d: d.calculate_score(), reverse=True)
-        return available[0]
+        with self._lock:
+            available = [d for d in self.destinations.values() if d.is_available]
+            if not available:
+                return None
+            
+            available.sort(key=lambda d: d.calculate_score(), reverse=True)
+            return available[0]
     
     def update_status(self, name, status, queue=None, response_time=None):
-        dest = self.get_destination(name)
-        if not dest:
-            return
-        
-        dest.status = status
-        dest.last_check = time.time()
-        
-        if queue is not None:
-            dest.current_queue = queue
-        if response_time is not None:
-            dest.response_time = response_time
+        with self._lock:
+            dest = self.destinations.get(name)
+            if not dest:
+                return
+            
+            dest.status = status
+            dest.last_check = time.time()
+            
+            if queue is not None:
+                dest.current_queue = queue
+            if response_time is not None:
+                dest.response_time = response_time
     
-    def record_send(self, name, success=True):
-        dest = self.get_destination(name)
-        if not dest:
-            return
-        
-        dest.current_queue += 1
-        dest.sent_count += 1
-        if not success:
-            dest.failed_count += 1
+    def record_send(self, name):
+        with self._lock:
+            dest = self.destinations.get(name)
+            if not dest:
+                return
+            
+            dest.current_queue += 1
+            dest.sent_count += 1
+    
+    def record_failure(self, name):
+        with self._lock:
+            dest = self.destinations.get(name)
+            if dest:
+                dest.failed_count += 1
     
     def record_complete(self, name):
-        dest = self.get_destination(name)
-        if dest and dest.current_queue > 0:
-            dest.current_queue -= 1
+        with self._lock:
+            dest = self.destinations.get(name)
+            if dest and dest.current_queue > 0:
+                dest.current_queue -= 1
