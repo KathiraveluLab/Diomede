@@ -8,19 +8,6 @@ from ..utils.dicom_helpers import safe_load_dicom_file
 LOG = logging.getLogger(__name__)
 
 
-def _safe_load_dicom_file(file_path):
-    """Wrapper for safe DICOM file loading.
-
-    Keeps the same API for scan_directory but delegates to a shared helper.
-    """
-    try:
-        return safe_load_dicom_file(file_path)
-    except Exception as ex:
-        # Should not normally happen; preserve scanning behavior even on edge cases
-        LOG.warning("Unexpected error while loading DICOM file %s: %s", file_path, ex)
-        return None
-
-
 class DICOMAlbumCreator:
     def __init__(self, storage_path: str):
         self.storage_path = Path(storage_path)
@@ -30,7 +17,7 @@ class DICOMAlbumCreator:
         dicom_files = []
         for dcm_path in Path(path).rglob('*'):
             if dcm_path.is_file():
-                ds = _safe_load_dicom_file(dcm_path)
+                ds = safe_load_dicom_file(dcm_path)
                 if ds is None:
                     continue
 
