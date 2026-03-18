@@ -19,8 +19,8 @@ def create_app():
 
     secret_key = os.environ.get('DIOMEDE_SECRET_KEY')
     if not secret_key:
-        if not app.debug:
-            raise ValueError('DIOMEDE_SECRET_KEY is not set for production environment')
+        if os.environ.get('FLASK_ENV') == 'production':
+            raise ValueError('DIOMEDE_SECRET_KEY is not set for a production environment')
         # For development, a random key is acceptable.
         secret_key = secrets.token_hex(32)
     app.config['SECRET_KEY'] = secret_key

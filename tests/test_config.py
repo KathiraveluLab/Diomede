@@ -25,14 +25,14 @@ class TestSecretKeyConfig:
         assert app.config['SECRET_KEY'] == 'my-secure-test-key'
 
     def test_DIOMEDE_SECRET_KEY_not_hardcoded_when_env_missing(self):
-        """When DIOMEDE_SECRET_KEY is absent, the key must not be the old hardcoded string."""
-        with _db_patch, patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="DIOMEDE_SECRET_KEY is not set for production environment"):
+        """When DIOMEDE_SECRET_KEY is absent in production, create_app() must raise."""
+        with _db_patch, patch.dict(os.environ, {'FLASK_ENV': 'production'}, clear=True):
+            with pytest.raises(ValueError, match="DIOMEDE_SECRET_KEY is not set for a production environment"):
                 create_app()
 
     def test_fallback_key_is_random_per_call(self):
         """Without DIOMEDE_SECRET_KEY, each create_app() call gets a different random key."""
-        with _db_patch, patch.dict(os.environ, {'FLASK_DEBUG': '1'}, clear=True):
+        with _db_patch, patch.dict(os.environ, {}, clear=True):
             app1 = create_app()
             app2 = create_app()
         assert app1.config['SECRET_KEY'] != app2.config['SECRET_KEY']

@@ -5,11 +5,8 @@ import shutil
 import sys
 import requests
 import pydicom
-from dotenv import load_dotenv
 from Diomedex import create_app
 sys.path.append("Scripts")
-
-load_dotenv()
 
 # Import your existing functions
 from Scripts.load_dicom import load_dicom_files
