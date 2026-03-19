@@ -7,6 +7,8 @@ from pynetdicom.sop_class import (
     MRImageStorage,
     SecondaryCaptureImageStorage
 )
+import threading
+lock = threading.Lock()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("dicom-relay")
@@ -33,19 +35,27 @@ def forward_dataset(dataset, retries=3):
     This will forward a DICOM dataset to destination AE with retry support.
     """
 
+    client_ae = AE()
+    client_ae.add_requested_context(CTImageStorage)
+    client_ae.add_requested_context(MRImageStorage)
+    client_ae.add_requested_context(SecondaryCaptureImageStorage)
 
     for attempt in range(retries):
-        assoc = ae.associate(DEST_IP, DEST_PORT, ae_title=DEST_AE, max_pdu=16384)
+        assoc = client_ae.associate(DEST_IP, DEST_PORT, ae_title=DEST_AE, max_pdu=16384)
 
         if assoc.is_established:
             try:
                 study_uid = getattr(dataset, "StudyInstanceUID", "UNKNOWN")
                 logger.info(f"Forwarding dataset: StudyUID={study_uid}")
+
                 status = assoc.send_c_store(dataset)
-                assoc.release()
                 return status
+
             except Exception as e:
                 logger.error(f"Send failed: {e}")
+
+            finally:
+                assoc.release()   
         else:
             logger.error("Association failed")
 
@@ -57,19 +67,19 @@ def handle_store(event):
     """
     This will handle incoming C-STORE request and forward dataset.
     """
-
-    global total_received
-    total_received += 1
+    with lock:
+        global total_received
+        total_received += 1
 
     dataset = event.dataset
     dataset.file_meta = event.file_meta
 
     try:
-        global total_forwarded
         status = forward_dataset(dataset)
-        total_forwarded += 1
-
-        logger.info(f"Forwarded {total_forwarded}/{total_received}")
+        with lock:
+            global total_forwarded
+            total_forwarded += 1
+            logger.info(f"Forwarded {total_forwarded}/{total_received}")
         return status.Status
     except ConnectionError as e:
         logger.error(f"Relay error: {e}")
@@ -83,10 +93,6 @@ ae = AE()
 ae.add_supported_context(CTImageStorage)
 ae.add_supported_context(MRImageStorage)
 ae.add_supported_context(SecondaryCaptureImageStorage)
-# Requested (outgoing)
-ae.add_requested_context(CTImageStorage)
-ae.add_requested_context(MRImageStorage)
-ae.add_requested_context(SecondaryCaptureImageStorage)
 
 if __name__ == "__main__":
     logger.info(f"Starting DICOM Transfer Relay on {LISTEN_HOST}:{LISTEN_PORT}")
