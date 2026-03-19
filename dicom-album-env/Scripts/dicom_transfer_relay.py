@@ -15,6 +15,11 @@ logger = logging.getLogger("dicom-relay")
 
 total_received = 0
 total_forwarded = 0
+SUPPORTED_CONTEXTS = [
+    CTImageStorage,
+    MRImageStorage,
+    SecondaryCaptureImageStorage,
+]
 
 DEST_IP = os.environ.get("DEST_IP", "127.0.0.1")
 
@@ -30,18 +35,21 @@ DEST_AE = os.environ.get("DEST_AE", "DEST_NODE_AE")
 LISTEN_HOST = os.environ.get("LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = get_int_env("LISTEN_PORT", 11111)
 
-def forward_dataset(dataset, retries=3):
+MAX_PDU = get_int_env("MAX_PDU", 16384)
+RETRY_COUNT = get_int_env("RETRY_COUNT", 3)
+RETRY_BACKOFF_BASE = get_int_env("RETRY_BACKOFF_BASE", 2)
+
+def forward_dataset(dataset, retries=RETRY_COUNT):
     """
     This will forward a DICOM dataset to destination AE with retry support.
     """
 
     client_ae = AE()
-    client_ae.add_requested_context(CTImageStorage)
-    client_ae.add_requested_context(MRImageStorage)
-    client_ae.add_requested_context(SecondaryCaptureImageStorage)
+    for context in SUPPORTED_CONTEXTS:
+        client_ae.add_requested_context(context)
 
     for attempt in range(retries):
-        assoc = client_ae.associate(DEST_IP, DEST_PORT, ae_title=DEST_AE, max_pdu=16384)
+        assoc = client_ae.associate(DEST_IP, DEST_PORT, ae_title=DEST_AE, max_pdu=MAX_PDU)
 
         if assoc.is_established:
             try:
@@ -59,7 +67,7 @@ def forward_dataset(dataset, retries=3):
         else:
             logger.error("Association failed")
 
-        time.sleep(2 ** attempt)
+        time.sleep(RETRY_BACKOFF_BASE** attempt)
 
     raise ConnectionError(f"Failed after {retries} retries")
 
@@ -76,10 +84,15 @@ def handle_store(event):
 
     try:
         status = forward_dataset(dataset)
-        with lock:
-            global total_forwarded
-            total_forwarded += 1
-            logger.info(f"Forwarded {total_forwarded}/{total_received}")
+
+        if status.Status == 0x0000:
+            with lock:
+                global total_forwarded
+                total_forwarded += 1
+                logger.info(f"Forwarded {total_forwarded}/{total_received}")
+        else:
+            logger.warning(f"Forwarding failed with status: {status.Status:#06x}")
+
         return status.Status
     except ConnectionError as e:
         logger.error(f"Relay error: {e}")
@@ -90,9 +103,8 @@ handlers = [(evt.EVT_C_STORE, handle_store)]
 ae = AE()
 
 # Supported (incoming)
-ae.add_supported_context(CTImageStorage)
-ae.add_supported_context(MRImageStorage)
-ae.add_supported_context(SecondaryCaptureImageStorage)
+for context in SUPPORTED_CONTEXTS:
+    ae.add_supported_context(context)
 
 if __name__ == "__main__":
     logger.info(f"Starting DICOM Transfer Relay on {LISTEN_HOST}:{LISTEN_PORT}")
