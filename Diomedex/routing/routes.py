@@ -10,9 +10,31 @@ def get_stats():
     router = get_router()
     if not router:
         return jsonify({'error': 'Router not running'}), 503
-    
-    return jsonify(router.get_stats()), 200
 
+    stats = router.get_stats()
+
+    # Ensure destinations in stats are JSON-serializable
+    if isinstance(stats, dict) and 'destinations' in stats and stats['destinations'] is not None:
+        try:
+            destinations = stats['destinations']
+            stats['destinations'] = [
+                {
+                    'name': d.name,
+                    'ae_title': d.ae_title,
+                    'host': d.host,
+                    'port': d.port,
+                    'priority': d.priority,
+                    'status': d.status.value,
+                    'load': getattr(d, 'load_factor', None),
+                    'score': d.calculate_score() if hasattr(d, 'calculate_score') else None,
+                }
+                for d in destinations
+            ]
+        except Exception:
+            # If serialization fails for any reason, fall back to omitting destinations
+            stats['destinations'] = []
+
+    return jsonify(stats), 200
 @routing_bp.route('/destinations', methods=['GET'])
 def list_destinations():
     router = get_router()
