@@ -4,17 +4,16 @@ import secrets
 from dotenv import load_dotenv
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
+from dotenv import load_dotenv
+from .albums.routes import albums_bp
+from .routing.routes import routing_bp
+from .routing import DICOMRouter
 
 load_dotenv()
 
-# Initialize SQLAlchemy instance before importing blueprints, since the
-# models module (models.py) does `from .. import db` at import time.
 db = SQLAlchemy()
 
-from .albums.routes import albums_bp
-
-
-def create_app():
+def create_app(enable_routing=False):
     app = Flask(__name__)
 
     secret_key = os.environ.get('DIOMEDE_SECRET_KEY')
@@ -27,6 +26,14 @@ def create_app():
 
     # Initialize db with app
     db.init_app(app)
-
+    
+    # Register blueprints
     app.register_blueprint(albums_bp)
+    app.register_blueprint(routing_bp)
+    
+    # Initialize DICOM router if enabled
+    if enable_routing:
+        router = DICOMRouter()
+        app.dicom_router = router
+    
     return app
