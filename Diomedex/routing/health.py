@@ -7,9 +7,10 @@ from .destinations import DestinationManager, DestinationStatus
 logger = logging.getLogger(__name__)
 
 class HealthChecker:
-    def __init__(self, destination_manager, check_interval=30):
+    def __init__(self, destination_manager, check_interval=30, request_timeout=5):
         self.destination_manager = destination_manager
         self.check_interval = check_interval
+        self.request_timeout = request_timeout
         self.running = False
         self._stop_event = Event()
         self._thread = None
@@ -33,7 +34,7 @@ class HealthChecker:
             self._thread.join(timeout=5)
     
     def _check_loop(self):
-        while self.running and not self._stop_event.is_set():
+        while not self._stop_event.is_set():
             try:
                 self.check_all()
             except Exception:
@@ -61,7 +62,7 @@ class HealthChecker:
             # TODO: use pynetdicom C-ECHO for real DICOM verification
             # Note: Orthanc HTTP API typically on different port (e.g., 8042) than DICOM port
             url = f"http://{dest.host}:{dest.http_port}/system"
-            response = requests.get(url, timeout=5)
+            response = requests.get(url, timeout=self.request_timeout)
             response_time = time.time() - start
             
             if response.status_code == 200:

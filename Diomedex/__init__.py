@@ -4,9 +4,12 @@ import secrets
 from dotenv import load_dotenv
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
+from dotenv import load_dotenv
 from .albums.routes import albums_bp
 from .routing.routes import routing_bp
 from .routing import DICOMRouter
+
+load_dotenv()
 
 db = SQLAlchemy()
 

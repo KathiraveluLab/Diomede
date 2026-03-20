@@ -85,8 +85,7 @@ class DestinationManager:
             if not available:
                 return None
             
-            available.sort(key=lambda d: d.calculate_score(), reverse=True)
-            return available[0]
+            return max(available, key=lambda d: d.calculate_score())
     
     def update_status(self, name, status, queue=None, response_time=None):
         with self._lock:
