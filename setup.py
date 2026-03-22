@@ -1,21 +1,21 @@
-from setuptools import find_packages, setup
+from setuptools import setup, find_packages
 
 setup(
     name="diomede",
     version="0.1.0",
-   description="DICOM-based telemedicine and imaging framework",
-    package_dir={"": "src"},
-    packages=find_packages(where="src"),
-    include_package_data=True,
+    packages=find_packages(),
     include_package_data=True,
     install_requires=[
-         "fastapi>=0.116.0",
-        "uvicorn>=0.35.0",
-        "pydicom>=3.0.0",
-        "PyYAML>=6.0.0",
-        "httpx>=0.28.0",
-        "python-multipart>=0.0.20",
-        "pydantic>=2.11.0",
+        'flask>=2.0.0',
+        'pydicom>=2.3.0',
+        'flask-sqlalchemy>=2.5.0',
+        'python-dotenv>=0.19.0',
+        'requests>=2.26.0',
+        'pandas>=1.3.0'
     ],
-    
+    entry_points={
+        'console_scripts': [
+            'diomede=diomede.cli:main',
+        ],
+    },
 )
