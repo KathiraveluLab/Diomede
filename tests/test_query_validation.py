@@ -8,11 +8,19 @@ import pytest
 import pandas as pd
 import sys
 import os
+import importlib.util
 
-# Add Scripts to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dicom-album-env'))
+# Import query_metadata module directly from file path to avoid package side effects
+QUERY_METADATA_PATH = os.path.join(
+    os.path.dirname(__file__), '..', 'dicom-album-env', 'Scripts', 'query_metadata.py'
+)
+spec = importlib.util.spec_from_file_location("query_metadata", QUERY_METADATA_PATH)
+query_metadata_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(query_metadata_module)
 
-from Scripts.query_metadata import query_metadata, parse_condition, evaluate_condition
+query_metadata = query_metadata_module.query_metadata
+parse_condition = query_metadata_module.parse_condition
+evaluate_condition = query_metadata_module.evaluate_condition
 
 
 @pytest.fixture
@@ -42,6 +50,12 @@ class TestQueryValidation:
         result = query_metadata(sample_metadata, "StudyDate == '20220101'")
         assert len(result) == 1
         assert result.iloc[0]['PatientID'] == 'P001'
+
+    def test_single_equals_operator_alias(self, sample_metadata):
+        """Test = operator alias for backward-compatible equality checks."""
+        result = query_metadata(sample_metadata, "Modality = 'MR'")
+        assert len(result) == 1
+        assert result.iloc[0]['PatientID'] == 'P002'
 
     def test_not_equal_operator(self, sample_metadata):
         """Test != operator."""
@@ -205,6 +219,27 @@ class TestQueryValidation:
 
         result = query_metadata(sample_metadata, "SeriesNumber > '1'")
         assert len(result) == 2
+
+    def test_string_field_relational_operator_rejected(self, sample_metadata):
+        """Reject relational operator on string field."""
+        with pytest.raises(ValueError, match="not supported for string field"):
+            query_metadata(sample_metadata, "Modality > 'CT'")
+
+    def test_invalid_date_literal_rejected(self, sample_metadata):
+        """Reject invalid date literal format."""
+        with pytest.raises(ValueError, match="YYYYMMDD format"):
+            query_metadata(sample_metadata, "StudyDate > '2022-01-01'")
+
+    def test_invalid_numeric_literal_rejected(self, sample_metadata):
+        """Reject invalid numeric literal for numeric field."""
+        sample_metadata['SeriesNumber'] = ['1', '2', '3']
+        with pytest.raises(ValueError, match="numeric value"):
+            query_metadata(sample_metadata, "SeriesNumber > 'abc'")
+
+    def test_allowed_field_missing_in_dataframe_rejected(self, sample_metadata):
+        """Reject query on allowed field that is absent in DataFrame."""
+        with pytest.raises(ValueError, match="not present in metadata"):
+            query_metadata(sample_metadata, "PatientSex == 'M'")
 
 
 if __name__ == "__main__":
