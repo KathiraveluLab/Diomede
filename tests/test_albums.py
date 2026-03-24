@@ -1,7 +1,7 @@
 import pytest
-from diomede.albums.core import DICOMAlbumCreator
-from diomede.albums.models import DICOMFile, Album, db
-from diomede import create_app
+from Diomedex.albums.core import DICOMAlbumCreator
+from Diomedex.albums.models import DICOMFile, Album, db
+from Diomedex import create_app
 
 @pytest.fixture
 def app():
