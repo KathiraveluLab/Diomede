@@ -181,7 +181,7 @@ def get_typed_series(df, field, field_type):
 
     if field_type == "numeric":
         typed = pd.to_numeric(series, errors="coerce")
-        if typed.notna().sum() != series.notna().sum():
+        if (typed.isna() & series.notna()).any():
             raise ValueError(
                 f"Field '{field}' contains non-numeric values and cannot be compared numerically"
             )
