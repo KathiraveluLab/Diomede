@@ -57,6 +57,14 @@ class TestQueryValidation:
         assert len(result) == 1
         assert result.iloc[0]['PatientID'] == 'P002'
 
+
+    def test_parse_condition_normalizes_single_equals(self):
+        """Test parse_condition normalizes = to ==."""
+        field, op, value = parse_condition("Modality = 'CT'")
+        assert field == 'Modality'
+        assert op == '=='
+        assert value == "'CT'"
+
     def test_not_equal_operator(self, sample_metadata):
         """Test != operator."""
         result = query_metadata(sample_metadata, "Modality != 'CT'")
