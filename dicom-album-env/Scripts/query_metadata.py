@@ -189,7 +189,7 @@ def get_typed_series(df, field, field_type):
 
     if field_type == "date":
         typed = pd.to_datetime(series, format="%Y%m%d", errors="coerce")
-        if typed.notna().sum() != series.notna().sum():
+        if (typed.isna() & series.notna()).any():
             raise ValueError(
                 f"Field '{field}' contains non-date values and cannot be compared as dates"
             )
