@@ -154,9 +154,10 @@ def parse_scalar_value(value, field_type):
         return literal
 
     if field_type == "numeric":
-        if not re.fullmatch(r"-?\d+(\.\d+)?", literal):
+        try:
+            return float(literal)
+        except ValueError:
             raise ValueError(f"Numeric comparison requires a numeric value, got: {value}")
-        return float(literal)
 
     if field_type == "date":
         if not re.fullmatch(r"\d{8}", literal):
