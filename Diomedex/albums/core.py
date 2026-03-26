@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict
 
-from ..models import db, DICOMFile
+from .models import db, DICOMFile
 from ..utils.dicom_helpers import safe_load_dicom_file
 
 LOG = logging.getLogger(__name__)
