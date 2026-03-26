@@ -30,8 +30,9 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]):
 
 
 def extract_basic_metadata(file_path: Union[str, PathLike]):
-    dataset = safe_load_dicom_file(file_path)
-    if dataset is None:
+    try:
+        dataset = pydicom.dcmread(file_path)
+    except (pydicom.errors.InvalidDicomError, EOFError, ValueError, OSError):
         return {
             'PatientID': None,
             'StudyDate': None,
