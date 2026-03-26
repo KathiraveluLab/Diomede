@@ -120,7 +120,7 @@ def parse_condition(condition):
         if match:
             field = match.group(1)
             value = match.group(2).strip()
-            return field, op, value
+            return field, normalize_operator(op), value
     
     raise ValueError(f"Invalid condition: {condition}. Must use format: field operator value")
 
