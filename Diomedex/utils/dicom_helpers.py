@@ -1,6 +1,6 @@
 import logging
 from os import PathLike
-from typing import Union, Sequence
+from typing import Union, Iterable
 
 import pydicom
 
@@ -27,7 +27,7 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]):
     try:
         dataset = pydicom.dcmread(file_path)
     except (pydicom.errors.InvalidDicomError,
-            pydicom.errors.PydicomError,
+            pydicom.errors.BytesLengthException,
             EOFError,
             ValueError,
             OSError) as ex:
@@ -36,23 +36,28 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]):
     return dataset
 
 
-def extract_basic_metadata(file_path: Union[str, PathLike]):
-    """Extract key DICOM fields needed for album creation.
-    Returns a dict with None defaults for any missing field.
-    Tag list is derived from default critical and optional tag sets
-    to avoid duplication across the module.
+def extract_basic_metadata(
+    file_path: Union[str, PathLike],
+    tags: Iterable[str] = _DEFAULT_CRITICAL_TAGS + _DEFAULT_OPTIONAL_TAGS,
+):
+    """Extract specified DICOM fields from a file.
+    Args:
+        file_path: Path to the DICOM file.
+        tags: DICOM tag names to extract. Defaults to combined critical
+              and optional tags. Pass custom tags to match your workflow.
+    Returns:
+        A dict with extracted tag values, or None for missing tags.
     """
-    keys = _DEFAULT_CRITICAL_TAGS + _DEFAULT_OPTIONAL_TAGS
     dataset = safe_load_dicom_file(file_path)
     if dataset is None:
-        return dict.fromkeys(keys)
-    return {key: dataset.get(key) for key in keys}
+        return dict.fromkeys(tags)
+    return {key: dataset.get(key) for key in tags}
 
 
 def validate_dicom_for_album(
     metadata: dict,
-    critical_tags: Sequence[str] = _DEFAULT_CRITICAL_TAGS,
-    optional_tags: Sequence[str] = _DEFAULT_OPTIONAL_TAGS,
+    critical_tags: Iterable[str] = _DEFAULT_CRITICAL_TAGS,
+    optional_tags: Iterable[str] = _DEFAULT_OPTIONAL_TAGS,
 ) -> dict:
     """Validate extracted DICOM metadata for album-workflow completeness.
 
