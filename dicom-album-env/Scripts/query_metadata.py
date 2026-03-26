@@ -221,7 +221,7 @@ def evaluate_condition(df, field, op, value):
     if field not in df.columns:
         raise ValueError(f"Field '{field}' is allowed but not present in metadata")
 
-    op = normalize_operator(op)
+
     
     if op not in SAFE_OPERATORS:
         raise ValueError(
@@ -255,7 +255,9 @@ def evaluate_condition(df, field, op, value):
         if any(c not in ' \t\n\r,' for c in trailing_content):
             raise ValueError(f"Invalid list value: {value}. Contains unquoted items.")
         
-        return df[field].astype(str).isin(items)
+        series = get_typed_series(df, field, field_type)
+        typed_items = [parse_scalar_value(item, field_type) for item in items]
+        return series.isin(typed_items)
     
     if op in {'<', '>', '<=', '>='} and field_type == "string":
         raise ValueError(
