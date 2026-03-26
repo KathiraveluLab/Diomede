@@ -5,13 +5,14 @@ from dotenv import load_dotenv
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
-from .albums.routes import albums_bp
-from .routing.routes import routing_bp
-from .routing import DICOMRouter
 
 load_dotenv()
 
 db = SQLAlchemy()
+
+from .albums.routes import albums_bp
+from .routing.routes import routing_bp
+from .routing import DICOMRouter
 
 def create_app(enable_routing=False):
     app = Flask(__name__)
@@ -24,6 +25,7 @@ def create_app(enable_routing=False):
         secret_key = secrets.token_hex(32)
     app.config['SECRET_KEY'] = secret_key
 
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///diomede.db')
     # Initialize db with app
     db.init_app(app)
     
