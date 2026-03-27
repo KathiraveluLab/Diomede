@@ -50,7 +50,8 @@ def anonymize_file():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        return jsonify({"error": f"Internal processing error: {str(e)}"}), 500
+        LOG.error("Internal processing error in anonymize_file: %s", e, exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
 
     anonymizer = DICOMAnonymizer()
     success = anonymizer.anonymize_file(
@@ -91,7 +92,8 @@ def anonymize_directory():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        return jsonify({"error": f"Internal processing error: {str(e)}"}), 500
+        LOG.error("Internal processing error in anonymize_directory: %s", e, exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
 
     anonymizer = DICOMAnonymizer()
     stats = anonymizer.anonymize_directory(

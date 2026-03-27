@@ -62,12 +62,13 @@ class DICOMAnonymizer:
             if hasattr(ds, keyword):
                 try:
                     ds[keyword].value = ""
-                except Exception:
+                except Exception as exc:
+                    LOG.debug("Could not blank tag %s, attempting to delete. Error: %s", keyword, exc)
                     try:
                         # If blanking fails, delete the tag to ensure PHI is removed
                         del ds[keyword]
-                    except Exception:
-                        LOG.debug("Could not blank or delete tag %s; skipping", keyword)
+                    except Exception as exc_del:
+                        LOG.warning("Could not blank or delete tag %s; skipping. Error: %s", keyword, exc_del)
 
     def _remap_uids(self, ds: pydicom.Dataset) -> None:
         """Replace each UID tag with a newly generated substitute."""
@@ -159,7 +160,7 @@ class DICOMAnonymizer:
         dest_dir: Union[str, PathLike],
         patient_id_prefix: str = "ANON",
     ) -> Dict[str, int]:
-        """Recursively anonymize every DICOM file under *src_dir*.
+        """Recursively anonymize every DICOM file under *src_dir* for up to 9,999 unique patient IDs per anonymization session.
 
         Each unique original PatientID receives a sequentially numbered replacement identifier built from
         *patient_id_prefix*, e.g. ``ANON0001``, ``ANON0002``.  The relative directory structure from

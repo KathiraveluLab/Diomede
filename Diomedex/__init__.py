@@ -25,9 +25,7 @@ def create_app(enable_routing=False, test_config=None):
     if test_config is not None:
         app.config.update(test_config)
     else:
-        db_uri = os.environ.get('DATABASE_URL', 'sqlite:///diomede.db')
-        if db_uri:
-            app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
+        app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///diomede.db')
 
     secret_key = os.environ.get('DIOMEDE_SECRET_KEY')
     if not secret_key:
