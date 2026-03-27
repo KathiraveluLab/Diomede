@@ -86,6 +86,11 @@ class TestQueryValidation:
         result = query_metadata(sample_metadata, "Modality in ['CT', 'MR']")
         assert len(result) == 3  # All rows
 
+    def test_contains_operator_returns_expected_mask(self, sample_metadata):
+        """Test 'contains' operator returns the expected boolean mask."""
+        mask = evaluate_condition(sample_metadata, "Modality", "contains", "'C'")
+        assert mask.tolist() == [True, False, True]
+
     def test_and_operator(self, sample_metadata):
         """Test AND logic combining conditions."""
         result = query_metadata(sample_metadata, "Modality == 'CT' and StudyDate > '20220101'")

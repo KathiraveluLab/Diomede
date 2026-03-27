@@ -16,7 +16,7 @@ ALLOWED_FIELDS = {
 }
 
 # Only allow safe, well-defined operators
-SAFE_OPERATORS = {'=', '==', '!=', '<', '>', '<=', '>=', 'in'}
+SAFE_OPERATORS = {'=', '==', '!=', '<', '>', '<=', '>=', 'in', 'contains'}
 
 # Expected type per field for safe comparisons
 FIELD_TYPES = {
@@ -231,6 +231,15 @@ def evaluate_condition(df, field, op, value):
 
     field_type = FIELD_TYPES.get(field, "string")
     
+    if op == 'contains':
+        if field_type != "string":
+            raise ValueError(
+                f"Operator '{op}' is only supported for string field '{field}'"
+            )
+        parsed_value = parse_scalar_value(value, field_type)
+        series = get_typed_series(df, field, field_type)
+        return series.str.contains(parsed_value, na=False)
+
     # Handle list literals: ['CT', 'MR']
     if value.startswith('[') and value.endswith(']'):
         if op != 'in':
