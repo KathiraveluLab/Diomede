@@ -20,7 +20,6 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]):
     try:
         dataset = pydicom.dcmread(file_path)
     except (pydicom.errors.InvalidDicomError,
-            pydicom.errors.PydicomError,
             EOFError,
             ValueError,
             OSError) as ex:

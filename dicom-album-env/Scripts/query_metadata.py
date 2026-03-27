@@ -1,6 +1,5 @@
 import pandas as pd
 import re
-from Scripts import load_dicom_files, extract_metadata
 
 # Whitelist of allowed DICOM metadata fields for querying
 ALLOWED_FIELDS = {
@@ -17,7 +16,21 @@ ALLOWED_FIELDS = {
 }
 
 # Only allow safe, well-defined operators
-SAFE_OPERATORS = {'==', '!=', '<', '>', '<=', '>=', 'in'}
+SAFE_OPERATORS = {'=', '==', '!=', '<', '>', '<=', '>=', 'in'}
+
+# Expected type per field for safe comparisons
+FIELD_TYPES = {
+    "AccessionNumber": "string",
+    "FilePath": "string",
+    "Modality": "string",
+    "PatientAge": "string",
+    "PatientID": "string",
+    "PatientSex": "string",
+    "SeriesDescription": "string",
+    "SeriesNumber": "numeric",
+    "StudyDate": "date",
+    "StudyDescription": "string",
+}
 
 
 def split_by_keyword(query, keyword):
@@ -112,6 +125,80 @@ def parse_condition(condition):
     raise ValueError(f"Invalid condition: {condition}. Must use format: field operator value")
 
 
+def normalize_operator(op):
+    """Normalize accepted operator aliases to canonical form."""
+    if op == '=':
+        return '=='
+    return op
+
+
+def parse_scalar_value(value, field_type):
+    """
+    Parse scalar literal values and enforce expected field type.
+
+    Returns:
+        Parsed value in a Python type appropriate for field_type
+    """
+    # Handle quoted string literals: 'CT' or "CT"
+    single_quoted = re.fullmatch(r"'[^']*'", value) is not None
+    double_quoted = re.fullmatch(r'"[^"]*"', value) is not None
+    is_quoted = single_quoted or double_quoted
+    if single_quoted or double_quoted:
+        literal = value[1:-1]
+    else:
+        literal = value
+
+    if field_type == "string":
+        if not is_quoted:
+            raise ValueError(f"String values must be quoted: {value}")
+        return literal
+
+    if field_type == "numeric":
+        try:
+            return float(literal)
+        except ValueError:
+            raise ValueError(f"Numeric comparison requires a numeric value, got: {value}")
+
+    if field_type == "date":
+        if not re.fullmatch(r"\d{8}", literal):
+            raise ValueError(
+                f"Date comparison requires YYYYMMDD format, got: {value}"
+            )
+        parsed = pd.to_datetime(literal, format="%Y%m%d", errors="coerce")
+        if pd.isna(parsed):
+            raise ValueError(f"Invalid date value: {value}")
+        return parsed
+
+    # Defensive fallback
+    raise ValueError(f"Unsupported field type '{field_type}' for value parsing")
+
+
+def get_typed_series(df, field, field_type):
+    """Return a typed pandas Series for safe comparisons."""
+    series = df[field]
+
+    if field_type == "string":
+        return series.astype(str)
+
+    if field_type == "numeric":
+        typed = pd.to_numeric(series, errors="coerce")
+        if typed.notna().sum() != series.notna().sum():
+            raise ValueError(
+                f"Field '{field}' contains non-numeric values and cannot be compared numerically"
+            )
+        return typed
+
+    if field_type == "date":
+        typed = pd.to_datetime(series, format="%Y%m%d", errors="coerce")
+        if typed.notna().sum() != series.notna().sum():
+            raise ValueError(
+                f"Field '{field}' contains non-date values and cannot be compared as dates"
+            )
+        return typed
+
+    raise ValueError(f"Unsupported field type '{field_type}' for field '{field}'")
+
+
 def evaluate_condition(df, field, op, value):
     """
     Evaluate a single condition safely using boolean indexing.
@@ -132,11 +219,17 @@ def evaluate_condition(df, field, op, value):
         raise ValueError(
             f"Field '{field}' not allowed. Allowed fields: {', '.join(sorted(ALLOWED_FIELDS))}"
         )
+    if field not in df.columns:
+        raise ValueError(f"Field '{field}' is allowed but not present in metadata")
+
+    op = normalize_operator(op)
     
     if op not in SAFE_OPERATORS:
         raise ValueError(
             f"Operator '{op}' not allowed. Allowed operators: {', '.join(sorted(SAFE_OPERATORS))}"
         )
+
+    field_type = FIELD_TYPES.get(field, "string")
     
     # Handle list literals: ['CT', 'MR']
     if value.startswith('[') and value.endswith(']'):
@@ -163,28 +256,29 @@ def evaluate_condition(df, field, op, value):
         if any(c not in ' \t\n\r,' for c in trailing_content):
             raise ValueError(f"Invalid list value: {value}. Contains unquoted items.")
         
-        return df[field].isin(items)
+        return df[field].astype(str).isin(items)
     
-    # Handle string literals: 'CT' or "CT"
-    if (value.startswith("'") and value.endswith("'")) or \
-       (value.startswith('"') and value.endswith('"')):
-        parsed_value = value[1:-1]  # Remove quotes
-    else:
-        raise ValueError(f"String values must be quoted: {value}")
+    if op in {'<', '>', '<=', '>='} and field_type == "string":
+        raise ValueError(
+            f"Operator '{op}' is not supported for string field '{field}'. Use == or !="
+        )
+
+    parsed_value = parse_scalar_value(value, field_type)
+    series = get_typed_series(df, field, field_type)
     
     # Apply operator using safe boolean indexing
     if op == '==':
-        return df[field] == parsed_value
+        return series == parsed_value
     elif op == '!=':
-        return df[field] != parsed_value
+        return series != parsed_value
     elif op == '<':
-        return df[field] < parsed_value
+        return series < parsed_value
     elif op == '>':
-        return df[field] > parsed_value
+        return series > parsed_value
     elif op == '<=':
-        return df[field] <= parsed_value
+        return series <= parsed_value
     elif op == '>=':
-        return df[field] >= parsed_value
+        return series >= parsed_value
     else:
         # Should never reach here due to earlier validation
         raise ValueError(f"Unknown operator: {op}")
