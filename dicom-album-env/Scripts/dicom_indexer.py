@@ -21,15 +21,15 @@ Base = declarative_base()
 class DICOMIndex(Base):
     __tablename__ = "DICOMIndex"
 
-    id= Column(Integer, primary_key=True)
-    file_path= Column(String(500), unique=True, nullable=False)
-    patient_id= Column(String(100), index=True)
-    series_description= Column(String(300))
-    study_uid= Column(String(200), index=True)
-    study_date= Column(DateTime)
-    series_uid= Column(String(200))
-    indexed_at= Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
-    modality= Column(String(50))
+    id = Column(Integer, primary_key=True)
+    file_path = Column(String(500), unique=True, nullable=False)
+    patient_id = Column(String(100), index=True)
+    series_description = Column(String(300))
+    study_uid = Column(String(200), index=True)
+    study_date = Column(DateTime)
+    series_uid = Column(String(200))
+    indexed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    modality = Column(String(50))
 
     def __repr__(self):
         return f"<DICOMIndex {self.file_path}>"
