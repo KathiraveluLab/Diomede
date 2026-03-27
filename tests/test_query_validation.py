@@ -57,6 +57,14 @@ class TestQueryValidation:
         assert len(result) == 1
         assert result.iloc[0]['PatientID'] == 'P002'
 
+
+    def test_parse_condition_normalizes_single_equals(self):
+        """Test parse_condition normalizes = to ==."""
+        field, op, value = parse_condition("Modality = 'CT'")
+        assert field == 'Modality'
+        assert op == '=='
+        assert value == "'CT'"
+
     def test_not_equal_operator(self, sample_metadata):
         """Test != operator."""
         result = query_metadata(sample_metadata, "Modality != 'CT'")
@@ -77,6 +85,11 @@ class TestQueryValidation:
         """Test 'in' operator with list literal."""
         result = query_metadata(sample_metadata, "Modality in ['CT', 'MR']")
         assert len(result) == 3  # All rows
+
+    def test_contains_operator_returns_expected_mask(self, sample_metadata):
+        """Test 'contains' operator returns the expected boolean mask."""
+        mask = evaluate_condition(sample_metadata, "Modality", "contains", "'C'")
+        assert mask.tolist() == [True, False, True]
 
     def test_and_operator(self, sample_metadata):
         """Test AND logic combining conditions."""
