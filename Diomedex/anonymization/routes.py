@@ -22,6 +22,23 @@ def _validate_path(raw: str) -> Path:
     return p.resolve()
 
 
+def _check_within_storage(path: Path, storage_path: str) -> None:
+    """Raise ValueError if *path* is not within the configured storage directory.
+
+    Args:
+        path: Already-resolved absolute Path to check.
+        storage_path: The server's configured STORAGE_PATH value.
+
+    Raises:
+        ValueError: if *path* escapes the storage root.
+    """
+    storage_base = Path(storage_path).resolve()
+    try:
+        path.relative_to(storage_base)
+    except ValueError:
+        raise ValueError("Path must be within configured storage area")
+
+
 @anonymization_bp.route("/file", methods=["POST"])
 def anonymize_file():
     """Anonymize a single DICOM file.
@@ -44,9 +61,15 @@ def anonymize_file():
     if not data or "src" not in data or "dest" not in data:
         return jsonify({"error": "'src' and 'dest' parameters are required"}), 400
 
+    storage_path = current_app.config.get("STORAGE_PATH")
+    if not storage_path:
+        LOG.error("'STORAGE_PATH' is not configured.")
+        return jsonify({"error": "Server configuration error."}), 500
+
     try:
         src_path = _validate_path(data["src"])
         dest_path = _validate_path(data["dest"])
+        _check_within_storage(dest_path, storage_path)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
@@ -86,9 +109,15 @@ def anonymize_directory():
     if not data or "src" not in data or "dest" not in data:
         return jsonify({"error": "'src' and 'dest' parameters are required"}), 400
 
+    storage_path = current_app.config.get("STORAGE_PATH")
+    if not storage_path:
+        LOG.error("'STORAGE_PATH' is not configured.")
+        return jsonify({"error": "Server configuration error."}), 500
+
     try:
         src_dir = _validate_path(data["src"])
         dest_dir = _validate_path(data["dest"])
+        _check_within_storage(dest_dir, storage_path)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:

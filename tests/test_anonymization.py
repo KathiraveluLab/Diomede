@@ -462,3 +462,15 @@ class TestAnonymizationAPI:
         assert resp.status_code == 400
         data = resp.get_json()
         assert "Path must be absolute" in data["error"]
+
+    def test_file_endpoint_rejects_dest_outside_storage(self, client, tmp_path):
+        """dest path pointing outside STORAGE_PATH must be rejected with 400."""
+        src, _ = _make_dicom_file(tmp_path, "input.dcm")
+        outside_dest = "/tmp/escaped_anon.dcm"
+        resp = client.post(
+            "/anonymization/file",
+            data=json.dumps({"src": str(src), "dest": outside_dest}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        assert "within configured storage area" in resp.get_json()["error"]
