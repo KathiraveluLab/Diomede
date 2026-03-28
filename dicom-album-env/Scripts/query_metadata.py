@@ -132,7 +132,7 @@ def normalize_operator(op):
     return op
 
 
-def parse_scalar_value(value, field_type):
+def parse_scalar_value(value, field_type, quotes_required=True):
     """
     Parse scalar literal values and enforce expected field type.
 
@@ -149,7 +149,7 @@ def parse_scalar_value(value, field_type):
         literal = value
 
     if field_type == "string":
-        if not is_quoted:
+        if quotes_required and not is_quoted:
             raise ValueError(f"String values must be quoted: {value}")
         return literal
 
