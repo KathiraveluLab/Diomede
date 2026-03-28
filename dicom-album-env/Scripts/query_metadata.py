@@ -218,9 +218,7 @@ def evaluate_condition(df, field, op, value):
         raise ValueError(
             f"Field '{field}' not allowed. Allowed fields: {', '.join(sorted(ALLOWED_FIELDS))}"
         )
-    if field not in df.columns:
-        raise ValueError(f"Field '{field}' is allowed but not present in metadata")
-
+   
 
     
     if op not in SAFE_OPERATORS:
