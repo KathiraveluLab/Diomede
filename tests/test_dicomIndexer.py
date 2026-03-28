@@ -63,7 +63,7 @@ class TestIndexFolder:
         session = sessionmaker(bind=engine)()
         count = session.query(DICOMIndex).count()
         session.close()
-        assert count >= 1
+        assert count == 1
     def test_skips_non_dicom_files(self, tmp_dicom_dir, tmp_db):
         index_folder(tmp_dicom_dir, tmp_db)
         engine = create_engine(f"sqlite:///{tmp_db}")
