@@ -256,7 +256,7 @@ def evaluate_condition(df, field, op, value):
             raise ValueError(f"Invalid list value: {value}. Contains unquoted items.")
         
         series = get_typed_series(df, field, field_type)
-        typed_items = [parse_scalar_value(item, field_type) for item in items]
+        typed_items = [parse_scalar_value(item, field_type, quotes_required=False) for item in items]
         return series.isin(typed_items)
     
     if op in {'<', '>', '<=', '>='} and field_type == "string":
