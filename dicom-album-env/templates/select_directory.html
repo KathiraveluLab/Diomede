@@ -1,30 +1,39 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Select Directory</title>
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
-</head>
-<body>
-    <div class="container mt-5">
-        <h1 class="text-center">Select DICOM Directory</h1>
-        {% if not files_exist %}
-        <form method="POST" enctype="multipart/form-data" class="mt-4">
-            <div class="form-group">
-                <label for="dicom_directory">Upload DICOM Files:</label>
-                <input type="file" class="form-control-file" id="dicom_directory" name="dicom_directory" multiple>
-            </div>
-            <button type="submit" class="btn btn-primary btn-block">Upload</button>
-        </form>
-        {% else %}
-        <div class="alert alert-info text-center">
-            DICOM files already exist in the directory.
+{% extends "base.html" %}
+
+{% block title %}Upload DICOM Files{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card p-4">
+            <h2 class="h4 mb-4 text-center">Step 1: Upload DICOM Repository</h2>
+            
+            {% if not files_exist %}
+                <p class="text-muted text-center mb-4">No DICOM files have been uploaded yet. Please select the files you wish to process together.</p>
+                <form method="POST" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="dicom_directory" class="form-label fw-medium">Select DICOM Study Files</label>
+                        <input type="file" class="form-control" id="dicom_directory" name="dicom_directory" multiple required>
+                        <div class="form-text mt-2 small">Select multiple files (typically .dcm or non-extended files).</div>
+                    </div>
+                    <div class="d-grid mt-4">
+                        <button type="submit" class="btn btn-primary">Upload & Initialize</button>
+                    </div>
+                </form>
+            {% else %}
+                <div class="alert alert-success text-center py-3 mb-4">
+                    <div class="fw-bold mb-1">Files Ready</div>
+                    <span class="small opacity-75">Existing study files detected in the target directory.</span>
+                </div>
+                
+                <div class="d-grid gap-3">
+                    <form method="POST">
+                        <button type="submit" name="action" value="proceed" class="btn btn-primary w-100 mb-2">Continue with Existing Study</button>
+                        <button type="submit" name="action" value="remove" class="btn btn-outline-danger w-100">Clear Data & Upload New Study</button>
+                    </form>
+                </div>
+            {% endif %}
         </div>
-        <form method="POST" class="mt-4">
-            <button type="submit" name="action" value="remove" class="btn btn-danger btn-block">Remove Files</button>
-            <button type="submit" name="action" value="proceed" class="btn btn-success btn-block">Proceed</button>
-        </form>
-        {% endif %}
     </div>
-</body>
-</html>
+</div>
+{% endblock %}
