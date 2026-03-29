@@ -52,8 +52,10 @@ def select_directory():
                 return redirect(url_for('select_directory'))
 
             for file in files:
-                file_path = os.path.join(target_directory, os.path.basename(file.filename))
-                file.save(file_path)
+                filename = secure_filename(file.filename)
+                if filename:
+                    file_path = os.path.join(target_directory, filename)
+                    file.save(file_path)
 
             flash(f"Successfully uploaded {len(files)} files.", "success")
             return redirect(url_for('create_album'))
