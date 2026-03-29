@@ -12,6 +12,7 @@ db = SQLAlchemy()
 
 from .albums.routes import albums_bp
 from .routing.routes import routing_bp
+from .routing.anonymization_routes import anonymization_bp
 from .routing import DICOMRouter
 
 def create_app(enable_routing=False):
@@ -32,6 +33,7 @@ def create_app(enable_routing=False):
     # Register blueprints
     app.register_blueprint(albums_bp)
     app.register_blueprint(routing_bp)
+    app.register_blueprint(anonymization_bp)
     
     # Initialize DICOM router if enabled
     if enable_routing:
