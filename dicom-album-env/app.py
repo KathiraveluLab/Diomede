@@ -3,9 +3,7 @@ import pandas as pd
 import os
 import shutil
 import sys
-import uuid
-import requests
-import pydicom
+import tempfile
 from Diomedex import create_app
 sys.path.append("Scripts")
 
@@ -51,8 +49,8 @@ def select_directory():
 @app.route("/create_album", methods=["GET", "POST"])
 def create_album():
     if request.method == "POST":
-        query = request.form["query"]
-        album_name = request.form["album_name"]
+        query = request.form.get("query", "")
+        album_name = request.form.get("album_name", "default_album")
 
         # Load DICOM files and extract metadata
         target_directory = os.path.join(os.getcwd(), "data", "dicom_files")
@@ -61,11 +59,13 @@ def create_album():
 
         # Query metadata
         subset_df = query_metadata(metadata_df, query)
-        # Save DataFrame to temporary file
-        temp_dir = os.path.join(os.getcwd(), "data", "temp")
-        os.makedirs(temp_dir, exist_ok=True)
-        filename = f"subset_{uuid.uuid4().hex}.csv"
-        temp_path = os.path.join(temp_dir, filename)
+        # Cleanup previous temp file (if exists)
+        old_path = session.get('subset_path')
+        if old_path and os.path.exists(old_path):
+            os.remove(old_path)
+        # Create new temp file
+        fd, temp_path = tempfile.mkstemp(suffix='.csv', prefix='subset_')
+        os.close(fd)
         subset_df.to_csv(temp_path, index=False)
         # Store only reference in session
         session['subset_path'] = temp_path
