@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import shutil
 import sys
+import uuid
 import requests
 import pydicom
 from Diomedex import create_app
@@ -60,7 +61,14 @@ def create_album():
 
         # Query metadata
         subset_df = query_metadata(metadata_df, query)
-        session['subset_df'] = subset_df.to_dict()  # Store the DataFrame in session
+        # Save DataFrame to temporary file
+        temp_dir = os.path.join(os.getcwd(), "data", "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        filename = f"subset_{uuid.uuid4().hex}.csv"
+        temp_path = os.path.join(temp_dir, filename)
+        subset_df.to_csv(temp_path, index=False)
+        # Store only reference in session
+        session['subset_path'] = temp_path
         session['album_name'] = album_name
 
         return redirect(url_for('view_query_results'))
@@ -68,12 +76,23 @@ def create_album():
 
 @app.route("/view_query_results", methods=["GET", "POST"])
 def view_query_results():
-    subset_df = pd.DataFrame(session.get('subset_df'))
+    subset_path = session.get('subset_path')
     album_name = session.get('album_name')
+
+    if subset_path and os.path.exists(subset_path):
+        subset_df = pd.read_csv(subset_path)
+    else:
+        subset_df = pd.DataFrame()
 
     if request.method == "POST":
         # Create album
         create_album(subset_df, album_name)
+
+        # Cleanup temp file after use
+        if subset_path and os.path.exists(subset_path):
+            os.remove(subset_path)
+            session.pop('subset_path', None)
+        
         return f"Album '{album_name}' created successfully!"
 
     return render_template("view_query_results.html", tables=[subset_df.to_html(classes='data')], titles=subset_df.columns.values)
