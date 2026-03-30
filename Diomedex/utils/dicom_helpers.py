@@ -29,29 +29,23 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]):
     return dataset
 
 
-def extract_basic_metadata(file_path: Union[str, PathLike]):
+METADATA_KEYS = (
+    "PatientID",
+    "StudyDate",
+    "Modality",
+    "SeriesInstanceUID",
+)
+
+
+def extract_basic_metadata(file_path: Union[str, PathLike]) -> dict:
+    """Extracts basic DICOM metadata, returning a normalized dictionary."""
     try:
         dataset = pydicom.dcmread(file_path)
     except (pydicom.errors.InvalidDicomError, EOFError, ValueError, OSError):
-        return {
-            'PatientID': None,
-            'StudyDate': None,
-            'Modality': None,
-            'SeriesInstanceUID': None,
-        }
-
-    return {
-        'PatientID': dataset.get('PatientID', None),
-        'StudyDate': dataset.get('StudyDate', None),
-        'Modality': dataset.get('Modality', None),
-        'SeriesInstanceUID': dataset.get('SeriesInstanceUID', None),
-    }
+        dataset = {}
+    return normalize_metadata(dataset)
 
 
-def normalize_metadata(record: dict) -> dict:
-    return {
-        'PatientID': record.get('PatientID', None),
-        'StudyDate': record.get('StudyDate', None),
-        'Modality': record.get('Modality', None),
-        'SeriesInstanceUID': record.get('SeriesInstanceUID', None),
-    }
+def normalize_metadata(record: Union[dict, "pydicom.dataset.Dataset"]) -> dict:
+    """Ensures a record has a consistent set of metadata keys, with missing values as None."""
+    return {key: record.get(key) for key in METADATA_KEYS}
