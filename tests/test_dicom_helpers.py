@@ -1,7 +1,7 @@
 import pydicom
 from pydicom.dataset import FileDataset, FileMetaDataset
 
-from Diomedex.utils.dicom_helpers import extract_basic_metadata
+from Diomedex.utils.dicom_helpers import extract_basic_metadata, normalize_metadata
 
 
 def test_extract_basic_metadata_returns_expected_fields(tmp_path):
@@ -30,3 +30,14 @@ def test_extract_basic_metadata_returns_expected_fields(tmp_path):
     missing_ds.save_as(str(tmp_path / "missing.dcm"))
     missing_metadata = extract_basic_metadata(tmp_path / "missing.dcm")
     assert missing_metadata['StudyDate'] is None
+
+
+def test_normalize_metadata_returns_consistent_keys_and_missing_as_none():
+    metadata = normalize_metadata({'PatientID': 'P123'})
+
+    assert metadata == {
+        'PatientID': 'P123',
+        'StudyDate': None,
+        'Modality': None,
+        'SeriesInstanceUID': None,
+    }
