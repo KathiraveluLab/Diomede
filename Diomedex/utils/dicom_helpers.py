@@ -46,3 +46,12 @@ def extract_basic_metadata(file_path: Union[str, PathLike]):
         'Modality': dataset.get('Modality', None),
         'SeriesInstanceUID': dataset.get('SeriesInstanceUID', None),
     }
+
+
+def normalize_metadata(record: dict) -> dict:
+    return {
+        'PatientID': record.get('PatientID', None),
+        'StudyDate': record.get('StudyDate', None),
+        'Modality': record.get('Modality', None),
+        'SeriesInstanceUID': record.get('SeriesInstanceUID', None),
+    }
