@@ -1,7 +1,9 @@
 import logging
+import math
+import string
+import struct
 from os import PathLike
 from typing import Union, Optional
-import struct
 
 import pydicom
 
@@ -11,6 +13,47 @@ LOG = logging.getLogger(__name__)
 class MaliciousDicomError(Exception):
     """Raised when a DICOM file contains malicious executable content in its preamble."""
     pass
+
+
+def validate_dicom_preamble_from_data(header: bytes) -> bool:
+    """
+    Validate DICOM preamble from header data for malicious executable headers.
+    
+    Args:
+        header: First 132 bytes of DICOM file (128-byte preamble + 4-byte DICM magic)
+        
+    Returns:
+        True if preamble is safe, False if malicious content detected
+        
+    Raises:
+        MaliciousDicomError: If malicious executable content detected
+    """
+    if len(header) < 132:
+        # File too small to be valid DICOM
+        return False
+        
+    preamble = header[:128]
+    magic = header[128:132]
+    
+    # Verify DICM magic number at correct position
+    if magic != b'DICM':
+        return False
+        
+    # Check for executable signatures in preamble
+    malicious_signatures = _detect_executable_signatures(preamble)
+    
+    if malicious_signatures:
+        error_msg = f"Malicious executable content detected in DICOM preamble: {', '.join(malicious_signatures)}"
+        LOG.error("SECURITY ALERT: %s", error_msg)
+        raise MaliciousDicomError(error_msg)
+        
+    # Additional validation for advanced evasion techniques
+    if _detect_advanced_evasion(preamble):
+        error_msg = "Advanced evasion technique detected in DICOM preamble"
+        LOG.error("SECURITY ALERT: %s", error_msg)
+        raise MaliciousDicomError(error_msg)
+        
+    return True
 
 
 def validate_dicom_preamble(file_path: Union[str, PathLike]) -> bool:
@@ -41,35 +84,9 @@ def validate_dicom_preamble(file_path: Union[str, PathLike]) -> bool:
         with open(file_path, 'rb') as f:
             # Read first 132 bytes (128-byte preamble + 4-byte DICM magic)
             header = f.read(132)
+            return validate_dicom_preamble_from_data(header)
             
-            if len(header) < 132:
-                # File too small to be valid DICOM
-                return False
-                
-            preamble = header[:128]
-            magic = header[128:132]
-            
-            # Verify DICM magic number at correct position
-            if magic != b'DICM':
-                return False
-                
-            # Check for executable signatures in preamble
-            malicious_signatures = _detect_executable_signatures(preamble)
-            
-            if malicious_signatures:
-                error_msg = f"Malicious executable content detected in DICOM preamble: {', '.join(malicious_signatures)}"
-                LOG.error("SECURITY ALERT: %s in file: %s", error_msg, file_path)
-                raise MaliciousDicomError(error_msg)
-                
-            # Additional validation for advanced evasion techniques
-            if _detect_advanced_evasion(preamble):
-                error_msg = "Advanced evasion technique detected in DICOM preamble"
-                LOG.error("SECURITY ALERT: %s in file: %s", error_msg, file_path)
-                raise MaliciousDicomError(error_msg)
-                
-            return True
-            
-    except (OSError, IOError) as e:
+    except OSError as e:
         LOG.error("Failed to read DICOM file for preamble validation: %s (%s)", file_path, e)
         raise
 
@@ -112,16 +129,12 @@ def _detect_executable_signatures(preamble: bytes) -> list[str]:
         (b'\xce\xfa\xed\xfe', "Mach-O 32-bit little-endian"), 
         (b'\xfe\xed\xfa\xcf', "Mach-O 64-bit big-endian"),
         (b'\xcf\xfa\xed\xfe', "Mach-O 64-bit little-endian"),
-        (b'\xca\xfe\xba\xbe', "Mach-O universal binary"),
+        (b'\xca\xfe\xba\xbe', "Mach-O universal binary or Java class file"),
     ]
     
     for signature, name in macho_signatures:
         if preamble.startswith(signature):
             detected.append(name)
-    
-    # Java class files
-    if preamble.startswith(b'\xca\xfe\xba\xbe'):
-        detected.append("Java class file")
     
     # DOS executable
     if preamble.startswith(b'MZ') and len(preamble) >= 64:
@@ -175,8 +188,6 @@ def _detect_advanced_evasion(preamble: bytes) -> bool:
 
 def _calculate_entropy(data: bytes) -> float:
     """Calculate Shannon entropy of byte data."""
-    import math
-    
     if not data:
         return 0.0
         
@@ -206,7 +217,6 @@ def _has_suspicious_patterns(preamble: bytes) -> bool:
             return True
     
     # Check for base64-like patterns
-    import string
     b64_chars = set(string.ascii_letters + string.digits + '+/=')
     
     # Count base64 characters, but only in non-null regions
@@ -264,13 +274,21 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]) -> Optional[pydicom.Da
         malware in the 128-byte DICOM preamble to create polyglot files.
     """
     try:
-        # First, validate preamble for security threats
-        if not validate_dicom_preamble(file_path):
-            LOG.warning("DICOM preamble validation failed for file: %s", file_path)
-            return None
+        # Open file once and read header for validation
+        with open(file_path, 'rb') as f:
+            # Read first 132 bytes for preamble validation
+            header = f.read(132)
             
-        # If preamble is safe, proceed with normal DICOM loading
-        dataset = pydicom.dcmread(file_path)
+            # Validate preamble for security threats
+            if not validate_dicom_preamble_from_data(header):
+                LOG.warning("DICOM preamble validation failed for file: %s", file_path)
+                return None
+            
+            # Reset file pointer to beginning for pydicom
+            f.seek(0)
+            
+            # Load DICOM dataset from file object
+            dataset = pydicom.dcmread(f)
         
         # Additional post-load validation
         if not _validate_dicom_structure(dataset):
@@ -321,6 +339,6 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
                 
         return True
         
-    except Exception as e:
+    except (AttributeError, KeyError, TypeError) as e:
         LOG.warning("DICOM structure validation error: %s", e)
         return False
