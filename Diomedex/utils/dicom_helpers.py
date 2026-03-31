@@ -7,7 +7,7 @@ import pydicom
 LOG = logging.getLogger(__name__)
 
 
-def safe_load_dicom_file(file_path: Union[str, PathLike]):
+def safe_load_dicom_file(file_path: Union[str, PathLike], errors: list | None = None):
     """Safely load a DICOM file from disk.
 
     Returns the pydicom Dataset for valid files or None when invalid/malformed.
@@ -23,6 +23,11 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]):
             EOFError,
             ValueError,
             OSError) as ex:
+        if errors is not None:
+            errors.append({
+                "file_path": str(file_path),
+                "error": str(ex),
+            })
         LOG.warning("Skipping invalid or corrupted DICOM file: %s (%s)", file_path, ex)
         return None
 
