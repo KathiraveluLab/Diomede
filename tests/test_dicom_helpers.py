@@ -1,7 +1,11 @@
 import pydicom
 from pydicom.dataset import FileDataset, FileMetaDataset
 
-from Diomedex.utils.dicom_helpers import extract_basic_metadata, normalize_metadata
+from Diomedex.utils.dicom_helpers import (
+    extract_basic_metadata,
+    normalize_metadata,
+    safe_load_dicom_file,
+)
 
 
 def test_extract_basic_metadata_returns_expected_fields(tmp_path):
@@ -41,3 +45,16 @@ def test_normalize_metadata_returns_consistent_keys_and_missing_as_none():
         'Modality': None,
         'SeriesInstanceUID': None,
     }
+
+
+def test_safe_load_dicom_file_tracks_invalid_file_error(tmp_path):
+    invalid_file = tmp_path / "invalid.dcm"
+    invalid_file.write_text("not a dicom")
+    errors = []
+
+    result = safe_load_dicom_file(invalid_file, errors=errors)
+
+    assert result is None
+    assert len(errors) == 1
+    assert errors[0]["file_path"] == str(invalid_file)
+    assert errors[0]["error"]
