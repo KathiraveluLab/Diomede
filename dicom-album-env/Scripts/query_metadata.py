@@ -238,7 +238,7 @@ def evaluate_condition(df, field, op, value):
             )
         parsed_value = parse_scalar_value(value, field_type)
         series = get_typed_series(df, field, field_type)
-        return series.str.contains(parsed_value, na=False)
+        return series.str.contains(parsed_value, na=False, regex=False)
 
     # Handle list literals: ['CT', 'MR']
     if value.startswith('[') and value.endswith(']'):
