@@ -47,11 +47,19 @@ def select_directory():
     return render_template("select_directory.html", files_exist=files_exist)
 
 @app.route("/create_album", methods=["GET", "POST"])
-def create_album():
+def create_album_route():
     if request.method == "POST":
+<<<<<<< Updated upstream
         query = request.form.get("query", "")
         album_name = request.form.get("album_name", "default_album")
 
+=======
+        query = request.form.get("query", "").strip()
+        if not query:
+            return "Query cannot be empty", 400
+        album_name = request.form.get("album_name", "").strip() or "default_album"
+        
+>>>>>>> Stashed changes
         # Load DICOM files and extract metadata
         target_directory = os.path.join(os.getcwd(), "data", "dicom_files")
         dicom_files = load_dicom_files(target_directory)
@@ -76,7 +84,17 @@ def create_album():
 
 @app.route("/view_query_results", methods=["GET", "POST"])
 def view_query_results():
+<<<<<<< Updated upstream
     subset_path = session.get('subset_path')
+=======
+    data = session.get('subset_df')
+
+    if not data:
+        subset_df = pd.DataFrame()
+    else:
+        subset_df = pd.DataFrame(data)
+        
+>>>>>>> Stashed changes
     album_name = session.get('album_name')
 
     if subset_path and os.path.exists(subset_path):
