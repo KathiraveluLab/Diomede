@@ -69,6 +69,7 @@ def anonymize_file():
     try:
         src_path = _validate_path(data["src"])
         dest_path = _validate_path(data["dest"])
+        _check_within_storage(src_path, storage_path)
         _check_within_storage(dest_path, storage_path)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
