@@ -120,6 +120,7 @@ def anonymize_directory():
         dest_dir = _validate_path(data["dest"])
         _check_within_storage(src_dir, storage_path)
         _check_within_storage(dest_dir, storage_path)
+        _check_within_storage(dest_dir, storage_path)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
