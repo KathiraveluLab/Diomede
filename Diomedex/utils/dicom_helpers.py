@@ -40,8 +40,9 @@ METADATA_KEYS = (
 def extract_basic_metadata(file_path: Union[str, PathLike]) -> dict:
     """Extracts basic DICOM metadata, returning a normalized dictionary."""
     try:
-        dataset = pydicom.dcmread(file_path)
-    except (pydicom.errors.InvalidDicomError, EOFError, ValueError, OSError):
+        dataset = pydicom.dcmread(file_path, stop_before_pixels=True)
+    except (pydicom.errors.InvalidDicomError, EOFError, ValueError, OSError) as ex:
+        LOG.warning("Could not extract metadata from %s: %s", file_path, ex)
         dataset = {}
     return normalize_metadata(dataset)
 
