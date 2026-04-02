@@ -342,3 +342,21 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
     except (AttributeError, KeyError, TypeError) as e:
         LOG.warning("DICOM structure validation error: %s", e)
         return False
+
+
+def extract_basic_metadata(file_path: Union[str, PathLike]):
+    dataset = safe_load_dicom_file(file_path)
+    if dataset is None:
+        return {
+            'PatientID': None,
+            'StudyDate': None,
+            'Modality': None,
+            'SeriesInstanceUID': None,
+        }
+
+    return {
+        'PatientID': dataset.get('PatientID', None),
+        'StudyDate': dataset.get('StudyDate', None),
+        'Modality': dataset.get('Modality', None),
+        'SeriesInstanceUID': dataset.get('SeriesInstanceUID', None),
+    }
