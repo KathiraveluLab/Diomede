@@ -331,10 +331,22 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
                 LOG.warning("Suspicious transfer syntax: %s", transfer_syntax)
                 return False
         
-        # Check for suspicious private tags that might contain malicious data
+        # Check suspicious private binary payloads while avoiding false positives
+        # from legitimate large metadata values.
         for tag in dataset.keys():
-            if tag.is_private and len(dataset[tag].value) > 10000:
-                LOG.warning("Suspicious large private tag detected: %s", tag)
+            if not tag.is_private:
+                continue
+
+            value = dataset[tag].value
+            if not isinstance(value, (bytes, bytearray)):
+                continue
+
+            if len(value) < 128:
+                continue
+
+            sample = bytes(value[:128])
+            if _detect_executable_signatures(sample) or _detect_advanced_evasion(sample):
+                LOG.warning("Suspicious private tag payload detected: %s", tag)
                 return False
                 
         return True
