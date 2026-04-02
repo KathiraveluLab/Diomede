@@ -203,7 +203,7 @@ def _calculate_entropy(data: bytes) -> float:
     for count in byte_counts:
         if count > 0:
             probability = count / data_len
-            entropy -= probability * math.log2(probability)
+            entropy -= probability * math.log(probability, 2)
     
     return entropy
 
