@@ -21,16 +21,16 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]):
         return None
 
 
-def normalize_metadata(dataset_or_dict):
+def normalize_metadata(dataset_or_dict, keys=_METADATA_KEYS):
     """Normalize DICOM metadata for Dataset/dict inputs."""
     if dataset_or_dict is None:
-        return {key: None for key in _METADATA_KEYS}
+        return {key: None for key in keys}
 
-    getter = dataset_or_dict.get if hasattr(dataset_or_dict, 'get') else None
-    if getter is None:
-        return {key: None for key in _METADATA_KEYS}
+    getter = getattr(dataset_or_dict, 'get', None)
+    if not callable(getter):
+        return {key: None for key in keys}
 
-    return {key: getter(key, None) for key in _METADATA_KEYS}
+    return {key: getter(key, None) for key in keys}
 
 
 def extract_basic_metadata(file_path: Union[str, PathLike]):
