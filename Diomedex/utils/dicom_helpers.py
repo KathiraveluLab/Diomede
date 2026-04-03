@@ -336,11 +336,11 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
         
         # Check suspicious private binary payloads while avoiding false positives
         # from legitimate large metadata values.
-        for tag in dataset.keys():
-            if not tag.is_private:
+        for elem in dataset:
+            if not elem.tag.is_private:
                 continue
 
-            value = dataset[tag].value
+            value = elem.value
             if not isinstance(value, (bytes, bytearray)):
                 continue
 
@@ -349,7 +349,7 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
 
             sample = bytes(value[:128])
             if _detect_executable_signatures(sample) or _detect_advanced_evasion(sample):
-                LOG.warning("Suspicious private tag payload detected: %s", tag)
+                LOG.warning("Suspicious private tag payload detected: %s", elem.tag)
                 return False
                 
         return True
