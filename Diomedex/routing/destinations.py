@@ -121,3 +121,14 @@ class DestinationManager:
             dest = self.destinations.get(name)
             if dest and dest.current_queue > 0:
                 dest.current_queue -= 1
+
+    def update_destination(self, name, updates: dict) -> bool:
+        _ALLOWED = {'ae_title', 'host', 'port', 'priority', 'max_queue_size', 'http_port'}
+        with self._lock:
+            dest = self.destinations.get(name)
+            if not dest:
+                return False
+            for field, value in updates.items():
+                if field in _ALLOWED:
+                    setattr(dest, field, value)
+            return True

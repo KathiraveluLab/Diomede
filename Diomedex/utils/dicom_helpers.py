@@ -307,7 +307,6 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]) -> Optional[pydicom.Da
         LOG.warning("Skipping invalid or corrupted DICOM file: %s (%s)", file_path, ex)
         return None
 
-
 def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
     """
     Validate basic DICOM dataset structure for additional security.
