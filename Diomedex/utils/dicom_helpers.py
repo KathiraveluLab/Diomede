@@ -220,8 +220,8 @@ def _has_suspicious_patterns(preamble: bytes) -> bool:
         # Check for ELF signature (4 bytes) at various offsets - very low false positive rate
         if any(decoded[i:i+4] == b'\x7fELF' for i in range(min(32, len(decoded) - 4))):
             return True
-        # Check for MZ signature at offset 0
-        if decoded.startswith(b'MZ'):
+        # Check for MZ signature at offset 0 and nearby offsets
+        if any(decoded[i:i+2] == b'MZ' for i in range(min(32, len(decoded) - 2))):
             return True
     
     # Check for base64-like patterns
@@ -335,7 +335,8 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
         
         # Check suspicious private binary payloads while avoiding false positives
         # from legitimate large metadata values.
-        for elem in dataset:
+        # Use iterall() so nested Sequence items are validated too.
+        for elem in dataset.iterall():
             if not elem.tag.is_private:
                 continue
 
