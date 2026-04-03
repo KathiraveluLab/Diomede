@@ -1,6 +1,6 @@
-from flask import Blueprint, jsonify, current_app, request
-
+import re
 from .destinations import Destination
+from flask import Blueprint, jsonify, current_app, request
 
 routing_bp = Blueprint('routing', __name__, url_prefix='/routing')
 
@@ -54,13 +54,23 @@ def _dest_to_dict(dest, *, full=False):
 
 
 def _validate_int_positive(value, field):
-    #Return (int_value, None) or (None, error_str)
+    if isinstance(value, bool):
+        return None, f"'{field}' must be an integer, got {value!r}"
     try:
         v = int(value)
     except (TypeError, ValueError):
         return None, f"'{field}' must be an integer, got {value!r}"
     if v <= 0:
         return None, f"'{field}' must be a positive integer, got {v}"
+    return v, None
+
+
+def _validate_port(value):
+    v, err = _validate_int_positive(value, 'port')
+    if err:
+        return None, err
+    if v > 65535:
+        return None, f"'port' must be between 1 and 65535, got {v}"
     return v, None
 
 @routing_bp.route('/stats', methods=['GET'])
@@ -149,14 +159,20 @@ def add_destination():
         return jsonify({'error': 'Router not running'}), 503
 
     body = request.get_json(silent=True)
-    if not body:
+    if body is None:
         return jsonify({'error': 'Request body must be JSON'}), 400
+    if not isinstance(body, dict):
+        return jsonify({'error': 'Request JSON must be an object'}), 400
 
     # validate required fields
     for field, expected_type in _REQUIRED_POST_FIELDS.items():
         if field not in body:
             return jsonify({'error': f"Missing required field: '{field}'"}), 400
-        if expected_type is int:
+        if field == 'port':
+            val, err = _validate_port(body[field])
+            if err:
+                return jsonify({'error': err}), 400
+        elif expected_type is int:
             val, err = _validate_int_positive(body[field], field)
             if err:
                 return jsonify({'error': err}), 400
@@ -164,6 +180,10 @@ def add_destination():
             return jsonify({'error': f"'{field}' must be a non-empty string"}), 400
 
     name = body['name'].strip()
+
+    # Reject names that contain '/' — they cannot be addressed by the URL routes
+    if not re.match(r'^[A-Za-z0-9_\-\.]+$', name):
+        return jsonify({'error': "'name' must contain only letters, digits, hyphens, underscores, or dots"}), 400
 
     # reject duplicates
     if router.destination_manager.get_destination(name):
@@ -179,7 +199,7 @@ def add_destination():
             kwargs[field] = val
 
     # Normalise the port (already validated above)
-    port, _ = _validate_int_positive(body['port'], 'port')
+    port, _ = _validate_port(body['port'])
 
     router.add_destination(
         name=name,
@@ -226,23 +246,26 @@ def update_destination(name):
         return jsonify({'error': f"Destination '{name}' not found"}), 404
 
     body = request.get_json(silent=True)
-    if not body:
+    if body is None:
         return jsonify({'error': 'Request body must be JSON'}), 400
+    if not isinstance(body, dict):
+        return jsonify({'error': 'Request JSON must be an object'}), 400
+    if not body:
+        return jsonify({'error': 'No fields provided to update'}), 400
 
-    # Reject any unknown keys to surface typos early
+    #reject any unknown keys to surface typos early
     unknown = set(body.keys()) - set(_PATCHABLE_FIELDS.keys())
     if unknown:
         return jsonify({'error': f"Unknown field(s): {', '.join(sorted(unknown))}"}), 400
 
-    if not body:
-        return jsonify({'error': 'No fields provided to update'}), 400
-
-    # Validate and collect updates
+    #validate and collect updates — type driven by _PATCHABLE_FIELDS
     updates = {}
-    int_fields = {'port', 'priority', 'max_queue_size', 'http_port'}
     for field in body:
-        if field in int_fields:
-            val, err = _validate_int_positive(body[field], field)
+        if _PATCHABLE_FIELDS[field] is int:
+            if field == 'port':
+                val, err = _validate_port(body[field])
+            else:
+                val, err = _validate_int_positive(body[field], field)
             if err:
                 return jsonify({'error': err}), 400
             updates[field] = val
@@ -251,10 +274,8 @@ def update_destination(name):
                 return jsonify({'error': f"'{field}' must be a non-empty string"}), 400
             updates[field] = body[field].strip()
 
-    #apply updates atomically (the manager's Lock wraps attribute writes too)
-    with router.destination_manager._lock:
-        for field, value in updates.items():
-            setattr(dest, field, value)
+    #apply updates atomically via DestinationManager (keeps _lock encapsulated)
+    router.destination_manager.update_destination(name, updates)
 
     return jsonify({
         'message': f"Destination '{name}' updated successfully",
