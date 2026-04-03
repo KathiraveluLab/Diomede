@@ -54,15 +54,11 @@ def _dest_to_dict(dest, *, full=False):
 
 
 def _validate_int_positive(value, field):
-    if isinstance(value, bool):
+    if not isinstance(value, int) or isinstance(value, bool):
         return None, f"'{field}' must be an integer, got {value!r}"
-    try:
-        v = int(value)
-    except (TypeError, ValueError):
-        return None, f"'{field}' must be an integer, got {value!r}"
-    if v <= 0:
-        return None, f"'{field}' must be a positive integer, got {v}"
-    return v, None
+    if value <= 0:
+        return None, f"'{field}' must be a positive integer, got {value}"
+    return value, None
 
 
 def _validate_port(value):
@@ -198,8 +194,7 @@ def add_destination():
                 return jsonify({'error': err}), 400
             kwargs[field] = val
 
-    # Normalise the port (already validated above)
-    port, _ = _validate_port(body['port'])
+    port = body['port']
 
     router.add_destination(
         name=name,
@@ -275,7 +270,8 @@ def update_destination(name):
             updates[field] = body[field].strip()
 
     #apply updates atomically via DestinationManager (keeps _lock encapsulated)
-    router.destination_manager.update_destination(name, updates)
+    if not router.destination_manager.update_destination(name, updates):
+        return jsonify({'error': f"Destination '{name}' was removed concurrently"}), 404
 
     return jsonify({
         'message': f"Destination '{name}' updated successfully",
