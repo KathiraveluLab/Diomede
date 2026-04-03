@@ -10,6 +10,9 @@ import pytest
 import tempfile
 import os
 from pathlib import Path
+import pydicom
+from pydicom.dataset import FileDataset, FileMetaDataset
+from pydicom.uid import UID
 
 from Diomedex.utils.dicom_helpers import (
     safe_load_dicom_file,
@@ -28,58 +31,39 @@ class TestDicomPreambleSecurity:
 
     def create_test_dicom_file(self, preamble_content: bytes, valid_dicom: bool = True) -> str:
         """Create a test DICOM file with custom preamble content."""
-        # Create temporary file
         fd, temp_path = tempfile.mkstemp(suffix='.dcm')
-        
+        os.close(fd)
+
         try:
-            with os.fdopen(fd, 'wb') as f:
-                # Write custom preamble (128 bytes)
-                if len(preamble_content) < 128:
-                    preamble_content += b'\x00' * (128 - len(preamble_content))
-                elif len(preamble_content) > 128:
-                    preamble_content = preamble_content[:128]
-                
-                f.write(preamble_content)
-                
-                if valid_dicom:
-                    # Write DICM magic number
-                    f.write(b'DICM')
-                    
-                    # Write minimal DICOM file meta information
-                    # File Meta Information Group Length
-                    f.write(b'\x02\x00\x00\x00\x55\x4c\x04\x00\x8a\x00\x00\x00')
-                    
-                    # File Meta Information Version
-                    f.write(b'\x02\x00\x01\x00\x4f\x42\x00\x00\x00\x01')
-                    
-                    # Media Storage SOP Class UID
-                    f.write(b'\x02\x00\x02\x00\x55\x49\x1a\x00')
-                    f.write(b'1.2.840.10008.5.1.4.1.1.2\x00')
-                    
-                    # Media Storage SOP Instance UID  
-                    f.write(b'\x02\x00\x03\x00\x55\x49\x1c\x00')
-                    f.write(b'1.2.3.4.5.6.7.8.9.10.11.12\x00\x00')
-                    
-                    # Transfer Syntax UID
-                    f.write(b'\x02\x00\x10\x00\x55\x49\x1a\x00')
-                    f.write(b'1.2.840.10008.1.2.1\x00\x00\x00\x00')
-                    
-                    # Implementation Class UID
-                    f.write(b'\x02\x00\x12\x00\x55\x49\x1c\x00')
-                    f.write(b'1.2.3.4.5.6.7.8.9.10.11.13\x00\x00')
-                    
-                    # Basic dataset elements
-                    # Patient ID
-                    f.write(b'\x10\x00\x20\x00\x4c\x4f\x08\x00TEST1234')
-                    
-                else:
-                    # Write invalid magic number
+            # Write custom preamble (must be exactly 128 bytes)
+            if len(preamble_content) < 128:
+                preamble_content += b'\x00' * (128 - len(preamble_content))
+            elif len(preamble_content) > 128:
+                preamble_content = preamble_content[:128]
+
+            if valid_dicom:
+                file_meta = FileMetaDataset()
+                file_meta.MediaStorageSOPClassUID = UID('1.2.840.10008.5.1.4.1.1.2')
+                file_meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid()
+                file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
+                ds = FileDataset(temp_path, {}, file_meta=file_meta, preamble=preamble_content)
+                ds.PatientID = "TEST1234"
+                ds.StudyInstanceUID = "1.2.3.4.5.6"
+                ds.Modality = "CT"
+                ds.is_little_endian = True
+                ds.is_implicit_VR = False
+                ds.save_as(temp_path)
+            else:
+                with open(temp_path, 'wb') as f:
+                    f.write(preamble_content)
                     f.write(b'XXXX')
-                    
+
         except Exception:
-            os.unlink(temp_path)
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
             raise
-            
+
         return temp_path
 
     def test_clean_dicom_file_passes(self):

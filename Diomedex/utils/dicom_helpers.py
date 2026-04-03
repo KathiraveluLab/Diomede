@@ -9,6 +9,18 @@ import pydicom
 
 LOG = logging.getLogger(__name__)
 
+MACHO_SIGNATURES = (
+    (b'\xfe\xed\xfa\xce', "Mach-O 32-bit big-endian"),
+    (b'\xce\xfa\xed\xfe', "Mach-O 32-bit little-endian"),
+    (b'\xfe\xed\xfa\xcf', "Mach-O 64-bit big-endian"),
+    (b'\xcf\xfa\xed\xfe', "Mach-O 64-bit little-endian"),
+    (b'\xca\xfe\xba\xbe', "Mach-O universal binary or Java class file"),
+)
+
+MACHO_MAGIC_BYTES = tuple(signature for signature, _ in MACHO_SIGNATURES)
+
+BASE64_CHAR_BYTES = set(ord(c) for c in (string.ascii_letters + string.digits + '+/='))
+
 
 class MaliciousDicomError(Exception):
     """Raised when a DICOM file contains malicious executable content in its preamble."""
@@ -105,7 +117,18 @@ def _detect_executable_signatures(preamble: bytes) -> list[str]:
     
     # Windows PE executable signatures
     if preamble.startswith(b'MZ'):
-        detected.append("Windows PE (MZ)")
+        # Prefer a more specific message when DOS header structure looks valid.
+        if len(preamble) >= 64:
+            try:
+                e_lfanew = struct.unpack('<I', preamble[60:64])[0]
+                if 0 < e_lfanew < 1024:  # Reasonable PE header offset
+                    detected.append("Windows PE (MZ, DOS header)")
+                else:
+                    detected.append("Windows PE (MZ)")
+            except struct.error:
+                detected.append("Windows PE (MZ)")
+        else:
+            detected.append("Windows PE (MZ)")
     
     # Check for PE signature at various offsets (common in packed executables)
     for offset in range(1, min(64, len(preamble) - 2)):
@@ -124,28 +147,9 @@ def _detect_executable_signatures(preamble: bytes) -> list[str]:
             break
     
     # macOS Mach-O executable signatures (32-bit and 64-bit, big/little endian)
-    macho_signatures = [
-        (b'\xfe\xed\xfa\xce', "Mach-O 32-bit big-endian"),
-        (b'\xce\xfa\xed\xfe', "Mach-O 32-bit little-endian"), 
-        (b'\xfe\xed\xfa\xcf', "Mach-O 64-bit big-endian"),
-        (b'\xcf\xfa\xed\xfe', "Mach-O 64-bit little-endian"),
-        (b'\xca\xfe\xba\xbe', "Mach-O universal binary or Java class file"),
-    ]
-    
-    for signature, name in macho_signatures:
+    for signature, name in MACHO_SIGNATURES:
         if preamble.startswith(signature):
             detected.append(name)
-    
-    # DOS executable
-    if preamble.startswith(b'MZ') and len(preamble) >= 64:
-        # Check for DOS signature patterns
-        try:
-            # DOS header structure check
-            e_lfanew = struct.unpack('<I', preamble[60:64])[0]
-            if 0 < e_lfanew < 1024:  # Reasonable PE header offset
-                detected.append("DOS/PE executable")
-        except (struct.error, IndexError):
-            pass
     
     # Shell scripts (Unix)
     if preamble.startswith(b'#!/'):
@@ -221,12 +225,10 @@ def _has_suspicious_patterns(preamble: bytes) -> bool:
             return True
     
     # Check for base64-like patterns
-    b64_chars = set(string.ascii_letters + string.digits + '+/=')
-    
     # Count base64 characters, but only in non-null regions
     non_null_bytes = [b for b in preamble if b != 0]
     if len(non_null_bytes) > 0:
-        b64_count = sum(1 for b in non_null_bytes if chr(b) in b64_chars)
+        b64_count = sum(1 for b in non_null_bytes if b in BASE64_CHAR_BYTES)
         if len(non_null_bytes) > 32 and b64_count > len(non_null_bytes) * 0.8:  # >80% base64 characters
             return True
         
@@ -243,10 +245,7 @@ def _has_embedded_content_in_nulls(preamble: bytes) -> bool:
             # Check if segment contains executable signatures
             if (segment.startswith(b'MZ') or 
                 segment.startswith(b'\x7fELF') or
-                any(segment.startswith(sig) for sig in [
-                    b'\xfe\xed\xfa\xce', b'\xce\xfa\xed\xfe',
-                    b'\xfe\xed\xfa\xcf', b'\xcf\xfa\xed\xfe'
-                ])):
+                any(segment.startswith(sig) for sig in MACHO_MAGIC_BYTES)):
                 return True
                 
     return False
