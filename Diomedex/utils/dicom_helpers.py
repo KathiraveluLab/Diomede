@@ -212,8 +212,12 @@ def _has_suspicious_patterns(preamble: bytes) -> bool:
     """Check for suspicious repeating patterns that might hide executable content."""
     # Look for XOR patterns (common obfuscation technique)
     for key in range(1, 256):
-        decoded = bytes(b ^ key for b in preamble[:32])
-        if decoded.startswith(b'MZ') or decoded.startswith(b'\x7fELF'):
+        decoded = bytes(b ^ key for b in preamble)
+        # Check for ELF signature (4 bytes) at various offsets - very low false positive rate
+        if any(decoded[i:i+4] == b'\x7fELF' for i in range(min(32, len(decoded) - 4))):
+            return True
+        # Check for MZ signature at offset 0
+        if decoded.startswith(b'MZ'):
             return True
     
     # Check for base64-like patterns
