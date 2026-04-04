@@ -344,6 +344,64 @@ class TestAdvancedEvasionDetection:
 class TestDicomStructureValidation:
     """Test DICOM structure validation."""
 
+    def test_private_transfer_syntax_is_allowed(self):
+        """Test that private transfer syntax UIDs are accepted for compatibility."""
+        import pydicom
+        from pydicom.dataset import FileDataset, FileMetaDataset
+        from pydicom.uid import UID
+
+        file_meta = FileMetaDataset()
+        file_meta.MediaStorageSOPClassUID = UID('1.2.840.10008.5.1.4.1.1.2')
+        file_meta.MediaStorageSOPInstanceUID = UID('1.2.3.4.5.7')
+        file_meta.TransferSyntaxUID = UID('1.2.840.113619.5.2')
+
+        fd, temp_path = tempfile.mkstemp(suffix='.dcm')
+        os.close(fd)
+
+        try:
+            ds = FileDataset(temp_path, {}, file_meta=file_meta, preamble=b'\x00' * 128)
+            ds.PatientID = "TESTPRIVATE"
+            ds.StudyInstanceUID = "1.2.3.4.5.6.7"
+            ds.Modality = "CT"
+            ds.save_as(temp_path)
+
+            dataset = safe_load_dicom_file(temp_path)
+            assert dataset is not None
+            assert dataset.PatientID == "TESTPRIVATE"
+
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def test_malicious_string_private_tag_detected(self):
+        """Test detection when private tags contain suspicious string payloads."""
+        import pydicom
+        from pydicom.dataset import FileDataset, FileMetaDataset
+        from pydicom.uid import UID
+
+        file_meta = FileMetaDataset()
+        file_meta.MediaStorageSOPClassUID = UID('1.2.840.10008.5.1.4.1.1.2')
+        file_meta.MediaStorageSOPInstanceUID = UID('1.2.3.4.5.8')
+        file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
+        fd, temp_path = tempfile.mkstemp(suffix='.dcm')
+        os.close(fd)
+
+        try:
+            ds = FileDataset(temp_path, {}, file_meta=file_meta, preamble=b'\x00' * 128)
+            ds.PatientID = "TESTSTR"
+            ds.StudyInstanceUID = "1.2.3.4.5.6.8"
+            ds.Modality = "CT"
+            ds.add_new((0x0043, 0x1010), 'UT', 'MZ' + ('A' * 200))
+            ds.save_as(temp_path)
+
+            with pytest.raises(MaliciousDicomError, match="private tag"):
+                safe_load_dicom_file(temp_path)
+
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
     def test_valid_dicom_structure_passes(self):
         """Test that valid DICOM structure passes validation."""
         # This test requires a real DICOM file, so we'll create a minimal one

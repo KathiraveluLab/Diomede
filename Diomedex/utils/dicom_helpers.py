@@ -333,13 +333,8 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
         if not hasattr(dataset, 'file_meta'):
             return False
             
-        # Validate transfer syntax
-        if hasattr(dataset.file_meta, 'TransferSyntaxUID'):
-            transfer_syntax = str(dataset.file_meta.TransferSyntaxUID)
-            # Ensure it's a known DICOM transfer syntax
-            if not transfer_syntax.startswith('1.2.840.10008.1.2'):
-                LOG.warning("Suspicious transfer syntax: %s", transfer_syntax)
-                return False
+        # Keep transfer syntax compatibility broad to support private syntaxes
+        # used by imaging vendors.
         
         # Check suspicious private binary payloads while avoiding false positives
         # from legitimate large metadata values.
@@ -349,16 +344,23 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
                 continue
 
             value = elem.value
+            if isinstance(value, str):
+                # Slice first to avoid large allocations for very long strings.
+                value = value[:128].encode('utf-8', errors='ignore')
             if not isinstance(value, (bytes, bytearray)):
                 continue
 
             if len(value) < 128:
                 continue
 
-            sample = bytes(value[:128])
-            if _detect_executable_signatures(sample) or _detect_advanced_evasion(sample):
-                LOG.warning("Suspicious private tag payload detected: %s", elem.tag)
-                return False
+            sample = value[:128]
+            malicious_sigs = _detect_executable_signatures(sample)
+            if malicious_sigs or _detect_advanced_evasion(sample):
+                error_msg = f"Malicious content detected in private tag {elem.tag}"
+                if malicious_sigs:
+                    error_msg += f": {', '.join(malicious_sigs)}"
+                LOG.error("SECURITY ALERT: %s", error_msg)
+                raise MaliciousDicomError(error_msg)
                 
         return True
         
