@@ -25,18 +25,13 @@ def _ensure_required_tags(file_path: str) -> None:
     """
     # Check headers first without loading large pixel data into memory
     ds = pydicom.dcmread(file_path, stop_before_pixels=True)
-    patched = False
-    for tag in _REQUIRED_UID_TAGS:
-        if tag not in ds:
-            patched = True
-            break
+    missing_tags = [tag for tag in _REQUIRED_UID_TAGS if tag not in ds]
 
-    if patched:
+    if missing_tags:
         # Re-read fully only if we actually need to save changes
         ds = pydicom.dcmread(file_path)
-        for tag in _REQUIRED_UID_TAGS:
-            if tag not in ds:
-                setattr(ds, tag, generate_uid())
+        for tag in missing_tags:
+            setattr(ds, tag, generate_uid())
         ds.save_as(file_path)
 
 
@@ -91,11 +86,11 @@ class DICOMAnonymizer:
         _niffler_dcm_anonymize(dcm_files, str(dest))
 
         skipped_pkl = dest / "skipped.pkl"
-        failed = (
-            len(pickle.load(open(str(skipped_pkl), "rb")))
-            if skipped_pkl.exists()
-            else 0
-        )
+        if skipped_pkl.exists():
+            with open(str(skipped_pkl), "rb") as f:
+                failed = len(pickle.load(f))
+        else:
+            failed = 0
         processed = len(dcm_files) - failed
 
         return {"processed": processed, "skipped": 0, "failed": failed}

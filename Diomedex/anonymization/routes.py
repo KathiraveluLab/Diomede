@@ -57,7 +57,8 @@ def anonymize_directory():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        return jsonify({"error": f"Internal processing error: {str(e)}"}), 500
+        LOG.error("Unexpected error during path validation: %s", e, exc_info=True)
+        return jsonify({"error": "An internal processing error occurred."}), 500
 
     anonymizer = DICOMAnonymizer()
     stats = anonymizer.anonymize_directory(src_dir, dest_dir)
