@@ -257,7 +257,7 @@ def update_destination(name):
     if not body:
         return jsonify({'error': 'No fields provided to update'}), 400
 
-    candidate = {'name': dest.name, 'host': dest.host, 'port': dest.port, **body}
+    candidate = {'name': dest.name, 'ae_title': dest.ae_title, 'host': dest.host, 'port': dest.port, **body}
     try:
         validated = validate_destination_config(candidate)
     except ValueError as e:
