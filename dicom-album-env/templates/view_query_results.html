@@ -1,19 +1,50 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Query Results</title>
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
-</head>
-<body>
-    <div class="container mt-5">
-        <h1 class="text-center">Query Results</h1>
-        <div class="mt-4">
-            {{ tables|safe }}
+{% extends "base.html" %}
+
+{% block title %}Query Results for {{ album_name }}{% endblock %}
+
+{% block head %}
+<style>
+    .table-container {
+        max-height: 500px;
+        overflow-y: auto;
+        border-radius: 8px;
+        box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.05);
+        background-color: #fff;
+    }
+    .table-container table {
+        margin-bottom: 0;
+        font-size: 0.875rem;
+    }
+    .table-container th {
+        background-color: #f8fafc;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        box-shadow: 0 1px 0 rgba(0,0,0,0.1);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-11">
+        <div class="card p-4 shadow-sm border-0">
+            <h2 class="h4 mb-4 text-center">Step 3: Review & Persist Album</h2>
+            <p class="text-muted text-center mb-4 smaller">Confirm the metadata subset below matches your target cohort. Click Create to save files to the <b>{{ album_name }}</b> directory.</p>
+            
+            <div class="table-container mb-4">
+                {% for table in tables %}
+                    {{ table|safe }}
+                {% endfor %}
+            </div>
+            
+            <form method="POST">
+                <div class="d-grid mt-4">
+                    <button type="submit" class="btn btn-primary btn-lg">Complete & Create Album Disk Store</button>
+                    <a href="{{ url_for('create_album') }}" class="btn btn-link text-muted mt-3 small text-decoration-none">Back to Query</a>
+                </div>
+            </form>
         </div>
-        <form method="POST" class="mt-4">
-            <button type="submit" class="btn btn-primary btn-block">Create Album</button>
-        </form>
     </div>
-</body>
-</html>
+</div>
+{% endblock %}
