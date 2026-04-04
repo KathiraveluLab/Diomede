@@ -203,7 +203,7 @@ def add_destination():
 
     router.add_destination(
         name=name,
-        ae_title=body['ae_title'].strip(),
+        ae_title=body['ae_title'],
         host=body['host'],
         port=body['port'],
         priority=kwargs.get('priority', 1),
