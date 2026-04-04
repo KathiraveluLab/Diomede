@@ -1,4 +1,5 @@
 from flask import Flask, request, render_template, redirect, url_for, session, flash
+from werkzeug.utils import secure_filename
 import pandas as pd
 import os
 import shutil
@@ -52,8 +53,10 @@ def select_directory():
                 return redirect(url_for('select_directory'))
 
             for file in files:
-                file_path = os.path.join(target_directory, os.path.basename(file.filename))
-                file.save(file_path)
+                filename = secure_filename(file.filename)
+                if filename:
+                    file_path = os.path.join(target_directory, filename)
+                    file.save(file_path)
 
             flash(f"Successfully uploaded {len(files)} files.", "success")
             return redirect(url_for('create_album'))
@@ -141,8 +144,9 @@ def view_query_results():
 
 def save_album_to_disk(subset_df, album_name):
     album_directory = os.path.join(get_albums_directory(), album_name)
-    if not os.path.exists(album_directory):
-        os.makedirs(album_directory)
+    if os.path.exists(album_directory):
+        raise FileExistsError(f"Album '{album_name}' already exists. Please use a different name.")
+    os.makedirs(album_directory)
 
     for index, row in subset_df.iterrows():
         dicom_file_path = row['FilePath']
