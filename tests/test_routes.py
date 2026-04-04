@@ -201,6 +201,15 @@ class TestPostDestinationRoute:
         rv = self._post(client, self._VALID)
         assert rv.status_code == 201
         assert rv.get_json()['destination']['name'] == 'orthanc-a'
+        router.add_destination.assert_called_once_with(
+            name='orthanc-a',
+            ae_title='ORTHANC_A',
+            host='127.0.0.1',
+            port=4242,
+            priority=1,
+            max_queue=100,
+            http_port=8042,
+        )
 
     def test_add_duplicate_returns_409(self, client, app):
         router, manager = _make_router(dest=_make_dest())
@@ -289,17 +298,13 @@ class TestPatchDestinationRoute:
             content_type='application/json',
         )
 
-    def test_patch_priority_returns_200(self, client, app):
+    def test_patch_destination_success(self, client, app):
         router, manager = _make_router(dest=_make_dest())
         app.dicom_router = router
-        rv = self._patch(client, 'orthanc-a', {'priority': 5})
+        payload = {'priority': 5}
+        rv = self._patch(client, 'orthanc-a', payload)
         assert rv.status_code == 200
-
-    def test_patch_calls_update_destination(self, client, app):
-        router, manager = _make_router(dest=_make_dest())
-        app.dicom_router = router
-        self._patch(client, 'orthanc-a', {'priority': 5})
-        manager.update_destination.assert_called_once_with('orthanc-a', {'priority': 5})
+        manager.update_destination.assert_called_once_with('orthanc-a', payload)
 
     def test_patch_nonexistent_returns_404(self, client, app):
         router, _ = _make_router()
