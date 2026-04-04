@@ -29,6 +29,8 @@ _PATCHABLE_FIELDS = {
     'http_port':     int,
 }
 
+_DEST_ALLOWED_FIELDS = set(_PATCHABLE_FIELDS) | {'name'}
+
 
 def get_router():
     return getattr(current_app, 'dicom_router', None)
@@ -68,6 +70,25 @@ def _validate_port(value):
     if v > 65535:
         return None, f"'port' must be between 1 and 65535, got {v}"
     return v, None
+
+
+def validate_destination_config(config: dict):
+    if not isinstance(config, dict):
+        raise ValueError('Request JSON must be an object')
+    unknown = set(config) - _DEST_ALLOWED_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown field(s): {', '.join(sorted(unknown))}")
+    for field in ('name', 'host', 'port'):
+        if field not in config:
+            raise ValueError(f"Missing required field: '{field}'")
+    if not isinstance(config['name'], str) or not config['name'].strip():
+        raise ValueError("'name' must be a non-empty string")
+    if not isinstance(config['host'], str) or not config['host'].strip():
+        raise ValueError("'host' must be a non-empty string")
+    port, err = _validate_port(config['port'])
+    if err:
+        raise ValueError(err)
+    return {**config, 'name': config['name'].strip(), 'host': config['host'].strip(), 'port': port}
 
 @routing_bp.route('/stats', methods=['GET'])
 def get_stats():
@@ -157,25 +178,16 @@ def add_destination():
     body = request.get_json(silent=True)
     if body is None:
         return jsonify({'error': 'Request body must be JSON'}), 400
-    if not isinstance(body, dict):
-        return jsonify({'error': 'Request JSON must be an object'}), 400
+    try:
+        body = validate_destination_config(body)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if 'ae_title' not in body:
+        return jsonify({'error': "Missing required field: 'ae_title'"}), 400
+    if not isinstance(body['ae_title'], str) or not body['ae_title'].strip():
+        return jsonify({'error': "'ae_title' must be a non-empty string"}), 400
 
-    # validate required fields
-    for field, expected_type in _REQUIRED_POST_FIELDS.items():
-        if field not in body:
-            return jsonify({'error': f"Missing required field: '{field}'"}), 400
-        if field == 'port':
-            val, err = _validate_port(body[field])
-            if err:
-                return jsonify({'error': err}), 400
-        elif expected_type is int:
-            val, err = _validate_int_positive(body[field], field)
-            if err:
-                return jsonify({'error': err}), 400
-        elif not isinstance(body[field], str) or not body[field].strip():
-            return jsonify({'error': f"'{field}' must be a non-empty string"}), 400
-
-    name = body['name'].strip()
+    name = body['name']
 
     # Reject names that contain '/' — they cannot be addressed by the URL routes
     if not re.match(r'^[A-Za-z0-9_\-\.]+$', name):
@@ -194,13 +206,11 @@ def add_destination():
                 return jsonify({'error': err}), 400
             kwargs[field] = val
 
-    port = body['port']
-
     router.add_destination(
         name=name,
         ae_title=body['ae_title'].strip(),
-        host=body['host'].strip(),
-        port=port,
+        host=body['host'],
+        port=body['port'],
         priority=kwargs.get('priority', 1),
         max_queue=kwargs.get('max_queue_size', 100),
         http_port=kwargs.get('http_port', 8042),
@@ -248,19 +258,19 @@ def update_destination(name):
     if not body:
         return jsonify({'error': 'No fields provided to update'}), 400
 
-    #reject any unknown keys to surface typos early
-    unknown = set(body.keys()) - set(_PATCHABLE_FIELDS.keys())
-    if unknown:
-        return jsonify({'error': f"Unknown field(s): {', '.join(sorted(unknown))}"}), 400
+    candidate = {'name': dest.name, 'host': dest.host, 'port': dest.port, **body}
+    try:
+        validated = validate_destination_config(candidate)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     #validate and collect updates — type driven by _PATCHABLE_FIELDS
     updates = {}
     for field in body:
-        if _PATCHABLE_FIELDS[field] is int:
-            if field == 'port':
-                val, err = _validate_port(body[field])
-            else:
-                val, err = _validate_int_positive(body[field], field)
+        if field in ('host', 'port'):
+            updates[field] = validated[field]
+        elif _PATCHABLE_FIELDS[field] is int:
+            val, err = _validate_int_positive(body[field], field)
             if err:
                 return jsonify({'error': err}), 400
             updates[field] = val
