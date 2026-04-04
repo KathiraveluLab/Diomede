@@ -78,17 +78,16 @@ def validate_destination_config(config: dict):
     unknown = set(config) - _DEST_ALLOWED_FIELDS
     if unknown:
         raise ValueError(f"Unknown field(s): {', '.join(sorted(unknown))}")
-    for field in ('name', 'host', 'port'):
+    for field in ('name', 'ae_title', 'host', 'port'):
         if field not in config:
             raise ValueError(f"Missing required field: '{field}'")
-    if not isinstance(config['name'], str) or not config['name'].strip():
-        raise ValueError("'name' must be a non-empty string")
-    if not isinstance(config['host'], str) or not config['host'].strip():
-        raise ValueError("'host' must be a non-empty string")
+    for field in ('name', 'ae_title', 'host'):
+        if not isinstance(config[field], str) or not config[field].strip():
+            raise ValueError(f"'{field}' must be a non-empty string")
     port, err = _validate_port(config['port'])
     if err:
         raise ValueError(err)
-    return {**config, 'name': config['name'].strip(), 'host': config['host'].strip(), 'port': port}
+    return {**config, 'name': config['name'].strip(), 'ae_title': config['ae_title'].strip(), 'host': config['host'].strip(), 'port': port}
 
 @routing_bp.route('/stats', methods=['GET'])
 def get_stats():
