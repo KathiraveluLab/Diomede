@@ -64,10 +64,15 @@ def select_directory():
 def create_album():
     if request.method == "POST":
         query = request.form.get("query", "").strip()
-        album_name = request.form.get("album_name", "").strip()
+        album_name_raw = request.form.get("album_name", "").strip()
 
-        if not query or not album_name:
+        if not query or not album_name_raw:
             flash("Both Query and Album Name are required.", "warning")
+            return render_template("create_album.html")
+
+        album_name = secure_filename(album_name_raw)
+        if not album_name:
+            flash("Invalid Album Name. Please use a different name.", "warning")
             return render_template("create_album.html")
 
         try:
@@ -87,7 +92,7 @@ def create_album():
                 flash("Query returned zero results. Please refine your filter.", "warning")
                 return render_template("create_album.html")
 
-            session['subset_df'] = subset_df.to_dict()
+            session['query'] = query
             session['album_name'] = album_name
             return redirect(url_for('view_query_results'))
 
@@ -102,21 +107,28 @@ def create_album():
 
 @app.route("/view_query_results", methods=["GET", "POST"])
 def view_query_results():
-    subset_data = session.get('subset_df')
+    query = session.get('query')
     album_name = session.get('album_name')
     
-    if not subset_data:
+    if not query or not album_name:
         flash("No active query session found. Please start over.", "warning")
         return redirect(url_for('select_directory'))
         
-    subset_df = pd.DataFrame(subset_data)
+    target_directory = get_target_directory()
+    dicom_files = load_dicom_files(target_directory)
+    metadata_df = extract_metadata(dicom_files)
+    subset_df = query_metadata(metadata_df, query)
+
+    if subset_df.empty:
+        flash("Query returned zero results. Please refine your filter.", "warning")
+        return redirect(url_for('create_album'))
 
     if request.method == "POST":
         try:
             save_album_to_disk(subset_df, album_name)
             flash(f"Album '{album_name}' created successfully!", "success")
             # Clear session after successful creation
-            session.pop('subset_df', None)
+            session.pop('query', None)
             session.pop('album_name', None)
             return redirect(url_for('select_directory'))
         except Exception as e:

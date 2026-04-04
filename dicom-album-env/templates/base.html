@@ -106,7 +106,7 @@
 
                         Toast.fire({
                             icon: icon,
-                            title: '{{ message }}'
+                            title: {{ message|tojson }}
                         });
                     {% endfor %}
                 {% endif %}
