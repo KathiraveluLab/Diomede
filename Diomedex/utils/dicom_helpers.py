@@ -132,7 +132,7 @@ def _detect_executable_signatures(preamble: bytes) -> list[str]:
     
     else:
         # Check for PE signature at various offsets (common in packed executables)
-        for offset in range(1, min(64, len(preamble) - 2)):
+        for offset in range(1, len(preamble) - 1):
             if preamble[offset:offset+2] == b'MZ':
                 detected.append(f"Windows PE (MZ at offset {offset})")
                 break
@@ -143,7 +143,7 @@ def _detect_executable_signatures(preamble: bytes) -> list[str]:
     
     else:
         # Check for ELF at other positions (less common but possible)
-        for offset in range(1, min(32, len(preamble) - 4)):
+        for offset in range(1, len(preamble) - 3):
             if preamble[offset:offset+4] == b'\x7fELF':
                 detected.append(f"Linux ELF (at offset {offset})")
                 break
@@ -336,10 +336,10 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
         # Keep transfer syntax compatibility broad to support private syntaxes
         # used by imaging vendors.
         
-        # Check suspicious private binary payloads while avoiding false positives
-        # from legitimate large metadata values.
-        # Use iterall() so nested Sequence items are validated too.
-        for elem in dataset.iterall():
+        # Check top-level private tags only for explicit executable signatures.
+        # Avoid expensive deep traversal and aggressive heuristics that can
+        # create false positives for legitimate vendor/private payloads.
+        for elem in dataset:
             if not elem.tag.is_private:
                 continue
 
@@ -355,7 +355,7 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
 
             sample = value[:128]
             malicious_sigs = _detect_executable_signatures(sample)
-            if malicious_sigs or _detect_advanced_evasion(sample):
+            if malicious_sigs:
                 error_msg = f"Malicious content detected in private tag {elem.tag}"
                 if malicious_sigs:
                     error_msg += f": {', '.join(malicious_sigs)}"

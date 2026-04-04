@@ -279,6 +279,18 @@ class TestExecutableSignatureDetection:
         assert any("Windows PE" in sig for sig in signatures)
         assert any("Linux ELF" in sig for sig in signatures)
 
+    def test_detect_pe_signature_late_offset(self):
+        """Test PE signature detection near end of preamble."""
+        preamble = b'\x00' * 100 + b'MZ' + b'\x00' * 26
+        signatures = _detect_executable_signatures(preamble)
+        assert any("Windows PE" in sig for sig in signatures)
+
+    def test_detect_elf_signature_late_offset(self):
+        """Test ELF signature detection near end of preamble."""
+        preamble = b'\x00' * 100 + b'\x7fELF' + b'\x00' * 24
+        signatures = _detect_executable_signatures(preamble)
+        assert any("Linux ELF" in sig for sig in signatures)
+
     def test_clean_preamble_no_signatures(self):
         """Test that clean preamble returns no signatures."""
         clean_preamble = b'\x00' * 128
@@ -397,6 +409,39 @@ class TestDicomStructureValidation:
 
             with pytest.raises(MaliciousDicomError, match="private tag"):
                 safe_load_dicom_file(temp_path)
+
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def test_high_entropy_private_tag_does_not_fail_without_signature(self):
+        """Test high-entropy private payload doesn't fail without executable signatures."""
+        import random
+        import pydicom
+        from pydicom.dataset import FileDataset, FileMetaDataset
+        from pydicom.uid import UID
+
+        file_meta = FileMetaDataset()
+        file_meta.MediaStorageSOPClassUID = UID('1.2.840.10008.5.1.4.1.1.2')
+        file_meta.MediaStorageSOPInstanceUID = UID('1.2.3.4.5.9')
+        file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
+        fd, temp_path = tempfile.mkstemp(suffix='.dcm')
+        os.close(fd)
+
+        try:
+            random.seed(7)
+            payload = bytes(random.randint(0, 255) for _ in range(256))
+
+            ds = FileDataset(temp_path, {}, file_meta=file_meta, preamble=b'\x00' * 128)
+            ds.PatientID = "TESTENT"
+            ds.StudyInstanceUID = "1.2.3.4.5.6.9"
+            ds.Modality = "CT"
+            ds.add_new((0x0043, 0x1011), 'OB', payload)
+            ds.save_as(temp_path)
+
+            dataset = safe_load_dicom_file(temp_path)
+            assert dataset is not None
 
         finally:
             if os.path.exists(temp_path):
