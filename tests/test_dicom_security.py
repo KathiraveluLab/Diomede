@@ -51,9 +51,7 @@ class TestDicomPreambleSecurity:
                 ds.PatientID = "TEST1234"
                 ds.StudyInstanceUID = "1.2.3.4.5.6"
                 ds.Modality = "CT"
-                ds.is_little_endian = True
-                ds.is_implicit_VR = False
-                ds.save_as(temp_path)
+                ds.save_as(temp_path, little_endian=True, implicit_vr=False)
             else:
                 with open(temp_path, 'wb') as f:
                     f.write(preamble_content)

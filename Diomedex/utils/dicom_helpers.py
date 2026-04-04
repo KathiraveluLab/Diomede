@@ -130,21 +130,23 @@ def _detect_executable_signatures(preamble: bytes) -> list[str]:
         else:
             detected.append("Windows PE (MZ)")
     
-    # Check for PE signature at various offsets (common in packed executables)
-    for offset in range(1, min(64, len(preamble) - 2)):
-        if preamble[offset:offset+2] == b'MZ':
-            detected.append(f"Windows PE (MZ at offset {offset})")
-            break
+    else:
+        # Check for PE signature at various offsets (common in packed executables)
+        for offset in range(1, min(64, len(preamble) - 2)):
+            if preamble[offset:offset+2] == b'MZ':
+                detected.append(f"Windows PE (MZ at offset {offset})")
+                break
     
     # Linux ELF executable signatures - check at start and various offsets
     if preamble.startswith(b'\x7fELF'):
         detected.append("Linux ELF")
     
-    # Check for ELF at other positions (less common but possible)
-    for offset in range(1, min(32, len(preamble) - 4)):
-        if preamble[offset:offset+4] == b'\x7fELF':
-            detected.append(f"Linux ELF (at offset {offset})")
-            break
+    else:
+        # Check for ELF at other positions (less common but possible)
+        for offset in range(1, min(32, len(preamble) - 4)):
+            if preamble[offset:offset+4] == b'\x7fELF':
+                detected.append(f"Linux ELF (at offset {offset})")
+                break
     
     # macOS Mach-O executable signatures (32-bit and 64-bit, big/little endian)
     for signature, name in MACHO_SIGNATURES:
@@ -214,14 +216,20 @@ def _calculate_entropy(data: bytes) -> float:
 
 def _has_suspicious_patterns(preamble: bytes) -> bool:
     """Check for suspicious repeating patterns that might hide executable content."""
-    # Look for XOR patterns (common obfuscation technique)
-    for key in range(1, 256):
-        decoded = bytes(b ^ key for b in preamble)
-        # Check for ELF signature (4 bytes) at various offsets - very low false positive rate
-        if any(decoded[i:i+4] == b'\x7fELF' for i in range(min(32, len(decoded) - 4))):
+    # Look for XOR patterns (common obfuscation technique) by deriving key per offset.
+    elf_limit = min(32, len(preamble) - 4)
+    for i in range(elf_limit):
+        key = preamble[i] ^ 0x7F
+        if (key != 0 and
+                preamble[i + 1] == (ord('E') ^ key) and
+                preamble[i + 2] == (ord('L') ^ key) and
+                preamble[i + 3] == (ord('F') ^ key)):
             return True
-        # Check for MZ signature at offset 0 and nearby offsets
-        if any(decoded[i:i+2] == b'MZ' for i in range(min(32, len(decoded) - 2))):
+
+    mz_limit = min(32, len(preamble) - 2)
+    for i in range(mz_limit):
+        key = preamble[i] ^ ord('M')
+        if key != 0 and preamble[i + 1] == (ord('Z') ^ key):
             return True
     
     # Check for base64-like patterns
