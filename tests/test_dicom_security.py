@@ -291,6 +291,19 @@ class TestExecutableSignatureDetection:
         signatures = _detect_executable_signatures(preamble)
         assert any("Linux ELF" in sig for sig in signatures)
 
+    def test_detect_macho_signature_late_offset(self):
+        """Test Mach-O signature detection near end of preamble."""
+        preamble = b'\x00' * 100 + b'\xcf\xfa\xed\xfe' + b'\x00' * 24
+        signatures = _detect_executable_signatures(preamble)
+        assert any("Mach-O" in sig and "offset" in sig for sig in signatures)
+
+    def test_detect_python_bytecode_newer_magic(self):
+        """Test detection for newer Python bytecode magics."""
+        # Python 3.12 magic number
+        preamble = b'\xcb\x0d\r\n' + b'\x00' * 124
+        signatures = _detect_executable_signatures(preamble)
+        assert any("Python bytecode" in sig for sig in signatures)
+
     def test_clean_preamble_no_signatures(self):
         """Test that clean preamble returns no signatures."""
         clean_preamble = b'\x00' * 128
@@ -451,6 +464,36 @@ class TestDicomStructureValidation:
 
             with pytest.raises(MaliciousDicomError, match="private tag"):
                 safe_load_dicom_file(temp_path)
+
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def test_private_tag_non_scannable_vr_is_skipped(self):
+        """Test private tags with non-scannable VR are skipped for performance."""
+        import pydicom
+        from pydicom.dataset import FileDataset, FileMetaDataset
+        from pydicom.uid import UID
+
+        file_meta = FileMetaDataset()
+        file_meta.MediaStorageSOPClassUID = UID('1.2.840.10008.5.1.4.1.1.2')
+        file_meta.MediaStorageSOPInstanceUID = UID('1.2.3.4.5.11')
+        file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
+        fd, temp_path = tempfile.mkstemp(suffix='.dcm')
+        os.close(fd)
+
+        try:
+            ds = FileDataset(temp_path, {}, file_meta=file_meta, preamble=b'\x00' * 128)
+            ds.PatientID = "TESTVR"
+            ds.StudyInstanceUID = "1.2.3.4.5.6.11"
+            ds.Modality = "CT"
+            # PN is not in the private scannable VR allow-list.
+            ds.add_new((0x0043, 0x1013), 'PN', 'MZ')
+            ds.save_as(temp_path)
+
+            dataset = safe_load_dicom_file(temp_path)
+            assert dataset is not None
 
         finally:
             if os.path.exists(temp_path):

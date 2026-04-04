@@ -21,6 +21,18 @@ MACHO_MAGIC_BYTES = tuple(signature for signature, _ in MACHO_SIGNATURES)
 
 BASE64_CHAR_BYTES = set(ord(c) for c in (string.ascii_letters + string.digits + '+/='))
 
+PYTHON_BYTECODE_MAGICS = (
+    b'\x03\xf3\r\n',  # Python 2.7
+    b'\x42\x0d\r\n',  # Python 3.7
+    b'\x55\x0d\r\n',  # Python 3.8
+    b'\x61\x0d\r\n',  # Python 3.9
+    b'\x6f\x0d\r\n',  # Python 3.10
+    b'\xa7\x0d\r\n',  # Python 3.11
+    b'\xcb\x0d\r\n',  # Python 3.12
+)
+
+SCANNABLE_PRIVATE_VRS = {'OB', 'OW', 'UT', 'ST', 'LT', 'UN'}
+
 
 class MaliciousDicomError(Exception):
     """Raised when a DICOM file contains malicious executable content in its preamble."""
@@ -152,13 +164,18 @@ def _detect_executable_signatures(preamble: bytes) -> list[str]:
     for signature, name in MACHO_SIGNATURES:
         if preamble.startswith(signature):
             detected.append(name)
+        else:
+            for offset in range(1, len(preamble) - len(signature) + 1):
+                if preamble[offset:offset + len(signature)] == signature:
+                    detected.append(f"{name} (at offset {offset})")
+                    break
     
     # Shell scripts (Unix)
     if preamble.startswith(b'#!/'):
         detected.append("Shell script")
     
     # Python bytecode
-    if preamble.startswith(b'\x03\xf3\r\n') or preamble.startswith(b'\x42\x0d\r\n'):
+    if any(preamble.startswith(magic) for magic in PYTHON_BYTECODE_MAGICS):
         detected.append("Python bytecode")
         
     return detected
@@ -341,6 +358,9 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
         # create false positives for legitimate vendor/private payloads.
         for elem in dataset:
             if not elem.tag.is_private:
+                continue
+
+            if getattr(elem, 'VR', None) not in SCANNABLE_PRIVATE_VRS:
                 continue
 
             value = elem.value
