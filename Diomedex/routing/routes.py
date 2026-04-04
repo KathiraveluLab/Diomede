@@ -262,7 +262,7 @@ def update_destination(name):
     #validate and collect updates — type driven by _PATCHABLE_FIELDS
     updates = {}
     for field in body:
-        if field in ('host', 'port'):
+        if field in ('ae_title', 'host', 'port'):
             updates[field] = validated[field]
         elif _PATCHABLE_FIELDS[field] is int:
             val, err = _validate_int_positive(body[field], field)
