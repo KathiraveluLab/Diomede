@@ -217,7 +217,7 @@ def _calculate_entropy(data: bytes) -> float:
 def _has_suspicious_patterns(preamble: bytes) -> bool:
     """Check for suspicious repeating patterns that might hide executable content."""
     # Look for XOR patterns (common obfuscation technique) by deriving key per offset.
-    elf_limit = min(32, len(preamble) - 4)
+    elf_limit = len(preamble) - 3
     for i in range(elf_limit):
         key = preamble[i] ^ 0x7F
         if (key != 0 and
@@ -226,7 +226,7 @@ def _has_suspicious_patterns(preamble: bytes) -> bool:
                 preamble[i + 3] == (ord('F') ^ key)):
             return True
 
-    mz_limit = min(32, len(preamble) - 2)
+    mz_limit = len(preamble) - 1
     for i in range(mz_limit):
         key = preamble[i] ^ ord('M')
         if key != 0 and preamble[i + 1] == (ord('Z') ^ key):
@@ -350,7 +350,7 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
             if not isinstance(value, (bytes, bytearray)):
                 continue
 
-            if len(value) < 128:
+            if len(value) < 2:
                 continue
 
             sample = value[:128]

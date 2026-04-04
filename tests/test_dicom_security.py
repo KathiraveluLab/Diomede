@@ -334,6 +334,19 @@ class TestAdvancedEvasionDetection:
         
         assert _has_suspicious_patterns(obfuscated) is True
 
+    def test_xor_pattern_detection_late_offset(self):
+        """Test XOR obfuscation detection near end of preamble."""
+        xor_key = 0x33
+        obfuscated_elf = bytes([
+            0x7F ^ xor_key,
+            ord('E') ^ xor_key,
+            ord('L') ^ xor_key,
+            ord('F') ^ xor_key,
+        ])
+        payload = (b'\x00' * 120) + obfuscated_elf + (b'\x00' * 4)
+
+        assert _has_suspicious_patterns(payload) is True
+
     def test_embedded_content_detection(self):
         """Test detection of executable content embedded in nulls."""
         # PE header embedded in null bytes
@@ -405,6 +418,35 @@ class TestDicomStructureValidation:
             ds.StudyInstanceUID = "1.2.3.4.5.6.8"
             ds.Modality = "CT"
             ds.add_new((0x0043, 0x1010), 'UT', 'MZ' + ('A' * 200))
+            ds.save_as(temp_path)
+
+            with pytest.raises(MaliciousDicomError, match="private tag"):
+                safe_load_dicom_file(temp_path)
+
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def test_short_private_tag_signature_detected(self):
+        """Test short private binary values are still scanned for signatures."""
+        import pydicom
+        from pydicom.dataset import FileDataset, FileMetaDataset
+        from pydicom.uid import UID
+
+        file_meta = FileMetaDataset()
+        file_meta.MediaStorageSOPClassUID = UID('1.2.840.10008.5.1.4.1.1.2')
+        file_meta.MediaStorageSOPInstanceUID = UID('1.2.3.4.5.10')
+        file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
+        fd, temp_path = tempfile.mkstemp(suffix='.dcm')
+        os.close(fd)
+
+        try:
+            ds = FileDataset(temp_path, {}, file_meta=file_meta, preamble=b'\x00' * 128)
+            ds.PatientID = "TESTSHORT"
+            ds.StudyInstanceUID = "1.2.3.4.5.6.10"
+            ds.Modality = "CT"
+            ds.add_new((0x0043, 0x1012), 'OB', b'MZ')
             ds.save_as(temp_path)
 
             with pytest.raises(MaliciousDicomError, match="private tag"):
