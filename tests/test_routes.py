@@ -304,6 +304,9 @@ class TestPatchDestinationRoute:
         payload = {'priority': 5}
         rv = self._patch(client, 'orthanc-a', payload)
         assert rv.status_code == 200
+        data = rv.get_json()
+        assert 'updated successfully' in data['message']
+        assert data['destination']['name'] == 'orthanc-a'
         manager.update_destination.assert_called_once_with('orthanc-a', payload)
 
     def test_patch_nonexistent_returns_404(self, client, app):
