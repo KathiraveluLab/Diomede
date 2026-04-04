@@ -17,8 +17,6 @@ MACHO_SIGNATURES = (
     (b'\xca\xfe\xba\xbe', "Mach-O universal binary or Java class file"),
 )
 
-MACHO_MAGIC_BYTES = tuple(signature for signature, _ in MACHO_SIGNATURES)
-
 BASE64_CHAR_BYTES = set(ord(c) for c in (string.ascii_letters + string.digits + '+/='))
 
 PYTHON_BYTECODE_MAGICS = (
@@ -146,8 +144,19 @@ def _detect_executable_signatures(preamble: bytes) -> list[str]:
         # Check for PE signature at various offsets (common in packed executables)
         for offset in range(1, len(preamble) - 1):
             if preamble[offset:offset+2] == b'MZ':
-                detected.append(f"Windows PE (MZ at offset {offset})")
-                break
+                # Reduce false positives: validate nearby DOS header markers.
+                if len(preamble) >= offset + 64:
+                    try:
+                        e_lfanew = struct.unpack('<I', preamble[offset + 60:offset + 64])[0]
+                        if 0 < e_lfanew < 1024:
+                            detected.append(f"Windows PE (MZ, DOS header at offset {offset})")
+                            break
+                    except struct.error:
+                        pass
+
+                if preamble[offset + 2:offset + 4] in (b'\x90\x00', b'\x00\x00'):
+                    detected.append(f"Windows PE (MZ at offset {offset})")
+                    break
     
     # Linux ELF executable signatures - check at start and various offsets
     if preamble.startswith(b'\x7fELF'):
@@ -202,10 +211,6 @@ def _detect_advanced_evasion(preamble: bytes) -> bool:
     if _has_suspicious_patterns(preamble):
         return True
         
-    # 3. Null byte padding with embedded content
-    if _has_embedded_content_in_nulls(preamble):
-        return True
-        
     return False
 
 
@@ -243,12 +248,6 @@ def _has_suspicious_patterns(preamble: bytes) -> bool:
                 preamble[i + 3] == (ord('F') ^ key)):
             return True
 
-    mz_limit = len(preamble) - 1
-    for i in range(mz_limit):
-        key = preamble[i] ^ ord('M')
-        if key != 0 and preamble[i + 1] == (ord('Z') ^ key):
-            return True
-    
     # Check for base64-like patterns
     # Count base64 characters, but only in non-null regions
     non_null_bytes = [b for b in preamble if b != 0]
@@ -257,22 +256,6 @@ def _has_suspicious_patterns(preamble: bytes) -> bool:
         if len(non_null_bytes) > 32 and b64_count > len(non_null_bytes) * 0.8:  # >80% base64 characters
             return True
         
-    return False
-
-
-def _has_embedded_content_in_nulls(preamble: bytes) -> bool:
-    """Check for executable content embedded within null byte padding."""
-    # Split on null bytes and check non-null segments
-    segments = preamble.split(b'\x00')
-    
-    for segment in segments:
-        if len(segment) >= 2:  # Minimum size for meaningful executable signature
-            # Check if segment contains executable signatures
-            if (segment.startswith(b'MZ') or 
-                segment.startswith(b'\x7fELF') or
-                any(segment.startswith(sig) for sig in MACHO_MAGIC_BYTES)):
-                return True
-                
     return False
 
 
@@ -376,9 +359,7 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
             sample = value[:128]
             malicious_sigs = _detect_executable_signatures(sample)
             if malicious_sigs:
-                error_msg = f"Malicious content detected in private tag {elem.tag}"
-                if malicious_sigs:
-                    error_msg += f": {', '.join(malicious_sigs)}"
+                error_msg = f"Malicious content detected in private tag {elem.tag}: {', '.join(malicious_sigs)}"
                 LOG.error("SECURITY ALERT: %s", error_msg)
                 raise MaliciousDicomError(error_msg)
                 

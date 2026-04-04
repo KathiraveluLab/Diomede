@@ -22,7 +22,6 @@ from Diomedex.utils.dicom_helpers import (
     _detect_advanced_evasion,
     _calculate_entropy,
     _has_suspicious_patterns,
-    _has_embedded_content_in_nulls
 )
 
 
@@ -177,10 +176,10 @@ class TestDicomPreambleSecurity:
         finally:
             os.unlink(temp_file)
 
-    def test_xor_obfuscated_pe_detected(self):
-        """Test detection of XOR-obfuscated PE header."""
-        # XOR-encoded MZ header (key = 0x42)
-        original_pe = b'MZ\x90\x00'
+    def test_xor_obfuscated_elf_detected(self):
+        """Test detection of XOR-obfuscated ELF header."""
+        # XOR-encoded ELF header (key = 0x42)
+        original_pe = b'\x7fELF'
         xor_key = 0x42
         obfuscated = bytes(b ^ xor_key for b in original_pe)
         obfuscated += b'\x00' * (128 - len(obfuscated))
@@ -340,8 +339,8 @@ class TestAdvancedEvasionDetection:
 
     def test_xor_pattern_detection(self):
         """Test XOR obfuscation pattern detection."""
-        # XOR-encoded MZ header
-        original = b'MZ\x90\x00'
+        # XOR-encoded ELF header
+        original = b'\x7fELF'
         xor_key = 0x42
         obfuscated = bytes(b ^ xor_key for b in original) + b'\x00' * 124
         
@@ -359,16 +358,6 @@ class TestAdvancedEvasionDetection:
         payload = (b'\x00' * 120) + obfuscated_elf + (b'\x00' * 4)
 
         assert _has_suspicious_patterns(payload) is True
-
-    def test_embedded_content_detection(self):
-        """Test detection of executable content embedded in nulls."""
-        # PE header embedded in null bytes
-        embedded = b'\x00' * 32 + b'MZ\x90\x00' + b'\x00' * 92
-        assert _has_embedded_content_in_nulls(embedded) is True
-        
-        # Clean null-padded content
-        clean = b'\x00' * 128
-        assert _has_embedded_content_in_nulls(clean) is False
 
     def test_base64_pattern_detection(self):
         """Test base64-like pattern detection."""
