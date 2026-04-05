@@ -359,6 +359,22 @@ class TestAdvancedEvasionDetection:
 
         assert _has_suspicious_patterns(payload) is True
 
+    def test_xor_pattern_detection_for_mz_signature(self):
+        """Test XOR obfuscation detection for Windows MZ-like headers."""
+        original = b'MZ\x90\x00'
+        xor_key = 0x21
+        obfuscated = bytes(b ^ xor_key for b in original) + b'\x00' * 124
+
+        assert _has_suspicious_patterns(obfuscated) is True
+
+    def test_xor_pattern_detection_for_macho_signature(self):
+        """Test XOR obfuscation detection for Mach-O headers."""
+        original = b'\xcf\xfa\xed\xfe'
+        xor_key = 0x15
+        obfuscated = bytes(b ^ xor_key for b in original) + b'\x00' * 124
+
+        assert _has_suspicious_patterns(obfuscated) is True
+
     def test_base64_pattern_detection(self):
         """Test base64-like pattern detection."""
         # High concentration of base64 characters
@@ -516,6 +532,108 @@ class TestDicomStructureValidation:
 
             dataset = safe_load_dicom_file(temp_path)
             assert dataset is not None
+
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def test_nested_sequence_private_tag_signature_detected(self):
+        """Test malicious private tags nested inside SQ items are detected."""
+        import pydicom
+        from pydicom.dataset import Dataset, FileDataset, FileMetaDataset
+        from pydicom.sequence import Sequence
+        from pydicom.uid import UID
+
+        file_meta = FileMetaDataset()
+        file_meta.MediaStorageSOPClassUID = UID('1.2.840.10008.5.1.4.1.1.2')
+        file_meta.MediaStorageSOPInstanceUID = UID('1.2.3.4.5.12')
+        file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
+        fd, temp_path = tempfile.mkstemp(suffix='.dcm')
+        os.close(fd)
+
+        try:
+            nested = Dataset()
+            nested.add_new((0x0043, 0x1014), 'OB', b'MZ')
+
+            ds = FileDataset(temp_path, {}, file_meta=file_meta, preamble=b'\x00' * 128)
+            ds.PatientID = "TESTNEST"
+            ds.StudyInstanceUID = "1.2.3.4.5.6.12"
+            ds.Modality = "CT"
+            ds.add_new((0x0008, 0x1111), 'SQ', Sequence([nested]))
+            ds.save_as(temp_path)
+
+            with pytest.raises(MaliciousDicomError, match="private tag"):
+                safe_load_dicom_file(temp_path)
+
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def test_large_private_tag_is_skipped(self):
+        """Test overly large private tags are skipped by bounded scan logic."""
+        import pydicom
+        from pydicom.dataset import FileDataset, FileMetaDataset
+        from pydicom.uid import UID
+
+        file_meta = FileMetaDataset()
+        file_meta.MediaStorageSOPClassUID = UID('1.2.840.10008.5.1.4.1.1.2')
+        file_meta.MediaStorageSOPInstanceUID = UID('1.2.3.4.5.13')
+        file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
+        fd, temp_path = tempfile.mkstemp(suffix='.dcm')
+        os.close(fd)
+
+        try:
+            huge_payload = b'A' * ((1024 * 1024) + 8)
+
+            ds = FileDataset(temp_path, {}, file_meta=file_meta, preamble=b'\x00' * 128)
+            ds.PatientID = "TESTBIG"
+            ds.StudyInstanceUID = "1.2.3.4.5.6.13"
+            ds.Modality = "CT"
+            ds.add_new((0x0043, 0x1015), 'OB', huge_payload)
+            ds.save_as(temp_path)
+
+            dataset = safe_load_dicom_file(temp_path)
+            assert dataset is not None
+
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def test_stop_before_pixels_avoids_pixeldata_loading(self):
+        """Test safe loader does not include PixelData when reading metadata only."""
+        import pydicom
+        from pydicom.dataset import FileDataset, FileMetaDataset
+        from pydicom.uid import UID
+
+        file_meta = FileMetaDataset()
+        file_meta.MediaStorageSOPClassUID = UID('1.2.840.10008.5.1.4.1.1.2')
+        file_meta.MediaStorageSOPInstanceUID = UID('1.2.3.4.5.14')
+        file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
+        fd, temp_path = tempfile.mkstemp(suffix='.dcm')
+        os.close(fd)
+
+        try:
+            ds = FileDataset(temp_path, {}, file_meta=file_meta, preamble=b'\x00' * 128)
+            ds.PatientID = "TESTPIX"
+            ds.StudyInstanceUID = "1.2.3.4.5.6.14"
+            ds.Modality = "CT"
+            ds.Rows = 2
+            ds.Columns = 2
+            ds.SamplesPerPixel = 1
+            ds.PhotometricInterpretation = "MONOCHROME2"
+            ds.BitsAllocated = 8
+            ds.BitsStored = 8
+            ds.HighBit = 7
+            ds.PixelRepresentation = 0
+            ds.PixelData = b'\x01\x02\x03\x04'
+            ds.save_as(temp_path)
+
+            dataset = safe_load_dicom_file(temp_path)
+            assert dataset is not None
+            assert 'PixelData' not in dataset
 
         finally:
             if os.path.exists(temp_path):

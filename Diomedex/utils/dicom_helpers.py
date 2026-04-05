@@ -6,6 +6,7 @@ from os import PathLike
 from typing import Union, Optional
 
 import pydicom
+from pydicom.sequence import Sequence
 
 LOG = logging.getLogger(__name__)
 
@@ -32,6 +33,21 @@ PYTHON_BYTECODE_MAGICS = (
 )
 
 SCANNABLE_PRIVATE_VRS = {'OB', 'OW', 'UT', 'ST', 'LT', 'UN'}
+MAX_PRIVATE_TAG_SCAN_LENGTH = 1024 * 1024
+PRIVATE_TAG_SAMPLE_BYTES = 128
+
+# Signatures used for XOR-obfuscation detection. Keep MZ checks at 4 bytes
+# to reduce false positives from 2-byte matches.
+XOR_OBFUSCATION_SIGNATURES = (
+    b'\x7fELF',
+    b'MZ\x90\x00',
+    b'MZ\x00\x00',
+    b'\xfe\xed\xfa\xce',
+    b'\xce\xfa\xed\xfe',
+    b'\xfe\xed\xfa\xcf',
+    b'\xcf\xfa\xed\xfe',
+    b'\xca\xfe\xba\xbe',
+)
 
 
 class MaliciousDicomError(Exception):
@@ -239,15 +255,21 @@ def _calculate_entropy(data: bytes) -> float:
 
 def _has_suspicious_patterns(preamble: bytes) -> bool:
     """Check for suspicious repeating patterns that might hide executable content."""
-    # Look for XOR patterns (common obfuscation technique) by deriving key per offset.
-    elf_limit = len(preamble) - 3
-    for i in range(elf_limit):
-        key = preamble[i] ^ 0x7F
-        if (key != 0 and
-                preamble[i + 1] == (ord('E') ^ key) and
-                preamble[i + 2] == (ord('L') ^ key) and
-                preamble[i + 3] == (ord('F') ^ key)):
-            return True
+    # Look for XOR-obfuscated executable signatures by deriving the candidate
+    # key from each offset and verifying full signature bytes.
+    for signature in XOR_OBFUSCATION_SIGNATURES:
+        sig_len = len(signature)
+        if len(preamble) < sig_len:
+            continue
+
+        limit = len(preamble) - sig_len + 1
+        for i in range(limit):
+            key = preamble[i] ^ signature[0]
+            if key == 0:
+                continue
+
+            if all(preamble[i + j] == (signature[j] ^ key) for j in range(1, sig_len)):
+                return True
 
     # Check for base64-like patterns
     # Count base64 characters, but only in non-null regions
@@ -299,8 +321,8 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]) -> Optional[pydicom.Da
             # Reset file pointer to beginning for pydicom
             f.seek(0)
             
-            # Load DICOM dataset from file object
-            dataset = pydicom.dcmread(f)
+            # Load DICOM metadata only (avoid pixel payload memory overhead).
+            dataset = pydicom.dcmread(f, stop_before_pixels=True)
         
         # Additional post-load validation
         if not _validate_dicom_structure(dataset):
@@ -337,27 +359,30 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
         # Keep transfer syntax compatibility broad to support private syntaxes
         # used by imaging vendors.
         
-        # Check top-level private tags only for explicit executable signatures.
-        # Avoid expensive deep traversal and aggressive heuristics that can
-        # create false positives for legitimate vendor/private payloads.
-        for elem in dataset:
+        # Recursively inspect private tags, including nested Sequence items,
+        # but only with explicit signature checks and bounded reads.
+        for elem in _iter_dataset_elements(dataset):
             if not elem.tag.is_private:
                 continue
 
             if getattr(elem, 'VR', None) not in SCANNABLE_PRIVATE_VRS:
                 continue
 
+            elem_length = _get_element_length(elem)
+            if elem_length is not None and elem_length > MAX_PRIVATE_TAG_SCAN_LENGTH:
+                continue
+
             value = elem.value
             if isinstance(value, str):
                 # Slice first to avoid large allocations for very long strings.
-                value = value[:128].encode('utf-8', errors='ignore')
+                value = value[:PRIVATE_TAG_SAMPLE_BYTES].encode('utf-8', errors='ignore')
             if not isinstance(value, (bytes, bytearray)):
                 continue
 
             if len(value) < 2:
                 continue
 
-            sample = value[:128]
+            sample = value[:PRIVATE_TAG_SAMPLE_BYTES]
             malicious_sigs = _detect_executable_signatures(sample)
             if malicious_sigs:
                 error_msg = f"Malicious content detected in private tag {elem.tag}: {', '.join(malicious_sigs)}"
@@ -385,3 +410,24 @@ def normalize_metadata(dataset_or_dict):
         return {key: None for key in _METADATA_KEYS}
 
     return {key: getter(key, None) for key in _METADATA_KEYS}
+
+
+def _iter_dataset_elements(dataset: pydicom.Dataset):
+    """Yield all elements from dataset and nested Sequence items."""
+    for elem in dataset:
+        yield elem
+
+        if getattr(elem, 'VR', None) == 'SQ':
+            sequence_items = elem.value if isinstance(elem.value, Sequence) else []
+            for item in sequence_items:
+                if isinstance(item, pydicom.Dataset):
+                    yield from _iter_dataset_elements(item)
+
+
+def _get_element_length(elem) -> Optional[int]:
+    """Best-effort element length lookup without forcing value conversion."""
+    for attr in ('length', 'VL'):
+        value = getattr(elem, attr, None)
+        if isinstance(value, int) and value >= 0:
+            return value
+    return None
