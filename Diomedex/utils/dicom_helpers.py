@@ -35,3 +35,4 @@ def normalize_metadata(dataset_or_dict):
 
 def extract_basic_metadata(file_path: Union[str, PathLike]):
     return normalize_metadata(safe_load_dicom_file(file_path))
+
