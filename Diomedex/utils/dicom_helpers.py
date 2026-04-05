@@ -38,6 +38,7 @@ SCANNABLE_PRIVATE_VRS = {
 }
 MAX_PRIVATE_TAG_SCAN_LENGTH = 1024 * 1024
 PRIVATE_TAG_SAMPLE_BYTES = 128
+MAX_TRAVERSED_ELEMENTS = 10000
 
 # Signatures used for XOR-obfuscation detection. Keep MZ checks at 4 bytes
 # to reduce false positives from 2-byte matches.
@@ -285,7 +286,11 @@ def _has_suspicious_patterns(preamble: bytes) -> bool:
     return False
 
 
-def safe_load_dicom_file(file_path: Union[str, PathLike]) -> Optional[pydicom.Dataset]:
+def safe_load_dicom_file(
+    file_path: Union[str, PathLike],
+    *,
+    scan_private_tags: bool = True,
+) -> Optional[pydicom.Dataset]:
     """
     Safely load a DICOM file from disk with security validation.
 
@@ -299,6 +304,9 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]) -> Optional[pydicom.Da
 
     Args:
         file_path: Path to DICOM file to load
+        scan_private_tags: Enable recursive private-tag signature checks.
+            Set to False for metadata-only fast path if you only need
+            preamble CVE-2019-11687 protection.
         
     Returns:
         pydicom.Dataset if file is safe and valid, None otherwise
@@ -328,7 +336,7 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]) -> Optional[pydicom.Da
             dataset = pydicom.dcmread(f, stop_before_pixels=True)
         
         # Additional post-load validation
-        if not _validate_dicom_structure(dataset):
+        if not _validate_dicom_structure(dataset, scan_private_tags=scan_private_tags):
             LOG.warning("DICOM structure validation failed for file: %s", file_path)
             return None
             
@@ -344,7 +352,7 @@ def safe_load_dicom_file(file_path: Union[str, PathLike]) -> Optional[pydicom.Da
         LOG.warning("Skipping invalid or corrupted DICOM file: %s (%s)", file_path, ex)
         return None
 
-def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
+def _validate_dicom_structure(dataset: pydicom.Dataset, *, scan_private_tags: bool = True) -> bool:
     """
     Validate basic DICOM dataset structure for additional security.
     
@@ -362,9 +370,21 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
         # Keep transfer syntax compatibility broad to support private syntaxes
         # used by imaging vendors.
         
-        # Recursively inspect private tags, including nested Sequence items,
+        if not scan_private_tags:
+            return True
+
+        # Iteratively inspect private tags, including nested Sequence items,
         # but only with explicit signature checks and bounded reads.
+        traversed = 0
         for elem in _iter_dataset_elements(dataset):
+            traversed += 1
+            if traversed > MAX_TRAVERSED_ELEMENTS:
+                LOG.warning(
+                    "Private-tag scan budget exceeded (%d elements); stopping deep scan",
+                    MAX_TRAVERSED_ELEMENTS,
+                )
+                break
+
             if not elem.tag.is_private:
                 continue
 
@@ -409,15 +429,18 @@ def normalize_metadata(dataset_or_dict):
 
 
 def _iter_dataset_elements(dataset: pydicom.Dataset):
-    """Yield all elements from dataset and nested Sequence items."""
-    for elem in dataset:
-        yield elem
+    """Yield all elements from dataset and nested Sequence items iteratively."""
+    stack = [dataset]
+    while stack:
+        current = stack.pop()
+        for elem in current:
+            yield elem
 
-        if getattr(elem, 'VR', None) == 'SQ':
-            sequence_items = elem.value if isinstance(elem.value, Sequence) else []
-            for item in sequence_items:
-                if isinstance(item, pydicom.Dataset):
-                    yield from _iter_dataset_elements(item)
+            if getattr(elem, 'VR', None) == 'SQ':
+                sequence_items = elem.value if isinstance(elem.value, Sequence) else []
+                for item in reversed(sequence_items):
+                    if isinstance(item, pydicom.Dataset):
+                        stack.append(item)
 
 
 def _get_element_length(elem) -> Optional[int]:

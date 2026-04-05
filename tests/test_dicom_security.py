@@ -601,6 +601,35 @@ class TestDicomStructureValidation:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
+    def test_private_tag_scan_can_be_disabled_for_performance(self):
+        """Test optional deep private-tag scan toggle for metadata-only fast path."""
+        import pydicom
+        from pydicom.dataset import FileDataset, FileMetaDataset
+        from pydicom.uid import UID
+
+        file_meta = FileMetaDataset()
+        file_meta.MediaStorageSOPClassUID = UID('1.2.840.10008.5.1.4.1.1.2')
+        file_meta.MediaStorageSOPInstanceUID = UID('1.2.3.4.5.15')
+        file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
+        fd, temp_path = tempfile.mkstemp(suffix='.dcm')
+        os.close(fd)
+
+        try:
+            ds = FileDataset(temp_path, {}, file_meta=file_meta, preamble=b'\x00' * 128)
+            ds.PatientID = "TESTFAST"
+            ds.StudyInstanceUID = "1.2.3.4.5.6.15"
+            ds.Modality = "CT"
+            ds.add_new((0x0043, 0x1016), 'OB', b'MZ')
+            ds.save_as(temp_path)
+
+            dataset = safe_load_dicom_file(temp_path, scan_private_tags=False)
+            assert dataset is not None
+
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
     def test_stop_before_pixels_avoids_pixeldata_loading(self):
         """Test safe loader does not include PixelData when reading metadata only."""
         import pydicom
