@@ -16,6 +16,7 @@ MACHO_SIGNATURES = (
     (b'\xcf\xfa\xed\xfe', "Mach-O 64-bit little-endian"),
     (b'\xca\xfe\xba\xbe', "Mach-O universal binary or Java class file"),
 )
+_METADATA_KEYS = ('PatientID', 'StudyDate', 'Modality', 'SeriesInstanceUID')
 
 BASE64_CHAR_BYTES = set(ord(c) for c in (string.ascii_letters + string.digits + '+/='))
 
@@ -362,27 +363,25 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
                 error_msg = f"Malicious content detected in private tag {elem.tag}: {', '.join(malicious_sigs)}"
                 LOG.error("SECURITY ALERT: %s", error_msg)
                 raise MaliciousDicomError(error_msg)
-                
+
         return True
-        
+
     except (AttributeError, KeyError, TypeError) as e:
         LOG.warning("DICOM structure validation error: %s", e)
         return False
 
 
-def extract_basic_metadata(file_path: Union[str, PathLike]):
-    dataset = safe_load_dicom_file(file_path)
-    if dataset is None:
-        return {
-            'PatientID': None,
-            'StudyDate': None,
-            'Modality': None,
-            'SeriesInstanceUID': None,
-        }
+def normalize_metadata(dataset_or_dict):
+    """Normalize DICOM metadata for Dataset/dict inputs."""
+    if dataset_or_dict is None:
+        return {key: None for key in _METADATA_KEYS}
 
-    return {
-        'PatientID': dataset.get('PatientID', None),
-        'StudyDate': dataset.get('StudyDate', None),
-        'Modality': dataset.get('Modality', None),
-        'SeriesInstanceUID': dataset.get('SeriesInstanceUID', None),
-    }
+    getter = dataset_or_dict.get if hasattr(dataset_or_dict, 'get') else None
+    if getter is None:
+        return {key: None for key in _METADATA_KEYS}
+
+    return {key: getter(key, None) for key in _METADATA_KEYS}
+
+
+def extract_basic_metadata(file_path: Union[str, PathLike]):
+    return normalize_metadata(safe_load_dicom_file(file_path))
