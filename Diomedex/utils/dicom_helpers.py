@@ -32,7 +32,10 @@ PYTHON_BYTECODE_MAGICS = (
     b'\xcb\x0d\r\n',  # Python 3.12
 )
 
-SCANNABLE_PRIVATE_VRS = {'OB', 'OW', 'UT', 'ST', 'LT', 'UN'}
+SCANNABLE_PRIVATE_VRS = {
+    'OB', 'OW', 'UT', 'ST', 'LT', 'UN',
+    'UC', 'UR', 'OF', 'OD', 'OL', 'OV', 'SV', 'UV',
+}
 MAX_PRIVATE_TAG_SCAN_LENGTH = 1024 * 1024
 PRIVATE_TAG_SAMPLE_BYTES = 128
 
@@ -372,22 +375,15 @@ def _validate_dicom_structure(dataset: pydicom.Dataset) -> bool:
             if elem_length is not None and elem_length > MAX_PRIVATE_TAG_SCAN_LENGTH:
                 continue
 
-            value = elem.value
-            if isinstance(value, str):
-                # Slice first to avoid large allocations for very long strings.
-                value = value[:PRIVATE_TAG_SAMPLE_BYTES].encode('utf-8', errors='ignore')
-            if not isinstance(value, (bytes, bytearray)):
-                continue
+            for sample in _iter_private_value_samples(elem.value):
+                if len(sample) < 2:
+                    continue
 
-            if len(value) < 2:
-                continue
-
-            sample = value[:PRIVATE_TAG_SAMPLE_BYTES]
-            malicious_sigs = _detect_executable_signatures(sample)
-            if malicious_sigs:
-                error_msg = f"Malicious content detected in private tag {elem.tag}: {', '.join(malicious_sigs)}"
-                LOG.error("SECURITY ALERT: %s", error_msg)
-                raise MaliciousDicomError(error_msg)
+                malicious_sigs = _detect_executable_signatures(sample)
+                if malicious_sigs:
+                    error_msg = f"Malicious content detected in private tag {elem.tag}: {', '.join(malicious_sigs)}"
+                    LOG.error("SECURITY ALERT: %s", error_msg)
+                    raise MaliciousDicomError(error_msg)
                 
         return True
         
@@ -431,3 +427,17 @@ def _get_element_length(elem) -> Optional[int]:
         if isinstance(value, int) and value >= 0:
             return value
     return None
+
+
+def _iter_private_value_samples(value):
+    """Yield bytes samples from single or multi-valued private-tag content."""
+    if isinstance(value, (list, tuple)):
+        items = value
+    else:
+        items = (value,)
+
+    for item in items:
+        if isinstance(item, str):
+            yield item[:PRIVATE_TAG_SAMPLE_BYTES].encode('utf-8', errors='ignore')
+        elif isinstance(item, (bytes, bytearray)):
+            yield bytes(item[:PRIVATE_TAG_SAMPLE_BYTES])
