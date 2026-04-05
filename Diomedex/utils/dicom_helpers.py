@@ -173,13 +173,12 @@ def _detect_executable_signatures(preamble: bytes) -> list[str]:
     
     # macOS Mach-O executable signatures (32-bit and 64-bit, big/little endian)
     for signature, name in MACHO_SIGNATURES:
-        if preamble.startswith(signature):
-            detected.append(name)
-        else:
-            for offset in range(1, len(preamble) - len(signature) + 1):
-                if preamble[offset:offset + len(signature)] == signature:
-                    detected.append(f"{name} (at offset {offset})")
-                    break
+        offset = preamble.find(signature)
+        if offset != -1:
+            if offset == 0:
+                detected.append(name)
+            else:
+                detected.append(f"{name} (at offset {offset})")
     
     # Shell scripts (Unix)
     if preamble.startswith(b'#!/'):
