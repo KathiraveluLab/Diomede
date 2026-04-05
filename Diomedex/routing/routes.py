@@ -78,17 +78,25 @@ def validate_destination_config(config: dict):
     unknown = set(config) - _DEST_ALLOWED_FIELDS
     if unknown:
         raise ValueError(f"Unknown field(s): {', '.join(sorted(unknown))}")
-    for field in ('name', 'host', 'port'):
+    for field in ('name', 'ae_title', 'host', 'port'):
         if field not in config:
             raise ValueError(f"Missing required field: '{field}'")
-    if not isinstance(config['name'], str) or not config['name'].strip():
-        raise ValueError("'name' must be a non-empty string")
-    if not isinstance(config['host'], str) or not config['host'].strip():
-        raise ValueError("'host' must be a non-empty string")
-    port, err = _validate_port(config['port'])
-    if err:
-        raise ValueError(err)
-    return {**config, 'name': config['name'].strip(), 'host': config['host'].strip(), 'port': port}
+
+    result = config.copy()
+    for field, value in config.items():
+        if field == 'port':
+            val, err = _validate_port(value)
+            if err: raise ValueError(err)
+            result[field] = val
+        elif field == 'name' or _PATCHABLE_FIELDS.get(field) is str:
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"'{field}' must be a non-empty string")
+            result[field] = value.strip()
+        elif _PATCHABLE_FIELDS.get(field) is int:
+            val, err = _validate_int_positive(value, field)
+            if err: raise ValueError(err)
+            result[field] = val
+    return result
 
 @routing_bp.route('/stats', methods=['GET'])
 def get_stats():
