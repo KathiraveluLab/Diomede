@@ -277,11 +277,8 @@ def update_destination(name):
     for field in body:
         if field in ('host', 'port'):
             updates[field] = validated[field]
-        elif _PATCHABLE_FIELDS[field] is int:
-            val, err = _validate_int_positive(body[field], field)
-            if err:
-                return jsonify({'error': err}), 400
-            updates[field] = val
+        elif _PATCHABLE_FIELDS.get(field) is int:
+            updates[field] = validated[field]
         else:  # str fields: ae_title, host
             if not isinstance(body[field], str) or not body[field].strip():
                 return jsonify({'error': f"'{field}' must be a non-empty string"}), 400
