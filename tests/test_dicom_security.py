@@ -179,9 +179,9 @@ class TestDicomPreambleSecurity:
     def test_xor_obfuscated_elf_detected(self):
         """Test detection of XOR-obfuscated ELF header."""
         # XOR-encoded ELF header (key = 0x42)
-        original_elf = b'\x7fELF'
+        original_pe = b'\x7fELF'
         xor_key = 0x42
-        obfuscated = bytes(b ^ xor_key for b in original_elf)
+        obfuscated = bytes(b ^ xor_key for b in original_pe)
         obfuscated += b'\x00' * (128 - len(obfuscated))
         
         temp_file = self.create_test_dicom_file(obfuscated)
