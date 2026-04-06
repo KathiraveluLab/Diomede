@@ -266,7 +266,7 @@ def update_destination(name):
     if not body:
         return jsonify({'error': 'No fields provided to update'}), 400
 
-    candidate = {'name': dest.name, 'host': dest.host, 'port': dest.port, **body}
+    candidate = {'name': dest.name, 'ae_title': dest.ae_title, 'host': dest.host, 'port': dest.port, **body}
     try:
         validated = validate_destination_config(candidate)
     except ValueError as e:
@@ -275,7 +275,7 @@ def update_destination(name):
     #validate and collect updates — type driven by _PATCHABLE_FIELDS
     updates = {}
     for field in body:
-        if field in ('host', 'port'):
+        if field in ('ae_title', 'host', 'port'):
             updates[field] = validated[field]
         elif _PATCHABLE_FIELDS[field] is int:
             val, err = _validate_int_positive(body[field], field)
