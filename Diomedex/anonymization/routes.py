@@ -52,6 +52,12 @@ def anonymize_directory():
 
     try:
         src_dir = _validate_path(data["src"])
+        # src is intentionally not restricted to STORAGE_PATH. It is treated as
+        # read-only by this API and may legitimately reside outside the storage
+        # sandbox (e.g. a scanner's network mount or an incoming data drop). Only
+        # DICOM files discovered by Niffler are ever read, which significantly
+        # limits the accessible scope. The sandbox constraint applies only to dest,
+        # where anonymized output is written.
         dest_dir = _validate_path(data["dest"])
         _check_within_storage(dest_dir)
     except ValueError as e:

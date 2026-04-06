@@ -9,4 +9,5 @@ pynetdicom>=3.0.4
 pandas>=1.3.0
 
 # Niffler provides the core DICOM anonymization logic consumed by this project.
+# TODO: pin to a stable release tag once Niffler publishes one (currently under active development)
 Niffler @ git+https://github.com/KathiraveluLab/Niffler.git

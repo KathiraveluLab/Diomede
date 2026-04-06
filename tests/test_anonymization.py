@@ -7,13 +7,14 @@ Covers:
 """
 
 import json
+
+import pydicom
 import pytest
 from pydicom.dataset import FileDataset
 from pydicom.uid import ExplicitVRLittleEndian, generate_uid
-import pydicom
+
 from Diomedex import create_app
 from Diomedex.anonymization.core import DICOMAnonymizer
-
 
 # ---------------------------------------------------------------------------
 # Helpers
