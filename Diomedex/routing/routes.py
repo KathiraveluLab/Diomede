@@ -190,10 +190,7 @@ def add_destination():
         body = validate_destination_config(body)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
-    if 'ae_title' not in body:
-        return jsonify({'error': "Missing required field: 'ae_title'"}), 400
-    if not isinstance(body['ae_title'], str) or not body['ae_title'].strip():
-        return jsonify({'error': "'ae_title' must be a non-empty string"}), 400
+   
 
     name = body['name']
 
