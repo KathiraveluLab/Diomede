@@ -30,8 +30,6 @@ def test_scan_directory(tmp_path, app):
     ds.PatientID = "12345"
     ds.StudyInstanceUID = "1.2.3.4"
     ds.Modality = "CT"
-    ds.is_little_endian = True
-    ds.is_implicit_VR = False
     ds.save_as(str(dcm_file))
     with app.app_context():
         creator = DICOMAlbumCreator(str(tmp_path))
