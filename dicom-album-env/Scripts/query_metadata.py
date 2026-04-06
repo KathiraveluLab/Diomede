@@ -322,6 +322,8 @@ def query_metadata(metadata_df, query):
         raise ValueError("Query must be a non-empty string")
     
     query = query.strip()
+    if not query:
+        raise ValueError("Query must be a non-empty string")
     
     # Split by 'or' first (lowest precedence) using quote-aware splitting
     # This correctly handles strings like "SeriesDescription == 'Anterior and Posterior'"

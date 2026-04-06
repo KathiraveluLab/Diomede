@@ -48,6 +48,7 @@ def scan_directory():
             })
         return jsonify({'error': 'Failed to index files'}), 500
     except Exception as e:
+        current_app.logger.exception("Unexpected error while scanning directory")
         return jsonify({'error': str(e)}), 500
 
 @albums_bp.route('/create', methods=['POST'])
@@ -89,4 +90,5 @@ def create_album():
         })
     except Exception as e:
         db.session.rollback()
+        current_app.logger.exception("Unexpected error while creating album")
         return jsonify({'error': str(e)}), 500

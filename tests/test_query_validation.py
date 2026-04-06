@@ -107,6 +107,11 @@ class TestQueryValidation:
         with pytest.raises(ValueError, match="non-empty string"):
             query_metadata(sample_metadata, "")
 
+    def test_whitespace_only_query_rejected(self, sample_metadata):
+        """Reject: query with only whitespace."""
+        with pytest.raises(ValueError, match="non-empty string"):
+            query_metadata(sample_metadata, "   ")
+
     def test_invalid_field_rejected(self, sample_metadata):
         """Reject: query with non-whitelisted field."""
         with pytest.raises(ValueError, match="not allowed"):
