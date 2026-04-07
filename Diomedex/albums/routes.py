@@ -21,7 +21,6 @@ def scan_directory():
         
         # Validate path to prevent path traversal attacks
         from pathlib import Path
-        import os
         
         user_path = Path(data['path'])
         storage_base = Path(storage_path).resolve()
