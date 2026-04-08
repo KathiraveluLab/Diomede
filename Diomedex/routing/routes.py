@@ -55,6 +55,26 @@ def _dest_to_dict(dest, *, full=False):
     return d
 
 
+def _serialize_destination_stats(destinations):
+    """Normalize stats destinations to JSON-safe dictionaries."""
+    serialized = []
+    for d in destinations:
+        if isinstance(d, dict):
+            serialized.append(d)
+            continue
+        serialized.append({
+            'name': d.name,
+            'ae_title': d.ae_title,
+            'host': d.host,
+            'port': d.port,
+            'priority': d.priority,
+            'status': d.status.value,
+            'load': getattr(d, 'load_factor', None),
+            'score': d.calculate_score() if hasattr(d, 'calculate_score') else None,
+        })
+    return serialized
+
+
 def _validate_int_positive(value, field):
     if not isinstance(value, int) or isinstance(value, bool):
         return None, f"'{field}' must be an integer, got {value!r}"
@@ -100,20 +120,7 @@ def get_stats():
     # Ensure destinations in stats are JSON-serializable
     if isinstance(stats, dict) and 'destinations' in stats and stats['destinations'] is not None:
         try:
-            destinations = stats['destinations']
-            stats['destinations'] = [
-                {
-                    'name': d.name,
-                    'ae_title': d.ae_title,
-                    'host': d.host,
-                    'port': d.port,
-                    'priority': d.priority,
-                    'status': d.status.value,
-                    'load': getattr(d, 'load_factor', None),
-                    'score': d.calculate_score() if hasattr(d, 'calculate_score') else None,
-                }
-                for d in destinations
-            ]
+            stats['destinations'] = _serialize_destination_stats(stats['destinations'])
         except Exception:
             # If serialization fails for any reason, fall back to omitting destinations
             stats['destinations'] = []
