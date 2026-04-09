@@ -40,6 +40,97 @@ router.route_dataset(dicom_dataset)
 - `GET /routing/destinations` - List all destinations
 - `GET /routing/destinations/<name>` - Get specific destination info
 
+### `POST /routing/destinations`
+
+Registers a new DICOM destination endpoint dynamically without requiring a service restart.
+
+**Request Body (`application/json`):**
+
+```json
+{
+  "name": "destination_name",    // Required: string
+  "ae_title": "AE_TITLE",        // Required: string
+  "host": "192.168.1.10",        // Required: string
+  "port": 104,                   // Required: integer (1-65535)
+  "priority": 1,                 // Optional: positive integer
+  "max_queue_size": 100,         // Optional: positive integer
+  "http_port": 8042              // Optional: positive integer
+}
+```
+
+**Response (`201 Created`):**
+
+```json
+{
+  "message": "Destination 'destination_name' added successfully",
+  "destination": {
+    "name": "destination_name",
+    "ae_title": "AE_TITLE",
+    "host": "192.168.1.10",
+    "port": 104,
+    "priority": 1,
+    "status": "online",
+    "load": 0.0,
+    "score": 1.0,
+    "current_queue": 0,
+    "max_queue_size": 100,
+    "http_port": 8042
+  }
+}
+```
+
+### `DELETE /routing/destinations/<name>`
+
+Unregisters and removes a specified DICOM destination endpoint.
+
+**Response (`200 OK`):**
+
+```json
+{
+  "message": "Destination '<name>' removed successfully"
+}
+```
+
+### `PATCH /routing/destinations/<name>`
+
+Modifies the configuration of an existing DICOM destination endpoint dynamically.
+
+**Request Body (`application/json`):**
+
+Include any subset of the following modifiable parameters:
+
+```json
+{
+  "ae_title": "NEW_AE_TITLE",   // Optional: string
+  "host": "192.168.1.11",       // Optional: string
+  "port": 105,                  // Optional: integer (1-65535)
+  "priority": 5,                // Optional: positive integer
+  "max_queue_size": 250,        // Optional: positive integer
+  "http_port": 8043             // Optional: positive integer
+}
+```
+
+**Response (`200 OK`):**
+
+```json
+{
+  "message": "Destination '<name>' updated successfully",
+  "destination": {
+    "name": "<name>",
+    "ae_title": "NEW_AE_TITLE",
+    "host": "192.168.1.11",
+    "port": 105,
+    "priority": 5,
+    "status": "online",
+    "load": 0.0,
+    "score": 5.0,
+    "current_queue": 0,
+    "max_queue_size": 250,
+    "http_port": 8043
+  }
+}
+```
+
 ## Current Status
 
 This is a proof-of-concept implementation. Full DICOM C-STORE functionality requires `pynetdicom` integration.
