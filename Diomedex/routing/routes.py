@@ -4,7 +4,6 @@ from flask import Blueprint, jsonify, current_app, request
 
 routing_bp = Blueprint('routing', __name__, url_prefix='/routing')
 
-# Required fields and their expected Python types for POST
 _REQUIRED_POST_FIELDS = {
     'name':     str,
     'ae_title': str,
@@ -12,14 +11,12 @@ _REQUIRED_POST_FIELDS = {
     'port':     int,
 }
 
-# Optional fields that may appear in POST or PATCH with their types/constraints
 _OPTIONAL_POST_FIELDS = {
     'priority':      int,
     'max_queue_size': int,
     'http_port':     int,
 }
 
-# Fields that PATCH is allowed to modify
 _PATCHABLE_FIELDS = {
     'ae_title':      str,
     'host':          str,
@@ -37,7 +34,6 @@ def get_router():
 
 
 def _dest_to_dict(dest, *, full=False):
-    #Serialize a Destination object to a simple dictionary
     d = {
         'name':      dest.name,
         'ae_title':  dest.ae_title,
@@ -83,15 +79,6 @@ def _validate_int_positive(value, field):
     return value, None
 
 
-def _validate_port(value):
-    v, err = _validate_int_positive(value, 'port')
-    if err:
-        return None, err
-    if v > 65535:
-        return None, f"'port' must be between 1 and 65535, got {v}"
-    return v, None
-
-
 def _validate_optional_port(value, field):
     v, err = _validate_int_positive(value, field)
     if err:
@@ -101,22 +88,39 @@ def _validate_optional_port(value, field):
     return v, None
 
 
+# ✅ FIX: reuse optional validator
+def _validate_port(value):
+    return _validate_optional_port(value, 'port')
+
+
 def validate_destination_config(config: dict):
     if not isinstance(config, dict):
         raise ValueError('Request JSON must be an object')
+
     unknown = set(config) - _DEST_ALLOWED_FIELDS
     if unknown:
         raise ValueError(f"Unknown field(s): {', '.join(sorted(unknown))}")
+
     for field in ('name', 'ae_title', 'host', 'port'):
         if field not in config:
             raise ValueError(f"Missing required field: '{field}'")
+
     for field in ('name', 'ae_title', 'host'):
         if not isinstance(config[field], str) or not config[field].strip():
             raise ValueError(f"'{field}' must be a non-empty string")
+
     port, err = _validate_port(config['port'])
     if err:
         raise ValueError(err)
-    return {**config, 'name': config['name'].strip(), 'ae_title': config['ae_title'].strip(), 'host': config['host'].strip(), 'port': port}
+
+    return {
+        **config,
+        'name': config['name'].strip(),
+        'ae_title': config['ae_title'].strip(),
+        'host': config['host'].strip(),
+        'port': port
+    }
+
 
 @routing_bp.route('/stats', methods=['GET'])
 def get_stats():
@@ -126,66 +130,44 @@ def get_stats():
 
     stats = router.get_stats()
 
-    # Ensure destinations in stats are JSON-serializable
     if isinstance(stats, dict) and 'destinations' in stats and stats['destinations'] is not None:
         try:
             stats['destinations'] = _serialize_destination_stats(stats['destinations'])
         except Exception:
-            # If serialization fails for any reason, fall back to omitting destinations
             stats['destinations'] = []
 
     return jsonify(stats), 200
+
+
 @routing_bp.route('/destinations', methods=['GET'])
 def list_destinations():
     router = get_router()
     if not router:
         return jsonify({'error': 'Router not running'}), 503
-    
+
     destinations = router.destination_manager.get_all_destinations()
+
+    # ✅ FIX: reuse serializer
     return jsonify({
-        'destinations': [
-            {
-                'name': d.name,
-                'ae_title': d.ae_title,
-                'host': d.host,
-                'port': d.port,
-                'priority': d.priority,
-                'status': d.status.value,
-                'load': d.load_factor,
-                'score': d.calculate_score()
-            }
-            for d in destinations
-        ]
+        'destinations': _serialize_destination_stats(destinations)
     }), 200
+
 
 @routing_bp.route('/destinations/<name>', methods=['GET'])
 def get_destination(name):
     router = get_router()
     if not router:
         return jsonify({'error': 'Router not running'}), 503
-    
+
     dest = router.destination_manager.get_destination(name)
     if not dest:
         return jsonify({'error': f'Destination {name} not found'}), 404
-    
-    return jsonify({
-        'name': dest.name,
-        'ae_title': dest.ae_title,
-        'host': dest.host,
-        'port': dest.port,
-        'priority': dest.priority,
-        'status': dest.status.value,
-        'current_queue': dest.current_queue,
-        'max_queue_size': dest.max_queue_size,
-        'load': dest.load_factor,
-        'score': dest.calculate_score()
-    }), 200
+
+    return jsonify(_dest_to_dict(dest, full=True)), 200
 
 
-# POST /routing/destinations — add a new DICOM endpoint at runtime
 @routing_bp.route('/destinations', methods=['POST'])
 def add_destination():
-    #Register a new DICOM destination endpoint without restarting the router.
     router = get_router()
     if not router:
         return jsonify({'error': 'Router not running'}), 503
@@ -193,6 +175,7 @@ def add_destination():
     body = request.get_json(silent=True)
     if body is None:
         return jsonify({'error': 'Request body must be JSON'}), 400
+
     try:
         body = validate_destination_config(body)
     except ValueError as e:
@@ -200,17 +183,14 @@ def add_destination():
 
     name = body['name']
 
-    # Reject names that contain '/' — they cannot be addressed by the URL routes
     if not re.match(r'^[A-Za-z0-9_\-\.]+$', name):
         return jsonify({'error': "'name' must contain only letters, digits, hyphens, underscores, or dots"}), 400
 
-    # reject duplicates
     if router.destination_manager.get_destination(name):
         return jsonify({'error': f"Destination '{name}' already exists"}), 409
 
-    # validate optional fields
     kwargs = {}
-    for field, _ in _OPTIONAL_POST_FIELDS.items():
+    for field in _OPTIONAL_POST_FIELDS:
         if field in body:
             validator = _validate_optional_port if field == 'http_port' else _validate_int_positive
             val, err = validator(body[field], field)
@@ -229,16 +209,15 @@ def add_destination():
     )
 
     dest = router.destination_manager.get_destination(name)
+
     return jsonify({
         'message': f"Destination '{name}' added successfully",
         'destination': _dest_to_dict(dest, full=True),
     }), 201
 
 
-# DELETE /routing/destinations/<name> — remove a destination at runtime
 @routing_bp.route('/destinations/<name>', methods=['DELETE'])
 def remove_destination(name):
-    """Unregister a DICOM destination endpoint at runtime."""
     router = get_router()
     if not router:
         return jsonify({'error': 'Router not running'}), 503
@@ -250,10 +229,8 @@ def remove_destination(name):
     return jsonify({'message': f"Destination '{name}' removed successfully"}), 200
 
 
-# PATCH /routing/destinations/<name> — update priority / queue size live
 @routing_bp.route('/destinations/<name>', methods=['PATCH'])
 def update_destination(name):
-    """Hot-update one or more fields of an existing destination without downtime."""
     router = get_router()
     if not router:
         return jsonify({'error': 'Router not running'}), 503
@@ -270,13 +247,19 @@ def update_destination(name):
     if not body:
         return jsonify({'error': 'No fields provided to update'}), 400
 
-    candidate = {'name': dest.name, 'ae_title': dest.ae_title, 'host': dest.host, 'port': dest.port, **body}
+    candidate = {
+        'name': dest.name,
+        'ae_title': dest.ae_title,
+        'host': dest.host,
+        'port': dest.port,
+        **body
+    }
+
     try:
         validated = validate_destination_config(candidate)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
-    #validate and collect updates — type driven by _PATCHABLE_FIELDS
     updates = {}
     for field in body:
         if field in ('ae_title', 'host', 'port'):
@@ -287,12 +270,11 @@ def update_destination(name):
             if err:
                 return jsonify({'error': err}), 400
             updates[field] = val
-        else:  # str fields: ae_title, host
+        else:
             if not isinstance(body[field], str) or not body[field].strip():
                 return jsonify({'error': f"'{field}' must be a non-empty string"}), 400
             updates[field] = body[field].strip()
 
-    #apply updates atomically via DestinationManager (keeps _lock encapsulated)
     if not router.destination_manager.update_destination(name, updates):
         return jsonify({'error': f"Destination '{name}' was removed concurrently"}), 404
 
