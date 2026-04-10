@@ -48,7 +48,7 @@ Registers a new DICOM destination endpoint dynamically without requiring a servi
 
 ```json
 {
-  "name": "destination_name",    // Required: string
+  "name": "destination_name",    // Required: string (letters, digits, hyphens, underscores, dots only)
   "ae_title": "AE_TITLE",        // Required: string
   "host": "192.168.1.10",        // Required: string
   "port": 104,                   // Required: integer (1-65535)
@@ -69,9 +69,9 @@ Registers a new DICOM destination endpoint dynamically without requiring a servi
     "host": "192.168.1.10",
     "port": 104,
     "priority": 1,
-    "status": "online",
+    "status": "healthy",
     "load": 0.0,
-    "score": 1.0,
+    "score": 17.0,
     "current_queue": 0,
     "max_queue_size": 100,
     "http_port": 8042
@@ -121,9 +121,9 @@ Include any subset of the following modifiable parameters:
     "host": "192.168.1.11",
     "port": 105,
     "priority": 5,
-    "status": "online",
+    "status": "healthy",
     "load": 0.0,
-    "score": 5.0,
+    "score": 57.0,
     "current_queue": 0,
     "max_queue_size": 250,
     "http_port": 8043
