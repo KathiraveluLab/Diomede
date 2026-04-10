@@ -137,7 +137,7 @@ class DestinationManager:
 
         if not _is_valid_update(updates):
             logger.warning(f"Invalid update rejected for destination '{name}': {updates}")
-            return False
+            raise ValueError(f"Invalid update fields for destination '{name}'")
 
         with self._lock:
             dest = self.destinations.get(name)
