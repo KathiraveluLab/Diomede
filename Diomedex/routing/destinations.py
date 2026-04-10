@@ -124,6 +124,21 @@ class DestinationManager:
 
     def update_destination(self, name, updates: dict) -> bool:
         _ALLOWED = {'ae_title', 'host', 'port', 'priority', 'max_queue_size', 'http_port'}
+        def _is_valid_update(u):
+            for k, v in u.items():
+                if k not in _ALLOWED: continue
+                if k == 'ae_title' and (not isinstance(v, str) or not (0 < len(v.strip()) <= 16)): return False
+                if k == 'host' and (not isinstance(v, str) or not v.strip()): return False
+                if k in ('port', 'http_port', 'priority', 'max_queue_size'):
+                    if not isinstance(v, int) or isinstance(v, bool): return False
+                    if k in ('port', 'http_port') and not (1 <= v <= 65535): return False
+                    if k in ('priority', 'max_queue_size') and v <= 0: return False
+            return True
+
+        if not _is_valid_update(updates):
+            logger.warning(f"Invalid update rejected for destination '{name}': {updates}")
+            raise ValueError(f"Invalid update fields for destination '{name}'")
+
         with self._lock:
             dest = self.destinations.get(name)
             if not dest:
