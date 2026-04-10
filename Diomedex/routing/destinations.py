@@ -127,8 +127,8 @@ class DestinationManager:
         def _is_valid_update(u):
             for k, v in u.items():
                 if k not in _ALLOWED: continue
-                if k in ('ae_title', 'host') and (not isinstance(v, str) or not v.strip()):
-                    return False
+                if k == 'ae_title' and (not isinstance(v, str) or not (0 < len(v.strip()) <= 16)): return False
+                if k == 'host' and (not isinstance(v, str) or not v.strip()): return False
                 if k in ('port', 'http_port', 'priority', 'max_queue_size'):
                     if not isinstance(v, int) or isinstance(v, bool): return False
                     if k in ('port', 'http_port') and not (1 <= v <= 65535): return False
