@@ -142,13 +142,5 @@ class DestinationManager:
                 return False
             for field, value in updates.items():
                 if field in _ALLOWED:
-                    if not _is_valid_update(field, value):
-                        logger.warning(
-                            "Rejected invalid destination update for %s: %s=%r",
-                            name,
-                            field,
-                            value,
-                        )
-                        return False
                     setattr(dest, field, value)
             return True
