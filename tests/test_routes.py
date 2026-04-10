@@ -174,6 +174,29 @@ class TestStatsRoute:
         for key in ('total_received', 'total_routed', 'total_failed', 'destinations'):
             assert key in data, f"missing key: {key}"
 
+    def test_stats_preserves_pre_serialized_destination_dicts(self, client, app):
+        router, _ = _make_router()
+        router.get_stats.return_value = {
+            'total_received': 1,
+            'total_routed': 1,
+            'total_failed': 0,
+            'destinations': [{
+                'name': 'orthanc-a',
+                'ae_title': 'ORTHANC_A',
+                'host': '127.0.0.1',
+                'port': 4242,
+                'priority': 1,
+                'status': 'healthy',
+                'load': 0.0,
+                'score': 12.0,
+            }],
+        }
+        app.dicom_router = router
+
+        data = client.get('/routing/stats').get_json()
+        assert len(data['destinations']) == 1
+        assert data['destinations'][0]['name'] == 'orthanc-a'
+
     def test_stats_router_unavailable(self, client, app):
         assert client.get('/routing/stats').status_code == 503
 
@@ -235,6 +258,13 @@ class TestPostDestinationRoute:
         manager.get_destination.return_value = None
         app.dicom_router = router
         rv = self._post(client, {**self._VALID, 'port': 99999})
+        assert rv.status_code == 400
+
+    def test_http_port_above_65535_returns_400(self, client, app):
+        router, manager = _make_router()
+        manager.get_destination.return_value = None
+        app.dicom_router = router
+        rv = self._post(client, {**self._VALID, 'http_port': 99999})
         assert rv.status_code == 400
 
     def test_unsafe_name_returns_400(self, client, app):
@@ -337,6 +367,12 @@ class TestPatchDestinationRoute:
         router, _ = _make_router(dest=_make_dest())
         app.dicom_router = router
         rv = self._patch(client, 'orthanc-a', {'port': 99999})
+        assert rv.status_code == 400
+
+    def test_patch_http_port_above_65535_returns_400(self, client, app):
+        router, _ = _make_router(dest=_make_dest())
+        app.dicom_router = router
+        rv = self._patch(client, 'orthanc-a', {'http_port': 99999})
         assert rv.status_code == 400
 
     def test_router_unavailable_returns_503(self, client, app):

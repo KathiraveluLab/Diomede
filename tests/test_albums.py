@@ -47,3 +47,17 @@ def test_create_album(app):
         
         album = Album.query.first()
         assert album.name == "Test Album"
+
+
+def test_create_album_index_skips_malformed_entries(app, tmp_path):
+    with app.app_context():
+        creator = DICOMAlbumCreator(str(tmp_path))
+        files = [
+            {'path': '/tmp/ok.dcm', 'patient_id': 'P1', 'study_uid': '1.2.3', 'modality': 'CT'},
+            {'path': '/tmp/bad.dcm', 'patient_id': 'P2'},  # malformed
+        ]
+
+        assert creator.create_album_index(files) is True
+        indexed = DICOMFile.query.all()
+        assert len(indexed) == 1
+        assert indexed[0].file_path == '/tmp/ok.dcm'
