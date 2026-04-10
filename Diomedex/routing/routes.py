@@ -63,6 +63,7 @@ def _serialize_destination_stats(destinations):
             'ae_title': d.ae_title,
             'host': d.host,
             'port': d.port,
+            'http_port': getattr(d, 'http_port', None),
             'priority': d.priority,
             'status': d.status.value,
             'load': getattr(d, 'load_factor', None),
