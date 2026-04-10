@@ -15,13 +15,11 @@ def scan_directory():
         if not data or 'path' not in data:
             return jsonify({'error': 'Path parameter is required'}), 400
 
-        # Get and validate configuration
         storage_path = current_app.config.get('STORAGE_PATH')
         if not storage_path:
             current_app.logger.error("'STORAGE_PATH' is not configured.")
             return jsonify({'error': 'Server configuration error.'}), 500
 
-        # Validate path to prevent path traversal attacks
         user_path = Path(data['path'])
         storage_base = Path(storage_path).resolve()
 
@@ -34,7 +32,6 @@ def scan_directory():
         except ValueError:
             return jsonify({'error': 'Path must be within configured storage area'}), 403
 
-        # Process files
         creator = DICOMAlbumCreator(storage_path)
         files = creator.scan_directory(str(user_path))
 
@@ -60,7 +57,12 @@ def create_album():
         if not data or 'name' not in data:
             return jsonify({'error': 'Name is required'}), 400
 
-        # Initialize Kheops adapter
+        storage_path = current_app.config.get('STORAGE_PATH')
+        if not storage_path:
+            current_app.logger.error("'STORAGE_PATH' is not configured.")
+            return jsonify({'error': 'Server configuration error.'}), 500
+
+        # Initialize Kheops adapter safely
         try:
             kheops = KheopsAdapter()
         except KeyError as e:
@@ -72,7 +74,7 @@ def create_album():
         if not album:
             return jsonify({'error': 'Failed to create Kheops album'}), 500
 
-        # Save to DB
+        # Save locally
         new_album = Album(
             name=data['name'],
             description=data.get('description', ''),
