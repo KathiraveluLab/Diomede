@@ -125,16 +125,7 @@ class DestinationManager:
     def update_destination(self, name, updates: dict) -> bool:
         _ALLOWED = {'ae_title', 'host', 'port', 'priority', 'max_queue_size', 'http_port'}
 
-        def _is_valid_update(field, value):
-            if field in {'ae_title', 'host'}:
-                return isinstance(value, str) and bool(value.strip())
-            if field in {'port', 'http_port'}:
-                return isinstance(value, int) and 1 <= value <= 65535
-            if field == 'priority':
-                return isinstance(value, int) and value >= 0
-            if field == 'max_queue_size':
-                return isinstance(value, int) and value > 0
-            return False
+       
 
         with self._lock:
             dest = self.destinations.get(name)
