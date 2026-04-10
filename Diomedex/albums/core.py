@@ -34,7 +34,11 @@ class DICOMAlbumCreator:
     def create_album_index(self, files: List[Dict]) -> bool:
         """Index DICOM files in database"""
         try:
+            required = ('path', 'patient_id', 'study_uid', 'modality')
             for file_info in files:
+                if not isinstance(file_info, dict) or any(k not in file_info for k in required):
+                    LOG.warning("Skipping malformed file info entry: %r", file_info)
+                    continue
                 if not DICOMFile.query.filter_by(file_path=file_info['path']).first():
                     dicom_file = DICOMFile(
                         file_path=file_info['path'],
@@ -47,5 +51,5 @@ class DICOMAlbumCreator:
             return True
         except Exception as e:
             db.session.rollback()
-            print(f"Error indexing files: {str(e)}")
+            LOG.exception("Error indexing files")
             return False

@@ -55,6 +55,26 @@ def _dest_to_dict(dest, *, full=False):
     return d
 
 
+def _serialize_destination_stats(destinations):
+    """Normalize stats destinations to JSON-safe dictionaries."""
+    serialized = []
+    for d in destinations:
+        if isinstance(d, dict):
+            serialized.append(d)
+            continue
+        serialized.append({
+            'name': d.name,
+            'ae_title': d.ae_title,
+            'host': d.host,
+            'port': d.port,
+            'priority': d.priority,
+            'status': d.status.value,
+            'load': getattr(d, 'load_factor', None),
+            'score': d.calculate_score() if hasattr(d, 'calculate_score') else None,
+        })
+    return serialized
+
+
 def _validate_int_positive(value, field):
     if not isinstance(value, int) or isinstance(value, bool):
         return None, f"'{field}' must be an integer, got {value!r}"
@@ -69,6 +89,15 @@ def _validate_port(value):
         return None, err
     if v > 65535:
         return None, f"'port' must be between 1 and 65535, got {v}"
+    return v, None
+
+
+def _validate_optional_port(value, field):
+    v, err = _validate_int_positive(value, field)
+    if err:
+        return None, err
+    if v > 65535:
+        return None, f"'{field}' must be between 1 and 65535, got {v}"
     return v, None
 
 
@@ -100,20 +129,7 @@ def get_stats():
     # Ensure destinations in stats are JSON-serializable
     if isinstance(stats, dict) and 'destinations' in stats and stats['destinations'] is not None:
         try:
-            destinations = stats['destinations']
-            stats['destinations'] = [
-                {
-                    'name': d.name,
-                    'ae_title': d.ae_title,
-                    'host': d.host,
-                    'port': d.port,
-                    'priority': d.priority,
-                    'status': d.status.value,
-                    'load': getattr(d, 'load_factor', None),
-                    'score': d.calculate_score() if hasattr(d, 'calculate_score') else None,
-                }
-                for d in destinations
-            ]
+            stats['destinations'] = _serialize_destination_stats(stats['destinations'])
         except Exception:
             # If serialization fails for any reason, fall back to omitting destinations
             stats['destinations'] = []
@@ -196,7 +212,8 @@ def add_destination():
     kwargs = {}
     for field, _ in _OPTIONAL_POST_FIELDS.items():
         if field in body:
-            val, err = _validate_int_positive(body[field], field)
+            validator = _validate_optional_port if field == 'http_port' else _validate_int_positive
+            val, err = validator(body[field], field)
             if err:
                 return jsonify({'error': err}), 400
             kwargs[field] = val
@@ -265,7 +282,8 @@ def update_destination(name):
         if field in ('ae_title', 'host', 'port'):
             updates[field] = validated[field]
         elif _PATCHABLE_FIELDS[field] is int:
-            val, err = _validate_int_positive(body[field], field)
+            validator = _validate_optional_port if field == 'http_port' else _validate_int_positive
+            val, err = validator(body[field], field)
             if err:
                 return jsonify({'error': err}), 400
             updates[field] = val
