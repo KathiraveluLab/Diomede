@@ -4,7 +4,7 @@ from .core import DICOMAlbumCreator
 from .kheops import KheopsAdapter
 from .models import Album, db
 
-albums_bp = Blueprint('albums', **name**)
+albums_bp = Blueprint('albums', __name__)
 
 @albums_bp.route('/scan', methods=['POST'])
 def scan_directory():
