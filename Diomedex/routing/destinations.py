@@ -132,7 +132,8 @@ class DestinationManager:
                 if k in ('port', 'http_port', 'priority', 'max_queue_size'):
                     if not isinstance(v, int) or isinstance(v, bool): return False
                     if k in ('port', 'http_port') and not (1 <= v <= 65535): return False
-                    if k in ('priority', 'max_queue_size') and v <= 0: return False
+                    if k == 'priority' and v < 0: return False
+                    if k == 'max_queue_size' and v <= 0: return False
             return True
 
         if not _is_valid_update(updates):
