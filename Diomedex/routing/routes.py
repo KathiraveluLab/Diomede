@@ -2,7 +2,7 @@ import re
 from .destinations import Destination
 from flask import Blueprint, jsonify, current_app, request
 
-routing_bp = Blueprint('routing', **name**, url_prefix='/routing')
+routing_bp = Blueprint('routing', __name__, url_prefix='/routing')
 
 _REQUIRED_POST_FIELDS = {
 'name':     str,
