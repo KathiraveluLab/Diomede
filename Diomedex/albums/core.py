@@ -33,8 +33,12 @@ class DICOMAlbumCreator:
     def create_album_index(self, files: List[Dict]) -> bool:
         """Index DICOM files in database"""
         try:
+            paths = [file_info['path'] for file_info in files]
             existing_paths = {
-                f.file_path for f in db.session.query(DICOMFile.file_path).all()
+                f.file_path
+                for f in db.session.query(DICOMFile.file_path)
+                .filter(DICOMFile.file_path.in_(paths))
+                .all()
             }
             for file_info in files:
                 if file_info['path'] not in existing_paths:
