@@ -1,7 +1,8 @@
+from pathlib import Path
 from flask import Blueprint, request, jsonify, current_app
 from .core import DICOMAlbumCreator
 from .kheops import KheopsAdapter
-from .models import Album, DICOMFile, db
+from .models import Album, db
 
 albums_bp = Blueprint('albums', __name__)
 
@@ -18,9 +19,6 @@ def scan_directory():
         if not storage_path:
             current_app.logger.error("'STORAGE_PATH' is not configured.")
             return jsonify({'error': 'Server configuration error.'}), 500
-        
-        # Validate path to prevent path traversal attacks
-        from pathlib import Path
         
         user_path = Path(data['path'])
         storage_base = Path(storage_path).resolve()
