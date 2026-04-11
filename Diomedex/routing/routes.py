@@ -5,25 +5,25 @@ from flask import Blueprint, jsonify, current_app, request
 routing_bp = Blueprint('routing', __name__, url_prefix='/routing')
 
 _REQUIRED_POST_FIELDS = {
-    'name':     str,
+    'name': str,
     'ae_title': str,
-    'host':     str,
-    'port':     int,
+    'host': str,
+    'port': int,
 }
 
 _OPTIONAL_POST_FIELDS = {
-    'priority':      int,
+    'priority': int,
     'max_queue_size': int,
-    'http_port':     int,
+    'http_port': int,
 }
 
 _PATCHABLE_FIELDS = {
-    'ae_title':      str,
-    'host':          str,
-    'port':          int,
-    'priority':      int,
+    'ae_title': str,
+    'host': str,
+    'port': int,
+    'priority': int,
     'max_queue_size': int,
-    'http_port':     int,
+    'http_port': int,
 }
 
 _DEST_ALLOWED_FIELDS = set(_PATCHABLE_FIELDS) | {'name'}
@@ -35,19 +35,19 @@ def get_router():
 
 def _dest_to_dict(dest, *, full=False):
     d = {
-        'name':      dest.name,
-        'ae_title':  dest.ae_title,
-        'host':      dest.host,
-        'port':      dest.port,
-        'priority':  dest.priority,
-        'status':    dest.status.value,
-        'load':      dest.load_factor,
-        'score':     dest.calculate_score(),
+        'name': dest.name,
+        'ae_title': dest.ae_title,
+        'host': dest.host,
+        'port': dest.port,
+        'priority': dest.priority,
+        'status': dest.status.value,
+        'load': dest.load_factor,
+        'score': dest.calculate_score(),
     }
     if full:
-        d['current_queue']   = dest.current_queue
-        d['max_queue_size']  = dest.max_queue_size
-        d['http_port']       = dest.http_port
+        d['current_queue'] = dest.current_queue
+        d['max_queue_size'] = dest.max_queue_size
+        d['http_port'] = dest.http_port
     return d
 
 
@@ -58,24 +58,19 @@ def _serialize_destination_stats(destinations):
         if isinstance(d, dict):
             serialized.append(d)
             continue
-        serialized.append({
-            'name': d.name,
-            'ae_title': d.ae_title,
-            'host': d.host,
-            'port': d.port,
-            'http_port': getattr(d, 'http_port', None),
-            'priority': d.priority,
-            'status': d.status.value,
-            'load': getattr(d, 'load_factor', None),
-            'score': d.calculate_score() if hasattr(d, 'calculate_score') else None,
-        })
+        try:
+            serialized.append(_dest_to_dict(d, full=True))
+        except Exception as e:
+            current_app.logger.exception(
+                f"Failed to serialize destination object: {e}"
+            )
     return serialized
 
 
 def _validate_int_positive(value, field):
     if not isinstance(value, int) or isinstance(value, bool):
         return None, f"'{field}' must be an integer, got {value!r}"
-    if value <= 0:
+    if value < 0:
         return None, f"'{field}' must be a positive integer, got {value}"
     return value, None
 
@@ -89,7 +84,6 @@ def _validate_optional_port(value, field):
     return v, None
 
 
-# ✅ FIX: reuse optional validator
 def _validate_port(value):
     return _validate_optional_port(value, 'port')
 
@@ -133,8 +127,13 @@ def get_stats():
 
     if isinstance(stats, dict) and 'destinations' in stats and stats['destinations'] is not None:
         try:
-            stats['destinations'] = _serialize_destination_stats(stats['destinations'])
-        except Exception:
+            stats['destinations'] = _serialize_destination_stats(
+                stats['destinations']
+            )
+        except Exception as e:
+            current_app.logger.exception(
+                f"Failed to serialize destinations list: {e}"
+            )
             stats['destinations'] = []
 
     return jsonify(stats), 200
@@ -148,7 +147,6 @@ def list_destinations():
 
     destinations = router.destination_manager.get_all_destinations()
 
-    # ✅ FIX: reuse serializer
     return jsonify({
         'destinations': _serialize_destination_stats(destinations)
     }), 200
@@ -185,7 +183,9 @@ def add_destination():
     name = body['name']
 
     if not re.match(r'^[A-Za-z0-9_\-\.]+$', name):
-        return jsonify({'error': "'name' must contain only letters, digits, hyphens, underscores, or dots"}), 400
+        return jsonify({
+            'error': "'name' must contain only letters, digits, hyphens, underscores, or dots"
+        }), 400
 
     if router.destination_manager.get_destination(name):
         return jsonify({'error': f"Destination '{name}' already exists"}), 409
@@ -227,7 +227,10 @@ def remove_destination(name):
         return jsonify({'error': f"Destination '{name}' not found"}), 404
 
     router.destination_manager.remove_destination(name)
-    return jsonify({'message': f"Destination '{name}' removed successfully"}), 200
+
+    return jsonify({
+        'message': f"Destination '{name}' removed successfully"
+    }), 200
 
 
 @routing_bp.route('/destinations/<name>', methods=['PATCH'])
@@ -262,15 +265,21 @@ def update_destination(name):
         return jsonify({'error': str(e)}), 400
 
     updates = {}
+
     for field in body:
+        if field not in _PATCHABLE_FIELDS:
+            continue
+
         if field in ('ae_title', 'host', 'port'):
             updates[field] = validated[field]
-        elif field in _PATCHABLE_FIELDS and _PATCHABLE_FIELDS[field] is int:
+
+        elif _PATCHABLE_FIELDS[field] is int:
             validator = _validate_optional_port if field == 'http_port' else _validate_int_positive
             val, err = validator(body[field], field)
             if err:
                 return jsonify({'error': err}), 400
             updates[field] = val
+
         else:
             if not isinstance(body[field], str) or not body[field].strip():
                 return jsonify({'error': f"'{field}' must be a non-empty string"}), 400
