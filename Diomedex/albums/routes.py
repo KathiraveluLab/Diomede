@@ -8,13 +8,11 @@ albums_bp = Blueprint('albums', __name__)
 
 @albums_bp.route('/scan', methods=['POST'])
 def scan_directory():
-"""Scan directory for DICOM files"""
-try:
-data = request.get_json()
-if not data or 'path' not in data:
-return jsonify({'error': 'Path parameter is required'}), 400
-
-```
+    """Scan directory for DICOM files"""
+    try:
+        data = request.get_json()
+        if not data or 'path' not in data:
+            return jsonify({'error': 'Path parameter is required'}), 400
     # Get and validate configuration
     storage_path = current_app.config.get('STORAGE_PATH')
     if not storage_path:
@@ -49,10 +47,9 @@ return jsonify({'error': 'Path parameter is required'}), 400
 
     return jsonify({'error': 'Failed to index files'}), 500
 
-except Exception as e:
-    current_app.logger.error(f"Scan directory failed: {e}")
-    return jsonify({'error': str(e)}), 500
-```
+    except Exception as e:
+        current_app.logger.error(f"Scan directory failed: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @albums_bp.route('/create', methods=['POST'])
 def create_album():
