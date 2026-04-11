@@ -1,7 +1,7 @@
 import pydicom
 from pathlib import Path
 from typing import List, Dict
-from ..models import db
+from ..models import db, DICOMFile
 
 class DICOMAlbumCreator:
     def __init__(self, storage_path: str):
@@ -28,8 +28,11 @@ class DICOMAlbumCreator:
     def create_album_index(self, files: List[Dict]) -> bool:
         """Index DICOM files in database"""
         try:
+            existing_paths = {
+                f.file_path for f in db.session.query(DICOMFile.file_path).all()
+            }
             for file_info in files:
-                if not DICOMFile.query.filter_by(file_path=file_info['path']).first():
+                if file_info['path'] not in existing_paths:
                     dicom_file = DICOMFile(
                         file_path=file_info['path'],
                         patient_id=file_info['patient_id'],
@@ -37,6 +40,7 @@ class DICOMAlbumCreator:
                         modality=file_info['modality']
                     )
                     db.session.add(dicom_file)
+                    existing_paths.add(file_info['path'])
             db.session.commit()
             return True
         except Exception as e:
