@@ -86,7 +86,8 @@ def validate_destination_config(config: dict):
     for field, value in config.items():
         if field == 'port':
             val, err = _validate_port(value)
-            if err: raise ValueError(err)
+            if err:
+                raise ValueError(err)
             result[field] = val
         elif field == 'name' or _PATCHABLE_FIELDS.get(field) is str:
             if not isinstance(value, str) or not value.strip():
