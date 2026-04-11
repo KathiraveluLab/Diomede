@@ -55,27 +55,6 @@ def _dest_to_dict(dest, *, full=False):
     return d
 
 
-def _serialize_destination_stats(destinations):
-    """Normalize stats destinations to JSON-safe dictionaries."""
-    serialized = []
-    for d in destinations:
-        if isinstance(d, dict):
-            serialized.append(d)
-            continue
-        try:
-            serialized.append({
-                'name': d.name,
-                'ae_title': d.ae_title,
-                'host': d.host,
-                'port': d.port,
-                'priority': d.priority,
-                'status': d.status.value,
-                'load': getattr(d, 'load_factor', None),
-                'score': d.calculate_score() if hasattr(d, 'calculate_score') else None,
-            })
-        except Exception as e:
-            current_app.logger.error(f"Failed to serialize destination object: {e}")
-    return serialized
 
 
 def _validate_int_positive(value, field):
