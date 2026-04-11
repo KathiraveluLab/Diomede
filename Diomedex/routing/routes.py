@@ -265,7 +265,7 @@ def update_destination(name):
     for field in body:
         if field in ('ae_title', 'host', 'port'):
             updates[field] = validated[field]
-        elif _PATCHABLE_FIELDS[field] is int:
+        elif field in _PATCHABLE_FIELDS and _PATCHABLE_FIELDS[field] is int:
             validator = _validate_optional_port if field == 'http_port' else _validate_int_positive
             val, err = validator(body[field], field)
             if err:
