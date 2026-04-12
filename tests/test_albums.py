@@ -30,7 +30,7 @@ def test_scan_directory(tmp_path, app):
     ds.PatientID = "12345"
     ds.StudyInstanceUID = "1.2.3.4"
     ds.Modality = "CT"
-    ds.save_as(str(dcm_file))
+    ds.save_as(dcm_file)
     with app.app_context():
         creator = DICOMAlbumCreator(str(tmp_path))
         files = creator.scan_directory(str(tmp_path))
