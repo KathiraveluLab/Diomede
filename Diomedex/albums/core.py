@@ -63,5 +63,5 @@ class DICOMAlbumCreator:
             return True
         except Exception as e:
             db.session.rollback()
-            print(f"Error indexing files: {str(e)}")
+            LOG.exception("Error indexing files")
             return False
