@@ -13,9 +13,3 @@ setup(
         'requests>=2.26.0',
         'pandas>=1.3.0'
     ],
-    entry_points={
-        'console_scripts': [
-            'diomede=diomede.cli:main',
-        ],
-    },
-)
