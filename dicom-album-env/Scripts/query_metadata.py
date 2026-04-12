@@ -175,6 +175,9 @@ def parse_scalar_value(value, field_type, quotes_required=True):
 
 def get_typed_series(df, field, field_type):
     """Return a typed pandas Series for safe comparisons."""
+    if field not in df.columns:
+        raise ValueError(f"Field '{field}' is not present in metadata")
+
     series = df[field]
 
     if field_type == "string":
