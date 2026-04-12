@@ -140,6 +140,7 @@ class DestinationManager:
             dest = self.destinations.get(name)
             if not dest:
                 return False
+            to_apply = {}
             for field, value in updates.items():
                 if field in _ALLOWED:
                     if not _is_valid_update(field, value):
@@ -150,5 +151,7 @@ class DestinationManager:
                             value,
                         )
                         return False
-                    setattr(dest, field, value)
+                    to_apply[field] = value
+            for field, value in to_apply.items():
+                setattr(dest, field, value)
             return True
