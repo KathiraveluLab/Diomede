@@ -1,12 +1,10 @@
 import logging
 from pathlib import Path
 from typing import List, Dict
-
 from .models import db, DICOMFile
 from ..utils.dicom_helpers import safe_load_dicom_file
 
 LOG = logging.getLogger(__name__)
-
 
 class DICOMAlbumCreator:
     def __init__(self, storage_path: str):
@@ -34,15 +32,33 @@ class DICOMAlbumCreator:
     def create_album_index(self, files: List[Dict]) -> bool:
         """Index DICOM files in database"""
         try:
+            unique_paths = list({file_info.get('path') for file_info in files if file_info.get('path')})
+            existing_paths = set()
+            for i in range(0, len(unique_paths), 500):
+                chunk = unique_paths[i:i + 500]
+                existing_paths.update(
+                    f.file_path
+                    for f in db.session.query(DICOMFile.file_path)
+                    .filter(DICOMFile.file_path.in_(chunk))
+                    .all()
+                )
+            count = 0
             for file_info in files:
-                if not DICOMFile.query.filter_by(file_path=file_info['path']).first():
+                path = file_info.get('path')
+                if not path:
+                    continue
+                if path not in existing_paths:
                     dicom_file = DICOMFile(
-                        file_path=file_info['path'],
-                        patient_id=file_info['patient_id'],
-                        study_uid=file_info['study_uid'],
-                        modality=file_info['modality']
+                        file_path=path,
+                        patient_id=file_info.get('patient_id', ''),
+                        study_uid=file_info.get('study_uid', ''),
+                        modality=file_info.get('modality', '')
                     )
                     db.session.add(dicom_file)
+                    existing_paths.add(path)
+                    count += 1
+                    if count % 500 == 0:
+                        db.session.commit()
             db.session.commit()
             return True
         except Exception as e:
