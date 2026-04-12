@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - The test suite primarily uses mocked or isolated database interactions.
-- For most tests, a real MongoDB instance is **not** required.
+- For most tests, a real database instance is **not** required.
 - Database access is typically bypassed with fixtures/patches so tests can run against controlled in-memory behavior instead of live persistence.
 
 ## Troubleshooting
