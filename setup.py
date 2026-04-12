@@ -13,3 +13,4 @@ setup(
         'requests>=2.26.0',
         'pandas>=1.3.0'
     ],
+)
