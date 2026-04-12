@@ -128,12 +128,14 @@ class DestinationManager:
         def _is_valid_update(field, value):
             if field in {'ae_title', 'host'}:
                 return isinstance(value, str) and bool(value.strip())
+            if not isinstance(value, int) or isinstance(value, bool):
+                return False
             if field in {'port', 'http_port'}:
-                return isinstance(value, int) and 1 <= value <= 65535
+                return 1 <= value <= 65535
             if field == 'priority':
-                return isinstance(value, int) and value >= 0
+                return value >= 0
             if field == 'max_queue_size':
-                return isinstance(value, int) and value > 0
+                return value > 0
             return False
 
         with self._lock:
