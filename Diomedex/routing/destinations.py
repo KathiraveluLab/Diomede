@@ -145,8 +145,6 @@ class DestinationManager:
 
         with self._lock:
             dest = self.destinations.get(name)
-            if not dest:
-                return False
             to_apply = {}
             for field, value in updates.items():
                 if field in _ALLOWED:
@@ -159,6 +157,7 @@ class DestinationManager:
                         )
                         return False
                     to_apply[field] = value
+            # Apply updates only if all were valid
             for field, value in to_apply.items():
                 setattr(dest, field, value)
             return True
