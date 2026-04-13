@@ -30,7 +30,7 @@ def _ensure_required_tags(file_path: str) -> str:
     modified. The caller is responsible for deleting any returned temp file.
     """
     # Check headers first without loading large pixel data into memory
-    ds = pydicom.dcmread(file_path)
+    ds = pydicom.dcmread(file_path, defer_size = 1024*1024)
 
     missing_tags = [tag for tag in _REQUIRED_UID_TAGS if tag not in ds]
 
@@ -42,10 +42,11 @@ def _ensure_required_tags(file_path: str) -> str:
 
     tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".dcm", delete=False) as tmp:
+        suffix = Path(file_path).suffix or ".dcm"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp_path = tmp.name
 
-        ds.save_as(tmp_path)
+        ds.save_as(tmp_path, write_like_original=False)
         return tmp_path
 
     except Exception:
