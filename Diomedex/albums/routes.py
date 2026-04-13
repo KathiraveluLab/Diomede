@@ -90,3 +90,49 @@ def create_album():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+    
+@albums_bp.route('/index-from-niffler', methods=['POST'])
+def index_from_niffler():
+    """
+    Index DICOM files into the album database using a Niffler CSV output file.
+    Instead of scanning raw DICOM files (which reimplements Niffler),
+    this route accepts the path to a CSV already produced by Niffler's
+    meta-extraction module and feeds it into the existing album index pipeline.
+    Request body:
+        csv_path  (str, required): path to Niffler's output CSV file
+        filters   (dict, optional): e.g. {"Modality": "CT"} to index a subset
+    Returns:
+        JSON with status and count of files indexed.
+    """
+    try:
+        from .niffler_reader import load_niffler_csv, filter_metadata, to_album_index_format
+
+        data = request.get_json()
+        if not data or 'csv_path' not in data:
+            return jsonify({'error': 'csv_path is required'}), 400
+
+        storage_path = current_app.config.get('STORAGE_PATH')
+        if not storage_path:
+            return jsonify({'error': 'Server configuration error.'}), 500
+
+        records = load_niffler_csv(data['csv_path'])
+
+        if data.get('filters'):
+            records = filter_metadata(records, data['filters'])
+
+        files = to_album_index_format(records)
+
+        creator = DICOMAlbumCreator(storage_path)
+        if creator.create_album_index(files):
+            return jsonify({
+                'status': 'success',
+                'indexed': len(files)
+            })
+        return jsonify({'error': 'Failed to index files'}), 500
+
+    except FileNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
