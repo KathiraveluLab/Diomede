@@ -45,7 +45,7 @@ class DICOMAlbumCreator:
             count = 0
             for file_info in files:
                 if not isinstance(file_info, dict):
-                    LOG.warning("Skipping non-dict file_info entry: %r", file_info)
+                    LOG.warning("Skipping malformed file_info entry (not a dictionary)")
                     continue
 
                 path = file_info.get('path')
