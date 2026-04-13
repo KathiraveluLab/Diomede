@@ -19,6 +19,8 @@ class DICOMAlbumCreator:
                 if ds is None:
                     continue
 
+                # Use safe .get field access and defaults for partially broken datasets
+                # .get is explicit and avoids reflection-style behaviors.
                 dicom_files.append({
                     'path': str(dcm_path),
                     'patient_id': ds.get('PatientID', ''),
@@ -30,12 +32,7 @@ class DICOMAlbumCreator:
     def create_album_index(self, files: List[Dict]) -> bool:
         """Index DICOM files in database"""
         try:
-            unique_paths = list({
-                file_info.get('path')
-                for file_info in files
-                if isinstance(file_info, dict) and file_info.get('path')
-            })
-
+            unique_paths = list({file_info.get('path') for file_info in files if file_info.get('path')})
             existing_paths = set()
             for i in range(0, len(unique_paths), 500):
                 chunk = unique_paths[i:i + 500]
@@ -45,10 +42,8 @@ class DICOMAlbumCreator:
                     .filter(DICOMFile.file_path.in_(chunk))
                     .all()
                 )
-
             count = 0
             for file_info in files:
-                # Skip malformed entries safely
                 if not isinstance(file_info, dict):
                     LOG.warning("Skipping non-dict file_info entry: %r", file_info)
                     continue
@@ -57,7 +52,6 @@ class DICOMAlbumCreator:
                 if not isinstance(path, str) or not path.strip():
                     LOG.warning("Skipping file_info with invalid path: %r", file_info)
                     continue
-
                 if path not in existing_paths:
                     dicom_file = DICOMFile(
                         file_path=path,
@@ -68,14 +62,11 @@ class DICOMAlbumCreator:
                     db.session.add(dicom_file)
                     existing_paths.add(path)
                     count += 1
-
                     if count % 500 == 0:
                         db.session.commit()
-
             db.session.commit()
             return True
-
-        except Exception:
+        except Exception as e:
             db.session.rollback()
-            LOG.exception("Error indexing files")
+            print(f"Error indexing files: {str(e)}")
             return False
