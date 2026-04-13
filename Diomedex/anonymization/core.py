@@ -29,8 +29,10 @@ def _ensure_required_tags(file_path: str) -> str:
     patched in and its path is returned instead — the source file is never
     modified. The caller is responsible for deleting any returned temp file.
     """
-    # Check headers first without loading large pixel data into memory
-    ds = pydicom.dcmread(file_path, defer_size = 1024*1024)
+    # Read dataset with deferred loading so large elements (e.g., pixel data)
+    # are only loaded if accessed (e.g., during save). This avoids unnecessary
+    # memory usage for files that do not require modification.
+    ds = pydicom.dcmread(file_path, defer_size=1024*1024) # 1 MB threshold
 
     missing_tags = [tag for tag in _REQUIRED_UID_TAGS if tag not in ds]
 
