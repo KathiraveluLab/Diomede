@@ -30,21 +30,28 @@ def _ensure_required_tags(file_path: str) -> str:
     modified. The caller is responsible for deleting any returned temp file.
     """
     # Check headers first without loading large pixel data into memory
-    ds = pydicom.dcmread(file_path, stop_before_pixels=True)
+    ds = pydicom.dcmread(file_path)
+
     missing_tags = [tag for tag in _REQUIRED_UID_TAGS if tag not in ds]
 
     if not missing_tags:
         return file_path
 
-    # Re-read fully to capture pixel data before saving the patched copy
-    ds = pydicom.dcmread(file_path)
     for tag in missing_tags:
         setattr(ds, tag, generate_uid())
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".dcm", delete=False)
-    tmp.close()
-    ds.save_as(tmp.name)
-    return tmp.name
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".dcm", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        ds.save_as(tmp_path)
+        return tmp_path
+
+    except Exception:
+        if tmp_path:
+            Path(tmp_path).unlink(missing_ok=True)
+        raise
 
 
 LOG = logging.getLogger(__name__)
