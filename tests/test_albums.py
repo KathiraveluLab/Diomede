@@ -45,3 +45,29 @@ def test_create_album(app):
         
         album = Album.query.first()
         assert album.name == "Test Album"
+
+def test_scan_directory(tmp_path, app):
+    import pydicom
+    from pydicom.dataset import FileDataset, FileMetaDataset
+    from pydicom.uid import UID
+
+    dcm_file = tmp_path / "test.dcm"
+    
+    file_meta = FileMetaDataset()
+    file_meta.MediaStorageSOPClassUID = UID('1.2.840.10008.5.1.4.1.1.2')
+    file_meta.MediaStorageSOPInstanceUID = UID('1.2.3')
+    file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+    
+    ds = FileDataset(str(dcm_file), {}, file_meta=file_meta, preamble=b"\0" * 128)
+    ds.PatientID = "12345"
+    ds.StudyInstanceUID = "1.2.3.4"
+    ds.Modality = "CT"
+
+    ds.save_as(str(dcm_file))
+
+    with app.app_context():
+        creator = DICOMAlbumCreator(str(tmp_path))
+        files = creator.scan_directory(str(tmp_path))
+
+        assert len(files) == 1
+        assert files[0]['path'] == str(dcm_file)
