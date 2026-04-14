@@ -20,7 +20,7 @@ class HealthChecker:
     def start(self):
        
         with self._lifecycle_lock:
-            if self.running:
+            if self.running or (self._thread and self._thread.is_alive()):
                 return
             
             self.running = True
