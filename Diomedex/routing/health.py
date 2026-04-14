@@ -70,6 +70,9 @@ class HealthChecker:
         start = time.time()
         
         try:
+            # Try HTTP health check for Orthanc
+            # TODO: use pynetdicom C-ECHO for real DICOM verification
+            # Note: Orthanc HTTP API typically on different port (e.g., 8042) than DICOM port
             url = f"http://{dest.host}:{dest.http_port}/system"
             response = requests.get(url, timeout=self.request_timeout)
             response_time = time.time() - start
