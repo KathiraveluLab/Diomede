@@ -40,7 +40,6 @@ class HealthChecker:
             self._stop_event.set()
 
             thread = self._thread
-            self._thread = None  
         
         # join outside lock
         if thread:
