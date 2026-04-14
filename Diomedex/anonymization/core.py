@@ -101,7 +101,7 @@ class DICOMAnonymizer:
                 if patched != f:
                     temp_files.append(patched)
             except Exception as e:
-                LOG.warning("Skipping %s: could not patch required UID tags: %s", f, e)
+                LOG.warning("Skipping %s: could not patch required UID tags: %s", f, str(e))
                 pre_failed += 1
 
         if not patched_files:
