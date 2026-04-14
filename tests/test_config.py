@@ -35,4 +35,6 @@ class TestSecretKeyConfig:
         with _db_patch, patch.dict(os.environ, {}, clear=True):
             app1 = create_app()
             app2 = create_app()
+        assert app1.config['SECRET_KEY']
+        assert app2.config['SECRET_KEY']
         assert app1.config['SECRET_KEY'] != app2.config['SECRET_KEY']
