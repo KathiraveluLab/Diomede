@@ -18,27 +18,31 @@ class HealthChecker:
         self._lifecycle_lock = Lock()  
     
     def start(self):
-       
         with self._lifecycle_lock:
+            # Prevent duplicate or zombie threads
             if self.running or (self._thread and self._thread.is_alive()):
                 return
             
             self.running = True
-            self._stop_event.clear()
+            self._stop_event = Event()
+
             self._thread = Thread(target=self._check_loop, daemon=True)
             self._thread.start()
     
     def stop(self):
-      
         with self._lifecycle_lock:
             if not self.running:
                 return
             
             self.running = False
+
+            # signal current thread to stop
             self._stop_event.set()
-            thread = self._thread  
+
+            thread = self._thread
+            self._thread = None  
         
-       
+        # join outside lock
         if thread:
             thread.join(timeout=5)
     
@@ -67,9 +71,6 @@ class HealthChecker:
         start = time.time()
         
         try:
-            # Try HTTP health check for Orthanc
-            # TODO: use pynetdicom C-ECHO for real DICOM verification
-            # Note: Orthanc HTTP API typically on different port (e.g., 8042) than DICOM port
             url = f"http://{dest.host}:{dest.http_port}/system"
             response = requests.get(url, timeout=self.request_timeout)
             response_time = time.time() - start
