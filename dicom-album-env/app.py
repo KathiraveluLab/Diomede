@@ -56,6 +56,12 @@ def select_directory():
                 filename = secure_filename(file.filename)
                 if filename:
                     file_path = os.path.join(target_directory, filename)
+                    base, ext = os.path.splitext(filename)
+                    counter = 1
+                    # Ensure uniqueness to prevent overwriting files with the same name
+                    while os.path.exists(file_path):
+                        file_path = os.path.join(target_directory, f"{base}_{counter}{ext}")
+                        counter += 1
                     file.save(file_path)
 
             flash(f"Successfully uploaded {len(files)} files.", "success")
@@ -117,13 +123,17 @@ def view_query_results():
         flash("No active query session found. Please start over.", "warning")
         return redirect(url_for('select_directory'))
         
-    target_directory = get_target_directory()
-    dicom_files = load_dicom_files(target_directory)
-    metadata_df = extract_metadata(dicom_files)
-    subset_df = query_metadata(metadata_df, query)
+    try:
+        target_directory = get_target_directory()
+        dicom_files = load_dicom_files(target_directory)
+        metadata_df = extract_metadata(dicom_files)
+        subset_df = query_metadata(metadata_df, query)
 
-    if subset_df.empty:
-        flash("Query returned zero results. Please refine your filter.", "warning")
+        if subset_df.empty:
+            flash("Query returned zero results. Please refine your filter.", "warning")
+            return redirect(url_for('create_album'))
+    except Exception as e:
+        flash(f"Error processing DICOM data: {str(e)}", "error")
         return redirect(url_for('create_album'))
 
     if request.method == "POST":
