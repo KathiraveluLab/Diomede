@@ -54,7 +54,7 @@ class DICOMAlbumCreator:
                     continue
 
                 path = file_info.get('path')
-                if not isinstance(path, str) or not path.strip():
+                if not isinstance(path, str) or not (path := path.strip()):
                     LOG.warning("Skipping file_info entry with missing or invalid path")
                     continue
                 if path not in existing_paths:
