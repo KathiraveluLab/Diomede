@@ -31,7 +31,7 @@ class HealthChecker:
     
     def stop(self):
         with self._lifecycle_lock:
-            if not self.running:
+            if not self.running and not (self._thread and self._thread.is_alive()):
                 return
             
             self.running = False
