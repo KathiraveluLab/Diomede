@@ -23,7 +23,7 @@ class HealthChecker:
             if self._thread and self._thread.is_alive():
                 return
             
-            self._stop_event = Event()
+            self._stop_event.clear()
 
             self._thread = Thread(target=self._check_loop, daemon=True)
             self._thread.start()
