@@ -33,10 +33,10 @@ class DICOMAlbumCreator:
         """Index DICOM files in database"""
         try:
             unique_paths = list({
-                path for file_info in files
+                p for file_info in files
                 if isinstance(file_info, dict)
                 and isinstance(path := file_info.get('path'), str)
-                and path.strip()
+                and (p := path.strip())
             })
             existing_paths = set()
             for i in range(0, len(unique_paths), 500):
