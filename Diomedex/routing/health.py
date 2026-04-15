@@ -23,11 +23,11 @@ class HealthChecker:
             if self.running or (self._thread and self._thread.is_alive()):
                 return
             
-            self.running = True
             self._stop_event = Event()
 
             self._thread = Thread(target=self._check_loop, daemon=True)
             self._thread.start()
+            self.running = True
     
     def stop(self):
         with self._lifecycle_lock:
