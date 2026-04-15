@@ -55,6 +55,9 @@ def select_directory():
             for file in files:
                 filename = secure_filename(file.filename)
                 if filename:
+            for file in files:
+                filename = secure_filename(file.filename)
+                if filename:
                     file_path = os.path.join(target_directory, filename)
                     base, ext = os.path.splitext(filename)
                     counter = 1
