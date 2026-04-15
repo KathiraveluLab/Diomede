@@ -21,7 +21,10 @@ class HealthChecker:
         with self._lifecycle_lock:
             # Prevent duplicate or zombie threads
             if self._thread and self._thread.is_alive():
-                return
+                if not self._stop_event.is_set():
+                    return
+                # Wait for the stopping thread to finish before starting a new one
+                self._thread.join(timeout=5)
             
             self._stop_event.clear()
 
