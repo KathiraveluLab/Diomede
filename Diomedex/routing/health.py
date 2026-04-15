@@ -20,7 +20,7 @@ class HealthChecker:
     def start(self):
         with self._lifecycle_lock:
             # Prevent duplicate or zombie threads
-            if self.running or (self._thread and self._thread.is_alive()):
+            if self._thread and self._thread.is_alive():
                 return
             
             self._stop_event = Event()
