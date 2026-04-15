@@ -10,7 +10,9 @@ albums_bp = Blueprint('albums', __name__)
 def scan_directory():
     """Scan directory for DICOM files"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'Invalid JSON body'}), 400
         if not data or 'path' not in data:
             return jsonify({'error': 'Path parameter is required'}), 400
         
@@ -47,11 +49,14 @@ def scan_directory():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
 @albums_bp.route('/create', methods=['POST'])
 def create_album():
     """Create a new DICOM album"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'Invalid JSON body'}), 400
         if not data or 'name' not in data:
             return jsonify({'error': 'Name is required'}), 400
         
@@ -61,6 +66,7 @@ def create_album():
         except KeyError as e:
             current_app.logger.error(f'Kheops configuration missing: {e}')
             return jsonify({'error': 'Integration service is not configured.'}), 500
+
         # Create in Kheops
         album = kheops.create_album(data['name'], data.get('description', ''))
         if not album:
@@ -86,4 +92,5 @@ def create_album():
         })
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception('Album creation failed')
+        return jsonify({'error': 'Internal server error'}), 500
