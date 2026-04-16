@@ -16,7 +16,7 @@ ALLOWED_FIELDS = {
 }
 
 # Only allow safe, well-defined operators
-SAFE_OPERATORS = {'=', '==', '!=', '<', '>', '<=', '>=', 'in'}
+SAFE_OPERATORS = {'=', '==', '!=', '<', '>', '<=', '>=', 'in', 'contains'}
 
 # Expected type per field for safe comparisons
 FIELD_TYPES = {
@@ -120,7 +120,7 @@ def parse_condition(condition):
         if match:
             field = match.group(1)
             value = match.group(2).strip()
-            return field, op, value
+            return field, normalize_operator(op), value
     
     raise ValueError(f"Invalid condition: {condition}. Must use format: field operator value")
 
@@ -132,7 +132,7 @@ def normalize_operator(op):
     return op
 
 
-def parse_scalar_value(value, field_type):
+def parse_scalar_value(value, field_type, quotes_required=True):
     """
     Parse scalar literal values and enforce expected field type.
 
@@ -149,7 +149,7 @@ def parse_scalar_value(value, field_type):
         literal = value
 
     if field_type == "string":
-        if not is_quoted:
+        if quotes_required and not is_quoted:
             raise ValueError(f"String values must be quoted: {value}")
         return literal
 
@@ -175,6 +175,9 @@ def parse_scalar_value(value, field_type):
 
 def get_typed_series(df, field, field_type):
     """Return a typed pandas Series for safe comparisons."""
+    if field not in df.columns:
+        raise ValueError(f"Field '{field}' is not present in metadata")
+
     series = df[field]
 
     if field_type == "string":
@@ -182,7 +185,7 @@ def get_typed_series(df, field, field_type):
 
     if field_type == "numeric":
         typed = pd.to_numeric(series, errors="coerce")
-        if typed.notna().sum() != series.notna().sum():
+        if (typed.isna() & series.notna()).any():
             raise ValueError(
                 f"Field '{field}' contains non-numeric values and cannot be compared numerically"
             )
@@ -190,7 +193,7 @@ def get_typed_series(df, field, field_type):
 
     if field_type == "date":
         typed = pd.to_datetime(series, format="%Y%m%d", errors="coerce")
-        if typed.notna().sum() != series.notna().sum():
+        if (typed.isna() & series.notna()).any():
             raise ValueError(
                 f"Field '{field}' contains non-date values and cannot be compared as dates"
             )
@@ -220,9 +223,8 @@ def evaluate_condition(df, field, op, value):
             f"Field '{field}' not allowed. Allowed fields: {', '.join(sorted(ALLOWED_FIELDS))}"
         )
     if field not in df.columns:
-        raise ValueError(f"Field '{field}' is allowed but not present in metadata")
+        raise ValueError(f"Field '{field}' not present in metadata")
 
-    op = normalize_operator(op)
     
     if op not in SAFE_OPERATORS:
         raise ValueError(
@@ -231,6 +233,15 @@ def evaluate_condition(df, field, op, value):
 
     field_type = FIELD_TYPES.get(field, "string")
     
+    if op == 'contains':
+        if field_type != "string":
+            raise ValueError(
+                f"Operator '{op}' is only supported for string field '{field}'"
+            )
+        parsed_value = parse_scalar_value(value, field_type)
+        series = get_typed_series(df, field, field_type)
+        return series.str.contains(parsed_value, na=False, regex=False)
+
     # Handle list literals: ['CT', 'MR']
     if value.startswith('[') and value.endswith(']'):
         if op != 'in':
@@ -256,7 +267,9 @@ def evaluate_condition(df, field, op, value):
         if any(c not in ' \t\n\r,' for c in trailing_content):
             raise ValueError(f"Invalid list value: {value}. Contains unquoted items.")
         
-        return df[field].astype(str).isin(items)
+        series = get_typed_series(df, field, field_type)
+        typed_items = [parse_scalar_value(item, field_type, quotes_required=False) for item in items]
+        return series.isin(typed_items)
     
     if op in {'<', '>', '<=', '>='} and field_type == "string":
         raise ValueError(

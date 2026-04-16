@@ -1,8 +1,8 @@
+from pathlib import Path
 from flask import Blueprint, request, jsonify, current_app
 from .core import DICOMAlbumCreator
 from .kheops import KheopsAdapter
 from .models import Album, DICOMFile, db
-from pathlib import Path
 
 albums_bp = Blueprint('albums', __name__)
 
@@ -10,42 +10,34 @@ albums_bp = Blueprint('albums', __name__)
 def scan_directory():
     """Scan directory for DICOM files"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data or 'path' not in data:
             return jsonify({'error': 'Path parameter is required'}), 400
         
-        # Get and validate configuration
         storage_path = current_app.config.get('STORAGE_PATH')
         if not storage_path:
             current_app.logger.error("'STORAGE_PATH' is not configured.")
             return jsonify({'error': 'Server configuration error.'}), 500
         
-        # Validate path to prevent path traversal attacks
-        from pathlib import Path
-        import os
-        
         user_path = Path(data['path'])
         storage_base = Path(storage_path).resolve()
         
-        # Ensure the user path is absolute and resolve it
         if not user_path.is_absolute():
             user_path = storage_base / user_path
         user_path = user_path.resolve()
         
-        # Verify the resolved path is within storage_path
         try:
             user_path.relative_to(storage_base)
         except ValueError:
             return jsonify({'error': 'Path must be within configured storage area'}), 403
         
-        # Initialize creator with config from current_app
         creator = DICOMAlbumCreator(storage_path)
         files = creator.scan_directory(str(user_path))
         if creator.create_album_index(files):
             return jsonify({
                 'status': 'success',
                 'file_count': len(files),
-                'files': files[:10]  # Return first 10 for preview
+                'files': files[:10]
             })
         return jsonify({'error': 'Failed to index files'}), 500
     except Exception as e:
@@ -55,22 +47,20 @@ def scan_directory():
 def create_album():
     """Create a new DICOM album"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data or 'name' not in data:
             return jsonify({'error': 'Name is required'}), 400
         
-        # Initialize kheops adapter with error handling for missing config
         try:
             kheops = KheopsAdapter()
         except KeyError as e:
             current_app.logger.error(f'Kheops configuration missing: {e}')
             return jsonify({'error': 'Integration service is not configured.'}), 500
-        # Create in Kheops
+
         album = kheops.create_album(data['name'], data.get('description', ''))
         if not album:
             return jsonify({'error': 'Failed to create Kheops album'}), 500
             
-        # Save to local database
         new_album = Album(
             name=data['name'],
             description=data.get('description', ''),
@@ -91,7 +81,7 @@ def create_album():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
-    
+
 @albums_bp.route('/index-from-niffler', methods=['POST'])
 def index_from_niffler():
     """
@@ -121,7 +111,7 @@ def index_from_niffler():
         
         if not user_path.is_absolute():
             user_path = storage_base / user_path
-            user_path = user_path.resolve()
+        user_path = user_path.resolve()
         
         try:
             user_path.relative_to(storage_base)
