@@ -58,7 +58,7 @@ def _ensure_required_tags(file_path: str) -> str:
         if tmp_path:
             try:
                 Path(tmp_path).unlink()
-            except FileNotFoundError:
+            except OSError:
                 pass
         raise
 
@@ -130,7 +130,7 @@ class DICOMAnonymizer:
             for tmp in temp_files:
                 try:
                     Path(tmp).unlink()
-                except FileNotFoundError:
+                except OSError:
                     pass
 
         skipped_pkl = dest / "skipped.pkl"
