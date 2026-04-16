@@ -91,7 +91,7 @@ def create_album():
                 'share_url': new_album.share_url
             }
         })
-    except Exception as e:
+    except Exception:
         db.session.rollback()
         current_app.logger.exception('Album creation failed')
         return jsonify({'error': 'Internal server error'}), 500
