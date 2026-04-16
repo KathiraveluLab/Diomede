@@ -58,8 +58,10 @@ def _ensure_required_tags(file_path: str) -> str:
         if tmp_path:
             try:
                 Path(tmp_path).unlink()
-            except OSError:
+            except FileNotFoundError:
                 pass
+            except OSError as e:
+                LOG.warning("Failed to delete temporary file %s: %s", tmp_path, e)
         raise
 
 
@@ -130,8 +132,10 @@ class DICOMAnonymizer:
             for tmp in temp_files:
                 try:
                     Path(tmp).unlink()
-                except OSError:
+                except FileNotFoundError:
                     pass
+                except OSError as e:
+                    LOG.warning("Failed to delete temporary file %s: %s", tmp, e)
 
         skipped_pkl = dest / "skipped.pkl"
         if skipped_pkl.exists():
