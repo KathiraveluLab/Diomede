@@ -32,7 +32,12 @@ class DICOMAlbumCreator:
     def create_album_index(self, files: List[Dict]) -> bool:
         """Index DICOM files in database"""
         try:
-            unique_paths = list({file_info.get('path') for file_info in files if file_info.get('path')})
+            unique_paths = list({
+                p for file_info in files
+                if isinstance(file_info, dict)
+                and isinstance(path := file_info.get('path'), str)
+                and (p := path.strip())
+            })
             existing_paths = set()
             for i in range(0, len(unique_paths), 500):
                 chunk = unique_paths[i:i + 500]
@@ -44,8 +49,13 @@ class DICOMAlbumCreator:
                 )
             count = 0
             for file_info in files:
+                if not isinstance(file_info, dict):
+                    LOG.warning("Skipping malformed file_info entry (not a dictionary)")
+                    continue
+
                 path = file_info.get('path')
-                if not path:
+                if not isinstance(path, str) or not (path := path.strip()):
+                    LOG.warning("Skipping file_info entry with missing or invalid path")
                     continue
                 if path not in existing_paths:
                     dicom_file = DICOMFile(

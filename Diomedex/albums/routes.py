@@ -10,7 +10,7 @@ albums_bp = Blueprint('albums', __name__)
 def scan_directory():
     """Scan directory for DICOM files"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data or 'path' not in data:
             return jsonify({'error': 'Path parameter is required'}), 400
         
@@ -51,7 +51,7 @@ def scan_directory():
 def create_album():
     """Create a new DICOM album"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data or 'name' not in data:
             return jsonify({'error': 'Name is required'}), 400
         
