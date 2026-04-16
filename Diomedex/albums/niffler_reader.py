@@ -49,10 +49,11 @@ def filter_metadata(records: List[Dict], filters: Dict) -> List[Dict]:
     Returns:
         List of records that match all the given filters.
     """
-    result = records
-    for field, value in filters.items():
-        result = [r for r in result if str(r.get(field, "")).strip() == str(value).strip()]
-    return result
+    processed_filters = {f: str(v).strip() for f, v in filters.items()}
+    return [
+    r for r in records
+    if all(str(r.get(f, "")).strip() == v for f, v in processed_filters.items())
+]
 
 def to_album_index_format(records: List[Dict]) -> List[Dict]:
     """Convert Niffler CSV records to the format expected by

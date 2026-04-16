@@ -72,6 +72,9 @@ def index_folder(folder, db_path):
     Base.metadata.create_all(engine)
     Session= sessionmaker(bind=engine)
     session= Session()
+   
+def file_already_indexed(session, file_path):
+    return session.query(DICOMIndex).filter_by(file_path=file_path).first() is not None
     existing= {row[0] for row in session.query(DICOMIndex.file_path).all()}
     added= 0
     skipped= 0

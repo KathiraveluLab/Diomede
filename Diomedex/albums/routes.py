@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 from .core import DICOMAlbumCreator
 from .kheops import KheopsAdapter
 from .models import Album, DICOMFile, db
+from pathlib import Path
 
 albums_bp = Blueprint('albums', __name__)
 
@@ -115,8 +116,19 @@ def index_from_niffler():
         if not storage_path:
             return jsonify({'error': 'Server configuration error.'}), 500
 
-        records = load_niffler_csv(data['csv_path'])
-
+        user_path = Path(data['csv_path'])
+        storage_base = Path(storage_path).resolve()
+        
+        if not user_path.is_absolute():
+            user_path = storage_base / user_path
+            user_path = user_path.resolve()
+        
+        try:
+            user_path.relative_to(storage_base)
+        except ValueError:
+            return jsonify({'error': 'Path must be within configured storage area'}), 403
+            
+        records = load_niffler_csv(str(user_path))
         if data.get('filters'):
             records = filter_metadata(records, data['filters'])
 
