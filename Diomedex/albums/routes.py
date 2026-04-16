@@ -87,4 +87,4 @@ def create_album():
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception("Unhandled error in /create")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'An internal server error occurred'}), 500
