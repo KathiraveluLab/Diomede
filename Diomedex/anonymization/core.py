@@ -56,11 +56,10 @@ def _ensure_required_tags(file_path: str) -> str:
 
     except Exception:
         if tmp_path:
-            if tmp_path:
-                try:
-                    Path(tmp_path).unlink()
-                except FileNotFoundError:
-                    pass
+            try:
+                Path(tmp_path).unlink()
+            except FileNotFoundError:
+                pass
         raise
 
 
