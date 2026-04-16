@@ -18,16 +18,22 @@ class HealthChecker:
         self._lifecycle_lock = Lock()  
     
     def start(self):
+        thread_to_join = None
+
         with self._lifecycle_lock:
-            # Prevent duplicate or zombie threads
+            if self.running:
+                return
+
             if self._thread and self._thread.is_alive():
                 if not self._stop_event.is_set():
                     return
-                # Wait for the stopping thread to finish before starting a new one
-                self._thread.join(timeout=5)
-            
-            self._stop_event.clear()
+                thread_to_join = self._thread
 
+        if thread_to_join:
+            thread_to_join.join(timeout=5)
+
+        with self._lifecycle_lock:
+            self._stop_event.clear()
             self._thread = Thread(target=self._check_loop, daemon=True)
             self._thread.start()
             self.running = True
@@ -39,12 +45,10 @@ class HealthChecker:
             
             self.running = False
 
-            # signal current thread to stop
             self._stop_event.set()
 
             thread = self._thread
         
-        # join outside lock
         if thread:
             thread.join(timeout=5)
     
