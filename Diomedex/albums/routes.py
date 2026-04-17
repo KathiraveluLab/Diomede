@@ -13,7 +13,8 @@ def scan_directory():
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
             return jsonify({'error': 'Invalid JSON body'}), 400
-        if not isinstance(data.get('path'), str) or not data.get('path', '').strip():
+        path = data.get('path')
+        if not isinstance(path, str) or not path.strip():
             return jsonify({'error': 'Path parameter is required and must be a non-empty string'}), 400
         
         # Get and validate configuration
