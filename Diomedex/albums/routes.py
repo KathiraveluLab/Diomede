@@ -47,8 +47,8 @@ def scan_directory():
             })
         return jsonify({'error': 'Failed to index files'}), 500
     except Exception:
-    current_app.logger.exception('Directory scan failed')
-    return jsonify({'error': 'Internal server error'}), 500
+        current_app.logger.exception('Directory scan failed')
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @albums_bp.route('/create', methods=['POST'])
