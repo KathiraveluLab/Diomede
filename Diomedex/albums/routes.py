@@ -58,8 +58,12 @@ def create_album():
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
             return jsonify({'error': 'Invalid JSON body'}), 400
-        if not isinstance(data.get('name'), str):
-            return jsonify({'error': 'Name is required and must be a string'}), 400
+        if not isinstance(data.get('name'), str) or not data.get('name', '').strip():
+            return jsonify({'error': 'Name is required and must be a non-empty string'}), 400
+        if len(data.get('name', '')) > 100:
+            return jsonify({'error': 'Name must be 100 characters or less'}), 400
+        if 'description' in data and not isinstance(data.get('description'), str):
+            return jsonify({'error': 'Description must be a string'}), 400
         
         # Initialize kheops adapter with error handling for missing config
         try:
