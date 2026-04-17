@@ -137,5 +137,6 @@ def index_from_niffler():
         return jsonify({'error': str(e)}), 404
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        current_app.logger.exception("Unhandled error in /index-from-niffler")
+        return jsonify({'error': 'An internal server error occurred'}), 500
