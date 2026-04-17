@@ -26,6 +26,7 @@ def scan_directory():
             user_path = storage_base / user_path
         user_path = user_path.resolve()
         
+        # Security: Enforce strict path boundaries to prevent CWE-22 Path Traversal
         try:
             user_path.relative_to(storage_base)
         except ValueError:
@@ -42,6 +43,7 @@ def scan_directory():
         return jsonify({'error': 'Failed to index files'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 @albums_bp.route('/create', methods=['POST'])
 def create_album():
@@ -83,13 +85,16 @@ def create_album():
         current_app.logger.exception("Unhandled error in /create")
         return jsonify({'error': 'An internal server error occurred'}), 500
      
+
 @albums_bp.route('/index-from-niffler', methods=['POST'])
 def index_from_niffler():
     """
     Index DICOM files into the album database using a Niffler CSV output file.
+    
     Instead of scanning raw DICOM files (which reimplements Niffler),
     this route accepts the path to a CSV already produced by Niffler's
     meta-extraction module and feeds it into the existing album index pipeline.
+    
     Request body:
         csv_path  (str, required): path to Niffler's output CSV file
         filters   (dict, optional): e.g. {"Modality": "CT"} to index a subset
@@ -114,6 +119,7 @@ def index_from_niffler():
             user_path = storage_base / user_path
         user_path = user_path.resolve()
         
+        # Security: Enforce strict path boundaries to prevent CWE-22 Path Traversal
         try:
             user_path.relative_to(storage_base)
         except ValueError:
@@ -137,5 +143,6 @@ def index_from_niffler():
         return jsonify({'error': str(e)}), 404
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        current_app.logger.exception("Unhandled error in /index-from-niffler")
+        return jsonify({'error': 'An internal server error occurred'}), 500
