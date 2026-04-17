@@ -48,12 +48,20 @@ def _ensure_required_tags(file_path: str) -> str:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp_path = tmp.name
 
-        ds.save_as(tmp_path, write_like_original=False)
+        try:
+            ds.save_as(tmp_path, write_like_original=False)
+        except TypeError:
+            ds.save_as(tmp_path)
         return tmp_path
 
     except Exception:
         if tmp_path:
-            Path(tmp_path).unlink(missing_ok=True)
+            try:
+                Path(tmp_path).unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                LOG.warning("Failed to delete temporary file %s: %s", tmp_path, e)
         raise
 
 
@@ -122,7 +130,12 @@ class DICOMAnonymizer:
             _niffler_dcm_anonymize(patched_files, str(dest))
         finally:
             for tmp in temp_files:
-                Path(tmp).unlink(missing_ok=True)
+                try:
+                    Path(tmp).unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError as e:
+                    LOG.warning("Failed to delete temporary file %s: %s", tmp, e)
 
         skipped_pkl = dest / "skipped.pkl"
         if skipped_pkl.exists():
