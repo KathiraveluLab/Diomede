@@ -2,7 +2,7 @@ import os
 import sys
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "dicom-album-env", "Scripts"))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts")))
 
 from dicom_indexer import extract_metadata, parse_study_date, index_folder, DICOMIndex
 from sqlalchemy import create_engine
