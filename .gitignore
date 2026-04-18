@@ -169,4 +169,3 @@ cython_debug/
 
 # DICOM anonymization output
 storage/
-.DS_Store
