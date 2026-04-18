@@ -70,7 +70,7 @@ def extract_metadata(filepath):
 def iter_dicom_files(folder):
     for root, _, files in os.walk(folder):
         for fname in files:
-            if fname.lower().endswith((".dcm", ".dicom")) or "." not in fname:
+            if fname.lower().endswith((".dcm", ".dicom")):
                 yield os.path.join(root, fname)
 
 
