@@ -1,5 +1,5 @@
 import requests
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 from flask import current_app
 
 class KheopsAdapter:
@@ -10,7 +10,7 @@ class KheopsAdapter:
             current_app.config['KHEOPS_CLIENT_SECRET']
         )
         
-    def create_album(self, name: str, description: str = "") -> Optional[Dict[str, Any]]:
+    def create_album(self, name: str, description: str = "") -> Optional[Dict]:
         """Create a new album in Kheops"""
         try:
             response = requests.post(
@@ -25,7 +25,7 @@ class KheopsAdapter:
             current_app.logger.error(f"Kheops API error: {str(e)}")
             return None
 
-    def add_to_album(self, album_id: str, dicom_files: list) -> Optional[Dict[str, Any]]:
+    def add_to_album(self, album_id: str, dicom_files: list) -> Optional[Dict]:
         """Add DICOM files to Kheops album"""
         try:
             # This is a simplified implementation
