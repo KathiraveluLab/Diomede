@@ -70,6 +70,7 @@ def to_album_index_format(records: List[Dict]) -> List[Dict]:
             'patient_id': r.get('PatientID', '').strip(),
             'study_uid':  r.get('StudyInstanceUID', '').strip(),
             'modality':   r.get('Modality', '').strip(),
+            'study_date': r.get('StudyDate', '').strip(),
         }
         for r in records
         if r.get('filepath', '').strip()
