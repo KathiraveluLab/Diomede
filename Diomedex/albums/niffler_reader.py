@@ -25,19 +25,11 @@ def load_niffler_csv(csv_path: str) -> List[Dict]:
 
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        rows = list(reader)
-
-    if not rows:
-        return []
-
-    missing = [field for field in EXPECTED_FIELDS if field not in rows[0]]
-    if missing:
-        raise ValueError(
-            f"Niffler CSV is missing expected columns: {missing}. "
-            f"Make sure this file was produced by Niffler's meta-extraction module."
-        )
-
-    return rows
+        if reader.fieldnames:
+            missing = [field for field in EXPECTED_FIELDS if field not in reader.fieldnames]
+            if missing:
+                raise ValueError(f"Niffler CSV is missing expected columns: {missing}. Make sure this file was produced by Niffler's meta-extraction module.")
+        return list(reader)
 
 
 def filter_metadata(records: List[Dict], filters: Dict) -> List[Dict]:
@@ -78,6 +70,7 @@ def to_album_index_format(records: List[Dict]) -> List[Dict]:
             'patient_id': r.get('PatientID', '').strip(),
             'study_uid':  r.get('StudyInstanceUID', '').strip(),
             'modality':   r.get('Modality', '').strip(),
+            'study_date': r.get('StudyDate', '').strip(),
         }
         for r in records
         if r.get('filepath', '').strip()
