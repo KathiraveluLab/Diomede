@@ -104,7 +104,7 @@ def index_from_niffler():
     try:
         from .niffler_reader import load_niffler_csv, filter_metadata, to_album_index_format
 
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data or 'csv_path' not in data:
             return jsonify({'error': 'csv_path is required'}), 400
 
