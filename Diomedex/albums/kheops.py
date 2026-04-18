@@ -1,5 +1,5 @@
 import requests
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from flask import current_app
 
 class KheopsAdapter:
