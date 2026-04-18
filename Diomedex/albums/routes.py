@@ -70,7 +70,9 @@ def create_album():
         if len(name) > 100:
             return jsonify({'error': 'Name must be 100 characters or less'}), 400
         
-        description = data.get('description', '')
+        description = data.get('description')
+        if description is None:
+            description = ''
         if not isinstance(description, str):
             return jsonify({'error': 'Description must be a string'}), 400
         
