@@ -46,8 +46,14 @@ def anonymize_directory():
         200: ``{"status": "success", "stats": {"processed": N, "skipped": N, "failed": N}}``
         400: ``{"error": "..."}`` when ``src`` or ``dest`` is missing.
     """
-    data = request.get_json()
-    if not data or "src" not in data or "dest" not in data:
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({"error": "Invalid or missing JSON payload"}), 400
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON payload must be an object"}), 400
+
+    if "src" not in data or "dest" not in data:
         return jsonify({"error": "'src' and 'dest' parameters are required"}), 400
 
     try:
