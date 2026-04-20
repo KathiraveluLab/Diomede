@@ -1,5 +1,6 @@
 import os
 import csv
+from datetime import datetime
 from typing import List, Dict
 
 EXPECTED_FIELDS = ["PatientID", "StudyInstanceUID", "Modality", "StudyDate", "filepath"]
