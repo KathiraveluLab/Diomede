@@ -321,45 +321,48 @@ def query_metadata(metadata_df, query):
     Raises:
         ValueError: If query is invalid or unsafe
     """
-    if not query or not isinstance(query, str):
+    if not isinstance(query, str):
         raise ValueError("Query must be a non-empty string")
-    
+
     query = query.strip()
-    
-    # Split by 'or' first (lowest precedence) using quote-aware splitting
-    # This correctly handles strings like "SeriesDescription == 'Anterior and Posterior'"
+
+    if not query:
+        raise ValueError("Query must be a non-empty string")
+
+    # Split by 'or' first (lowest precedence)
     or_conditions = split_by_keyword(query, 'or')
-    
+
     result_mask = None
-    
+
     # Process each OR branch
     for or_part in or_conditions:
-        # Split by 'and' (higher precedence) using quote-aware splitting
+        # Split by 'and' (higher precedence)
         and_conditions = split_by_keyword(or_part, 'and')
-        
+
         and_mask = None
-        
-        # Process each AND condition within this OR branch
+
+        # Process each AND condition
         for condition in and_conditions:
             try:
                 field, op, value = parse_condition(condition)
                 cond_mask = evaluate_condition(metadata_df, field, op, value)
-                
+
                 if and_mask is None:
                     and_mask = cond_mask
                 else:
                     and_mask = and_mask & cond_mask
+
             except (ValueError, KeyError) as e:
                 raise ValueError(f"Error evaluating condition '{condition}': {str(e)}")
-        
-        # Combine with previous OR conditions
+
+        # Combine OR conditions
         if and_mask is not None:
             if result_mask is None:
                 result_mask = and_mask
             else:
                 result_mask = result_mask | and_mask
-    
+
     if result_mask is None:
-        return metadata_df.iloc[0:0]  # Return an empty DataFrame
-    
+        return metadata_df.iloc[0:0]
+
     return metadata_df[result_mask]
