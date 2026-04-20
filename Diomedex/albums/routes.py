@@ -159,6 +159,20 @@ def index_from_niffler():
             records = filter_metadata(records, filters)
 
         files = to_album_index_format(records)
+        
+        # Security: Validate that all paths in the CSV are within the storage area
+        storage_base = Path(storage_path).resolve()
+        valid_files = []
+        for f in files:
+            try:
+                p = Path(f['path'])
+                if not p.is_absolute():
+                    p = storage_base / p
+                p.resolve().relative_to(storage_base)
+                valid_files.append(f)
+            except (ValueError, RuntimeError):
+                current_app.logger.warning(f"Skipping file outside storage area: {f['path']}")
+        files = valid_files
 
         creator = DICOMAlbumCreator(storage_path)
         if creator.create_album_index(files):
