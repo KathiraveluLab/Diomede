@@ -10,7 +10,7 @@ class KheopsAdapter:
             current_app.config['KHEOPS_CLIENT_SECRET']
         )
         
-    def create_album(self, name: str, description: str = "") -> Optional[Dict[str, Any]]:
+    def create_album(self, name: str, description: str = "") -> Optional[dict[str, Any]]:
         """Create a new album in Kheops"""
         try:
             response = requests.post(
