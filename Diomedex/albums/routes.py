@@ -148,8 +148,11 @@ def index_from_niffler():
             return jsonify({'error': 'Path must be within configured storage area'}), 403
             
         records = load_niffler_csv(str(user_path))
-        if data.get('filters'):
-            records = filter_metadata(records, data['filters'])
+        filters = data.get('filters')
+        if filters:
+            if not isinstance(filters, dict):
+                return jsonify({'error': 'filters must be a dictionary'}), 400
+            records = filter_metadata(records, filters)
 
         files = to_album_index_format(records)
 
