@@ -161,7 +161,6 @@ def index_from_niffler():
         files = to_album_index_format(records)
         
         # Security: Validate that all paths in the CSV are within the storage area
-        storage_base = Path(storage_path).resolve()
         valid_files = []
         for f in files:
             try:
