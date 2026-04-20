@@ -17,7 +17,7 @@ from Scripts.extract_metadata import extract_metadata
 from Scripts.query_metadata import query_metadata
 
 app = create_app()
-app.template_folder = os.path.abspath('templates')
+app.template_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), 'templates'))
 
 def get_target_directory():
     """Returns absolute path to the DICOM storage directory."""
