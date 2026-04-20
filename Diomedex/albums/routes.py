@@ -80,7 +80,7 @@ def create_album():
             current_app.logger.error(f'Kheops configuration missing: {e}')
             return jsonify({'error': 'Integration service is not configured.'}), 500
 
-        album = kheops.create_album(data['name'], data.get('description', ''))
+        album = kheops.create_album(name, description)
         if not album:
             return jsonify({'error': 'Failed to create Kheops album'}), 500
             
