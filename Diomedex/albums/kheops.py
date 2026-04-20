@@ -25,7 +25,7 @@ class KheopsAdapter:
             current_app.logger.error(f"Kheops API error: {str(e)}")
             return None
 
-    def add_to_album(self, album_id: str, dicom_files: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def add_to_album(self, album_id: str, dicom_files: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
         """Add DICOM files to Kheops album"""
         try:
             # This is a simplified implementation
