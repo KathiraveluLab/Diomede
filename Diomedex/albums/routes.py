@@ -127,8 +127,12 @@ def index_from_niffler():
         from .niffler_reader import load_niffler_csv, filter_metadata, to_album_index_format
 
         data = request.get_json(silent=True)
-        if not data or 'csv_path' not in data:
-            return jsonify({'error': 'csv_path is required'}), 400
+        if not isinstance(data, dict) or 'csv_path' not in data:
+            return jsonify({'error': 'Invalid request body, csv_path is required'}), 400
+
+        csv_path = data.get('csv_path')
+        if not isinstance(csv_path, str) or not csv_path.strip():
+            return jsonify({'error': 'csv_path must be a non-empty string'}), 400
 
         storage_path = current_app.config.get('STORAGE_PATH')
         if not storage_path:
