@@ -87,12 +87,10 @@ def index_folder(folder, db_path):
     # Context manager ensures connection is closed even if an exception occurs
     with Session() as session:
         # Pre-fetch existing paths to avoid N database queries
-        existing_paths = {p for (p,) in session.query(DICOMIndex.file_path).all()}
-
         for filepath in iter_dicom_files(folder):
             abs_path = os.path.abspath(filepath)
 
-            if abs_path in existing_paths:
+            if session.query(exists().where(DICOMIndex.file_path == abs_path)).scalar():
                 skipped += 1
                 continue
                 
