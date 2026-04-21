@@ -136,6 +136,7 @@ def index_from_niffler():
 
         storage_path = current_app.config.get('STORAGE_PATH')
         if not storage_path:
+            current_app.logger.error("'STORAGE_PATH' is not configured.")
             return jsonify({'error': 'Server configuration error.'}), 500
 
         user_path = Path(data['csv_path'])
