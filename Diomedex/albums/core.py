@@ -12,10 +12,18 @@ class DICOMAlbumCreator:
         
     def scan_directory(self, path: str) -> List[Dict]:
         """Scan a directory for DICOM files and return metadata"""
+        root = Path(path)
+        if not root.exists() or not root.is_dir():
+            LOG.warning("Scan path does not exist or is not a directory: %s", path)
+            return []
         dicom_files = []
-        for dcm_path in Path(path).rglob('*'):
+        for dcm_path in root.rglob('*'):
             if dcm_path.is_file():
-                ds = safe_load_dicom_file(dcm_path)
+                try:
+                    ds = safe_load_dicom_file(dcm_path)
+                except Exception:
+                    LOG.exception("Failed to parse candidate DICOM file: %s", dcm_path)
+                    continue
                 if ds is None:
                     continue
 
@@ -71,7 +79,7 @@ class DICOMAlbumCreator:
                         db.session.commit()
             db.session.commit()
             return True
-        except Exception as e:
+        except Exception:
             db.session.rollback()
-            print(f"Error indexing files: {str(e)}")
+            LOG.exception("Error indexing files")
             return False
