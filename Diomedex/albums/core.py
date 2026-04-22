@@ -12,9 +12,9 @@ class DICOMAlbumCreator:
         
     def scan_directory(self, path: str) -> List[Dict]:
         """Scan a directory for DICOM files and return metadata"""
-        root = Path(path)
+        root = self.storage_path / path
         if not root.exists() or not root.is_dir():
-            LOG.warning("Scan path does not exist or is not a directory: %s", path)
+            LOG.warning("Scan path does not exist or is not a directory: %s", root)
             return []
         dicom_files = []
         for dcm_path in root.rglob('*'):
