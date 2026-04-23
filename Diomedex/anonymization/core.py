@@ -148,7 +148,7 @@ class DICOMAnonymizer:
             try:
                 with skipped_pkl.open("rb") as f:
                     failed = len(pickle.load(f))
-            except (OSError, EOFError, pickle.UnpicklingError) as e:
+            except (OSError, EOFError, pickle.UnpicklingError, TypeError) as e:
                 LOG.warning("Could not parse skipped.pkl at %s: %s", skipped_pkl, e)
                 failed = 0
         else:
