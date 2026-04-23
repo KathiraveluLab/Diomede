@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify, current_app
 from .core import DICOMAlbumCreator
 from .kheops import KheopsAdapter
 from .models import Album, DICOMFile, db
+from .niffler_reader import load_niffler_csv, filter_metadata, to_album_index_format
 
 albums_bp = Blueprint('albums', __name__)
 
