@@ -4,6 +4,7 @@ import string
 import struct
 from os import PathLike
 from typing import Union, Optional
+from threading import Lock
 
 import pydicom
 from pydicom.sequence import Sequence
@@ -19,6 +20,9 @@ MACHO_SIGNATURES = (
 )
 
 _METADATA_KEYS = ('PatientID', 'StudyDate', 'Modality', 'SeriesInstanceUID')
+
+SKIPPED_DICOM_FILES = []
+_SKIPPED_DICOM_FILES_LOCK = Lock()
 
 BASE64_CHAR_BYTES = set(ord(c) for c in (string.ascii_letters + string.digits + '+/='))
 
@@ -349,6 +353,13 @@ def safe_load_dicom_file(
             EOFError,
             ValueError,
             OSError) as ex:
+        with _SKIPPED_DICOM_FILES_LOCK:
+            SKIPPED_DICOM_FILES.append({
+                "file_path": str(file_path),
+                "reason": type(ex).__name__,
+                "message": str(ex),
+            })
+
         LOG.warning("Skipping invalid or corrupted DICOM file: %s (%s)", file_path, ex)
         return None
 
@@ -411,6 +422,16 @@ def _validate_dicom_structure(dataset: pydicom.Dataset, *, scan_private_tags: bo
         LOG.warning("DICOM structure validation error: %s", e)
         return False
 
+
+def get_skipped_dicom_files():
+    """Return a list of structured details for all skipped invalid or corrupted DICOM files."""
+    return list(SKIPPED_DICOM_FILES)
+
+
+def clear_skipped_dicom_files():
+    """Clear the list of skipped DICOM files, resetting the internal tracker."""
+    with _SKIPPED_DICOM_FILES_LOCK:
+        SKIPPED_DICOM_FILES.clear()
 
 def extract_basic_metadata(file_path: Union[str, PathLike]):
     return normalize_metadata(safe_load_dicom_file(file_path))
