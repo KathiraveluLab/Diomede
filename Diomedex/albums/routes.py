@@ -171,7 +171,7 @@ def index_from_niffler():
         # filesystem calls, safe for 10,000+ row CSVs without timing out.
         storage_base_str = str(storage_base)
         valid_files = []
-        for f in to_album_index_format(records):  # CHANGED: consume generator directly here instead of materializing a separate 'files' list first
+        for f in to_album_index_format(records):
             try:
                 p = f['path']
                 if not Path(p).is_absolute():
