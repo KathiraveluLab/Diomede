@@ -153,7 +153,6 @@ class TestToAlbumIndexFormat:
         assert result == []
 
     def test_handles_empty_records(self):
-    def test_handles_empty_records(self):
         assert list(to_album_index_format([])) == []
 
     def test_converts_multiple_records(self):

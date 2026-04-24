@@ -7,7 +7,6 @@ import pydicom
 from pydicom.errors import InvalidDicomError
 from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy.sql import exists
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,62 +85,51 @@ def index_folder(folder, db_path):
 
     # Context manager ensures connection is closed even if an exception occurs
     with Session() as session:
-        # CHANGED: removed upfront full set load of all existing paths which consumed
-        # significant RAM for large indexes. Now we collect paths in BATCH_SIZE chunks
-        # and query the DB using IN operator — memory stays flat regardless of index size.
+
+        # CHANGED: extracted duplicated batch processing logic into a helper function
+        # to avoid code duplication between the main loop and the final cleanup block
+        def process_batch(current_batch):
+            nonlocal added, skipped, failed
+            # Query DB for which paths in this batch already exist
+            existing = {
+                p for (p,) in session.query(DICOMIndex.file_path).filter(
+                    DICOMIndex.file_path.in_(current_batch)
+                ).all()
+            }
+            for abs_path in current_batch:
+                if abs_path in existing:
+                    skipped += 1
+                    continue
+                meta = extract_metadata(abs_path)
+                if meta is None:
+                    failed += 1
+                    continue
+                session.add(DICOMIndex(**meta))
+                added += 1
+                
+            session.commit()
+
+        # Collect paths in BATCH_SIZE chunks and query the DB using IN operator
+        # — memory stays flat regardless of index size
         batch = []
         for filepath in iter_dicom_files(folder):
             batch.append(os.path.abspath(filepath))
 
-            if len(batch) < BATCH_SIZE:
-                continue
-
-            # Query DB for which paths in this batch already exist
-            existing = {
-                p for (p,) in session.query(DICOMIndex.file_path).filter(
-                    DICOMIndex.file_path.in_(batch)
-                ).all()
-            }
-
-            for abs_path in batch:
-                if abs_path in existing:
-                    skipped += 1
-                    continue
-                meta = extract_metadata(abs_path)
-                if meta is None:
-                    failed += 1
-                    continue
-                session.add(DICOMIndex(**meta))
-                added += 1
-
-            session.commit()
-            logger.info("Indexed %d files so far ...", added)
-            batch = []  # reset batch
+            if len(batch) >= BATCH_SIZE:
+                process_batch(batch)
+                logger.info("Indexed %d files so far ...", added)
+                batch = []  # reset batch
 
         # Process any remaining files that didn't fill a complete batch
         if batch:
-            existing = {
-                p for (p,) in session.query(DICOMIndex.file_path).filter(
-                    DICOMIndex.file_path.in_(batch)
-                ).all()
-            }
-            for abs_path in batch:
-                if abs_path in existing:
-                    skipped += 1
-                    continue
-                meta = extract_metadata(abs_path)
-                if meta is None:
-                    failed += 1
-                    continue
-                session.add(DICOMIndex(**meta))
-                added += 1
-            session.commit()
+            process_batch(batch)
 
     logger.info("Done — added: %d  skipped: %d  failed: %d", added, skipped, failed)
     logger.info("Database written to: %s", os.path.abspath(db_path))
 
 
 def main():
+
     parser = argparse.ArgumentParser(
         description="Scan a folder of DICOM files and index their metadata into SQLite."
     )
