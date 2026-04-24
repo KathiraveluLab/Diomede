@@ -149,8 +149,8 @@ class DICOMAnonymizer:
                 with skipped_pkl.open("rb") as f:
                     failed = len(pickle.load(f))
             except (OSError, EOFError, pickle.UnpicklingError, TypeError) as e:
-                LOG.warning("Could not parse skipped.pkl at %s: %s", skipped_pkl, e)
-                failed = 0
+                LOG.error("Could not parse skipped.pkl at %s: %s. Reporting all batch files as failed.", skipped_pkl, e)
+                failed = len(patched_files)
         else:
             failed = 0
         processed = len(patched_files) - failed
