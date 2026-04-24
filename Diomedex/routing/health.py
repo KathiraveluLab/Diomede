@@ -76,7 +76,8 @@ class HealthChecker:
                 self.destination_manager.update_status(name, DestinationStatus.DEGRADED)
                 return False
                 
-        except requests.Timeout:
+        except requests.RequestException as e:
+            logger.error(f"Health check failed for destination '{name}': {e}")
             self.destination_manager.update_status(name, DestinationStatus.DEGRADED)
             return False
             
