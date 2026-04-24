@@ -70,7 +70,7 @@ class TestLoadNifflerCsv:
             assert "filepath" in record
 
     def test_first_record_values_are_correct(self, sample_csv):
-        records = load_niffler_csv(sample_csv)
+        records = list(load_niffler_csv(sample_csv))
         assert records[0]["PatientID"] == "P001"
         assert records[0]["Modality"] == "CT"
 
