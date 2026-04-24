@@ -31,14 +31,13 @@ class DICOMRouter:
         """Route DICOM dataset to best available destination"""
         self.total_received += 1
         
-        destination = self.destination_manager.select_best()
+        destination = self.destination_manager.select_and_reserve()
         if not destination:
             self.total_failed += 1
             return False
         
         try:
-            # Optimistically record the send attempt. This increments the queue and sent_count.
-            self.destination_manager.record_send(destination.name)
+            # Queue slot and sent_count are already updated by select_and_reserve()
             
             # TODO: actual DICOM C-STORE with pynetdicom  
             # For now just track the routing decision
