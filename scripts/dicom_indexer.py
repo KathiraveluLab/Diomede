@@ -78,7 +78,7 @@ def index_folder(folder, db_path):
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    
+
     added = 0
     skipped = 0
     failed = 0
@@ -86,31 +86,57 @@ def index_folder(folder, db_path):
 
     # Context manager ensures connection is closed even if an exception occurs
     with Session() as session:
-        # Pre-fetch existing paths to avoid N database queries
-        existing_paths = {p for (p,) in session.query(DICOMIndex.file_path).all()}
-
+        # CHANGED: removed upfront full set load of all existing paths which consumed
+        # significant RAM for large indexes. Now we collect paths in BATCH_SIZE chunks
+        # and query the DB using IN operator — memory stays flat regardless of index size.
+        batch = []
         for filepath in iter_dicom_files(folder):
-            abs_path = os.path.abspath(filepath)
+            batch.append(os.path.abspath(filepath))
 
-            if abs_path in existing_paths:
-                skipped += 1
+            if len(batch) < BATCH_SIZE:
                 continue
-                
-            meta = extract_metadata(filepath)
-            if meta is None:
-                failed += 1
-                continue
-                
-            session.add(DICOMIndex(**meta))
-            added += 1
-            
-            # Flush in chunks to maintain flat memory usage
-            if added % BATCH_SIZE == 0:
-                session.commit()
-                logger.info("Indexed %d files so far ...", added)
 
-        session.commit()
-        
+            # Query DB for which paths in this batch already exist
+            existing = {
+                p for (p,) in session.query(DICOMIndex.file_path).filter(
+                    DICOMIndex.file_path.in_(batch)
+                ).all()
+            }
+
+            for abs_path in batch:
+                if abs_path in existing:
+                    skipped += 1
+                    continue
+                meta = extract_metadata(abs_path)
+                if meta is None:
+                    failed += 1
+                    continue
+                session.add(DICOMIndex(**meta))
+                added += 1
+
+            session.commit()
+            logger.info("Indexed %d files so far ...", added)
+            batch = []  # reset batch
+
+        # Process any remaining files that didn't fill a complete batch
+        if batch:
+            existing = {
+                p for (p,) in session.query(DICOMIndex.file_path).filter(
+                    DICOMIndex.file_path.in_(batch)
+                ).all()
+            }
+            for abs_path in batch:
+                if abs_path in existing:
+                    skipped += 1
+                    continue
+                meta = extract_metadata(abs_path)
+                if meta is None:
+                    failed += 1
+                    continue
+                session.add(DICOMIndex(**meta))
+                added += 1
+            session.commit()
+
     logger.info("Done — added: %d  skipped: %d  failed: %d", added, skipped, failed)
     logger.info("Database written to: %s", os.path.abspath(db_path))
 

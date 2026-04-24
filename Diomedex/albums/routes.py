@@ -165,26 +165,30 @@ def index_from_niffler():
                 return jsonify({'error': 'filters must be a dictionary'}), 400
             records = filter_metadata(records, filters)
 
-        files = to_album_index_format(records)
-
-        # Security: Validate that all paths in the CSV are within the storage area
+        # Security: Validate that all paths in the CSV are within the storage area.
+        # CHANGED: replaced p.resolve() inside loop (heavy disk I/O per file) with
+        # os.path.normpath + os.path.commonpath — a pure string-based check with no
+        # filesystem calls, safe for 10,000+ row CSVs without timing out.
+        storage_base_str = str(storage_base)
         valid_files = []
-        for f in files:
+        for f in to_album_index_format(records):  # CHANGED: consume generator directly here instead of materializing a separate 'files' list first
             try:
-                p = Path(f['path'])
-                if not p.is_absolute():
-                    p = storage_base / p
-                p.resolve().relative_to(storage_base)
-                valid_files.append(f)
-            except (ValueError, RuntimeError):
-                current_app.logger.warning(f"Skipping file outside storage area: {f['path']}")
-        files = valid_files
+                p = f['path']
+                if not Path(p).is_absolute():
+                    p = os.path.join(storage_base_str, p)
+                p = os.path.normpath(p)
+                if os.path.commonpath([p, storage_base_str]) == storage_base_str:
+                    valid_files.append(f)
+                else:
+                    current_app.logger.warning(f"Skipping file outside storage area: {f['path']}")
+            except (ValueError, TypeError):
+                current_app.logger.warning(f"Skipping file with invalid path: {f['path']}")
 
         creator = DICOMAlbumCreator(storage_path)
-        if creator.create_album_index(files):
+        if creator.create_album_index(valid_files):
             return jsonify({
                 'status': 'success',
-                'indexed': len(files)
+                'indexed': len(valid_files)  # len() works fine — valid_files is a list
             })
         return jsonify({'error': 'Failed to index files'}), 500
 
