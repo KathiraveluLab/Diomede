@@ -74,9 +74,10 @@ class HealthChecker:
                 return True
             else:
                 logger.warning(
-                    "Health check degraded for %s: HTTP %s",
+                    "Health check degraded for %s: HTTP %s (took %.3fs)",
                     name,
                     response.status_code,
+                    response_time,
                 )
                 self.destination_manager.update_status(name, DestinationStatus.DEGRADED)
                 return False
