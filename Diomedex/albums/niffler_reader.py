@@ -1,5 +1,6 @@
 import os
 import csv
+from datetime import datetime
 from typing import List, Dict
 
 EXPECTED_FIELDS = ["PatientID", "StudyInstanceUID", "Modality", "StudyDate", "filepath"]
@@ -70,7 +71,7 @@ def to_album_index_format(records: List[Dict]) -> List[Dict]:
             'patient_id': r.get('PatientID', '').strip(),
             'study_uid':  r.get('StudyInstanceUID', '').strip(),
             'modality':   r.get('Modality', '').strip(),
-            'study_date': r.get('StudyDate', '').strip(),
+            'study_date': datetime.strptime(val, '%Y%m%d') if (val := r.get('StudyDate', '').strip()) else None,
         }
         for r in records
         if r.get('filepath', '').strip()
