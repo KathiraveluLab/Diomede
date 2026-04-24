@@ -57,7 +57,7 @@ def empty_csv(tmp_path):
 class TestLoadNifflerCsv:
 
     def test_loads_correct_number_of_records(self, sample_csv):
-        records = load_niffler_csv(sample_csv)
+        records = list(load_niffler_csv(sample_csv))
         assert len(records) == 4
 
     def test_each_record_has_expected_fields(self, sample_csv):
