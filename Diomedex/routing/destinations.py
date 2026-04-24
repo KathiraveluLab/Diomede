@@ -86,6 +86,17 @@ class DestinationManager:
                 return None
             
             return max(available, key=lambda d: d.calculate_score())
+        
+    def select_and_reserve(self):
+        with self._lock:
+            available = [d for d in self.destinations.values() if d.is_available]
+            if not available:
+                return None
+
+            best = max(available, key=lambda d: d.calculate_score())
+            best.current_queue += 1
+            best.sent_count += 1
+            return best
     
     def update_status(self, name, status, queue=None, response_time=None):
         with self._lock:
