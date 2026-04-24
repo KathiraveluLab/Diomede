@@ -15,6 +15,7 @@ from modules.dicom_anonymization.DicomAnonymizer2 import (
 from pydicom.uid import generate_uid
 
 _REQUIRED_UID_TAGS = ("StudyInstanceUID", "SeriesInstanceUID", "SOPInstanceUID")
+_DEFER_SIZE_BYTES = 1024*1024
 
 
 def _ensure_required_tags(file_path: str) -> str:
@@ -32,7 +33,7 @@ def _ensure_required_tags(file_path: str) -> str:
     # Read dataset with deferred loading so large elements (e.g., pixel data)
     # are only loaded if accessed (e.g., during save). This avoids unnecessary
     # memory usage for files that do not require modification.
-    ds = pydicom.dcmread(file_path, defer_size=1024*1024) # 1 MB threshold
+    ds = pydicom.dcmread(file_path, defer_size=_DEFER_SIZE_BYTES) # 1 MB threshold
 
     missing_tags = [tag for tag in _REQUIRED_UID_TAGS if tag not in ds]
 
@@ -41,6 +42,7 @@ def _ensure_required_tags(file_path: str) -> str:
 
     for tag in missing_tags:
         setattr(ds, tag, generate_uid())
+    LOG.debug("Patched missing UID tags %s for %s", missing_tags, file_path)
 
     tmp_path = None
     try:
@@ -107,6 +109,7 @@ class DICOMAnonymizer:
 
         dcm_files = _niffler_get_dcm_paths(str(src))
         if not dcm_files:
+            LOG.info("No DICOM files found under source directory: %s", src)
             return {"processed": 0, "skipped": 0, "failed": 0}
 
         patched_files: List[str] = []
@@ -142,8 +145,12 @@ class DICOMAnonymizer:
             # skipped.pkl is written by Niffler's DicomAnonymizer2, a trusted library
             # maintained by the same organization KathiraveluLab. Loading its pickle
             # output is an acceptable risk.
-            with open(skipped_pkl, "rb") as f:
-                failed = len(pickle.load(f))
+            try:
+                with skipped_pkl.open("rb") as f:
+                    failed = len(pickle.load(f))
+            except (OSError, EOFError, pickle.UnpicklingError, TypeError) as e:
+                LOG.error("Could not parse skipped.pkl at %s: %s. Reporting all batch files as failed.", skipped_pkl, e)
+                failed = len(patched_files)
         else:
             failed = 0
         processed = len(patched_files) - failed
