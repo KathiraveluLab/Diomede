@@ -142,7 +142,7 @@ class DICOMAnonymizer:
             # skipped.pkl is written by Niffler's DicomAnonymizer2, a trusted library
             # maintained by the same organization KathiraveluLab. Loading its pickle
             # output is an acceptable risk.
-            with open(str(skipped_pkl), "rb") as f:
+            with open(skipped_pkl, "rb") as f:
                 failed = len(pickle.load(f))
         else:
             failed = 0
