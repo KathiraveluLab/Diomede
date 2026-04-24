@@ -178,6 +178,7 @@ def index_from_niffler():
                     p = os.path.join(storage_base_str, p)
                 p = os.path.normpath(p)
                 if os.path.commonpath([p, storage_base_str]) == storage_base_str:
+                    f['path'] = p
                     valid_files.append(f)
                 else:
                     current_app.logger.warning(f"Skipping file outside storage area: {f['path']}")
