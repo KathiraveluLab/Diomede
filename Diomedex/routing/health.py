@@ -83,7 +83,20 @@ class HealthChecker:
                 return False
                 
         except requests.Timeout:
-            logger.warning("Health check timeout for %s after %ss", name, self.request_timeout)
+            logger.warning(
+                "Health check timeout for %s after %ss",
+                name,
+                self.request_timeout,
+            )
+            self.destination_manager.update_status(name, DestinationStatus.DEGRADED)
+            return False
+
+        except requests.RequestException as e:
+            logger.error(
+                "Health check failed for %s: %s",
+                name,
+                e,
+            )
             self.destination_manager.update_status(name, DestinationStatus.DEGRADED)
             return False
             
