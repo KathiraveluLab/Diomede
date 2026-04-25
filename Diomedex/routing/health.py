@@ -79,7 +79,7 @@ class HealthChecker:
                     response.status_code,
                     response_time,
                 )
-                self.destination_manager.update_status(name, DestinationStatus.DEGRADED)
+                self.destination_manager.update_status(name, DestinationStatus.DEGRADED, response_time=response_time)
                 return False
                 
         except requests.Timeout:
