@@ -42,7 +42,7 @@ class DICOMAlbumCreator:
                     continue
 
                 dicom_files.append({
-                    'path': str(dcm_path),
+                    'path': str(dcm_path.relative_to(base)),
                     'patient_id': ds.get('PatientID', ''),
                     'study_uid': ds.get('StudyInstanceUID', ''),
                     'modality': ds.get('Modality', ''),
