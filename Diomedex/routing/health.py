@@ -55,7 +55,7 @@ class HealthChecker:
         if not dest:
             return False
         
-        start = time.time()
+        start = time.perf_counter()
         
         try:
             # Try HTTP health check for Orthanc
@@ -63,7 +63,7 @@ class HealthChecker:
             # Note: Orthanc HTTP API typically on different port (e.g., 8042) than DICOM port
             url = f"http://{dest.host}:{dest.http_port}/system"
             response = requests.get(url, timeout=self.request_timeout)
-            response_time = time.time() - start
+            response_time = time.perf_counter() - start
             
             if response.status_code == 200:
                 self.destination_manager.update_status(
@@ -73,14 +73,34 @@ class HealthChecker:
                 )
                 return True
             else:
-                self.destination_manager.update_status(name, DestinationStatus.DEGRADED)
+                logger.warning(
+                    "Health check degraded for %s: HTTP %s (took %.3fs)",
+                    name,
+                    response.status_code,
+                    response_time,
+                )
+                self.destination_manager.update_status(name, DestinationStatus.DEGRADED, response_time=response_time)
                 return False
                 
+        except requests.Timeout:
+            logger.warning(
+                "Health check timeout for %s after %ss",
+                name,
+                self.request_timeout,
+            )
+            self.destination_manager.update_status(name, DestinationStatus.DEGRADED)
+            return False
+
         except requests.RequestException as e:
-            logger.error(f"Health check failed for destination '{name}': {e}")
+            logger.error(
+                "Health check failed for %s: %s",
+                name,
+                e,
+            )
             self.destination_manager.update_status(name, DestinationStatus.DEGRADED)
             return False
             
         except Exception:
+            logger.exception("Health check unavailable for %s", name)
             self.destination_manager.update_status(name, DestinationStatus.UNAVAILABLE)
             return False
