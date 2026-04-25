@@ -1,8 +1,10 @@
 import re
 from .destinations import Destination
+import logging
 from flask import Blueprint, jsonify, current_app, request
 
 routing_bp = Blueprint('routing', __name__, url_prefix='/routing')
+logger =logging.getlogger(__name__)
 
 # Required fields and their expected Python types for POST
 _REQUIRED_POST_FIELDS = {
@@ -37,7 +39,7 @@ def get_router():
 
 
 def _dest_to_dict(dest, *, full=False):
-    #Serialize a Destination object to a simple dictionary
+    """Serialize a Destination object to a simple dictionary"""
     d = {
         'name':      dest.name,
         'ae_title':  dest.ae_title,
@@ -102,19 +104,11 @@ def get_stats():
         try:
             destinations = stats['destinations']
             stats['destinations'] = [
-                {
-                    'name': d.name,
-                    'ae_title': d.ae_title,
-                    'host': d.host,
-                    'port': d.port,
-                    'priority': d.priority,
-                    'status': d.status.value,
-                    'load': getattr(d, 'load_factor', None),
-                    'score': d.calculate_score() if hasattr(d, 'calculate_score') else None,
-                }
+                _dest_to_dict(d) if instance(d,Destination) else d
                 for d in destinations
             ]
         except Exception:
+            logger.exception("Failed to serialize routing destinations in /stats response")
             # If serialization fails for any reason, fall back to omitting destinations
             stats['destinations'] = []
 
@@ -127,18 +121,7 @@ def list_destinations():
     
     destinations = router.destination_manager.get_all_destinations()
     return jsonify({
-        'destinations': [
-            {
-                'name': d.name,
-                'ae_title': d.ae_title,
-                'host': d.host,
-                'port': d.port,
-                'priority': d.priority,
-                'status': d.status.value,
-                'load': d.load_factor,
-                'score': d.calculate_score()
-            }
-            for d in destinations
+       'destinations': [_dest_to_dict(d) for d in destinations]
         ]
     }), 200
 
