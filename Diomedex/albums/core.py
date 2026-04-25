@@ -22,7 +22,7 @@ class DICOMAlbumCreator:
             if not root.is_dir():
                 raise ValueError
 
-        except (ValueError, RuntimeError):
+        except (ValueError, RuntimeError, OSError, TypeError):
             LOG.warning(
                 "Scan path is invalid, unauthorized, or not a directory: %s",
                 path,
