@@ -104,7 +104,7 @@ def get_stats():
         try:
             destinations = stats['destinations']
             stats['destinations'] = [
-                _dest_to_dict(d) if isinstance(d,Destination) else d
+                _dest_to_dict(d) if isinstance(d, Destination) else d
                 for d in destinations
             ]
         except Exception:
