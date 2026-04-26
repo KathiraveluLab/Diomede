@@ -59,8 +59,12 @@ def select_directory():
     if request.method == "POST":
         if 'action' in request.form:
             if request.form['action'] == 'remove':
-                shutil.rmtree(target_directory)
-                os.makedirs(target_directory)
+                try:
+                    shutil.rmtree(target_directory)
+                    os.makedirs(target_directory)
+                except OSError as e:
+                    flash(f"Failed to clear directory: {e.strerror}", "error")
+                    return redirect(url_for('select_directory'))
                 # Ensure cache is also removed (though rmtree handles it, being explicit)
                 flash("DICOM directory cleared successfully.", "success")
                 return redirect(url_for('select_directory'))
