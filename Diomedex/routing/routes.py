@@ -4,7 +4,7 @@ import logging
 from flask import Blueprint, jsonify, current_app, request
 
 routing_bp = Blueprint('routing', __name__, url_prefix='/routing')
-logger =logging.getlogger(__name__)
+logger = logging.getLogger(__name__)
 
 # Required fields and their expected Python types for POST
 _REQUIRED_POST_FIELDS = {
@@ -104,7 +104,7 @@ def get_stats():
         try:
             destinations = stats['destinations']
             stats['destinations'] = [
-                _dest_to_dict(d) if instance(d,Destination) else d
+                _dest_to_dict(d) if isinstance(d,Destination) else d
                 for d in destinations
             ]
         except Exception:
@@ -121,8 +121,8 @@ def list_destinations():
     
     destinations = router.destination_manager.get_all_destinations()
     return jsonify({
-       'destinations': [_dest_to_dict(d) for d in destinations]
-        ]
+        'destinations': [_dest_to_dict(d) for d in destinations]
+    
     }), 200
 
 @routing_bp.route('/destinations/<name>', methods=['GET'])
