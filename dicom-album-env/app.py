@@ -27,7 +27,10 @@ def get_metadata_df(target_directory, force_refresh=False):
     cache_path = os.path.join(target_directory, "metadata_cache.csv")
     
     if not force_refresh and os.path.exists(cache_path):
-        return pd.read_csv(cache_path)
+        try:
+            return pd.read_csv(cache_path)
+        except (pd.errors.EmptyDataError, pd.errors.ParserError):
+            pass
     
     dicom_files = load_dicom_files(target_directory)
     if not dicom_files:
