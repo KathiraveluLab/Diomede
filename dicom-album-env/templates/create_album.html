@@ -1,24 +1,32 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Create Album</title>
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
-</head>
-<body>
-    <div class="container mt-5">
-        <h1 class="text-center">Create DICOM Album</h1>
-        <form method="POST" class="mt-4">
-            <div class="form-group">
-                <label for="query">Query:</label>
-                <input type="text" class="form-control" id="query" name="query" placeholder="Enter query (e.g., Modality == 'CT')">
-            </div>
-            <div class="form-group">
-                <label for="album_name">Album Name:</label>
-                <input type="text" class="form-control" id="album_name" name="album_name" placeholder="Enter album name (e.g., CT_Studies)">
-            </div>
-            <button type="submit" class="btn btn-primary btn-block">Submit</button>
-        </form>
+{% extends "base.html" %}
+
+{% block title %}Create DICOM Album{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card p-4 shadow-sm border-0">
+            <h2 class="h4 mb-4 text-center">Step 2: Define & Query Study Metadata</h2>
+            <p class="text-muted text-center mb-4 smaller">Generate an album by filtering DICOM metadata fields (e.g., Modality, StudyDate, PatientID).</p>
+            
+            <form method="POST">
+                <div class="mb-4">
+                    <label for="query" class="form-label fw-semibold">Grammar Query Filter</label>
+                    <input type="text" class="form-control form-control-lg bg-light border-0 shadow-none px-3" id="query" name="query" placeholder="e.g. Modality == 'CT' and StudyDate < '2022-01-01'" required>
+                    <div class="form-text mt-2 small text-muted">Use standard operators: ==, !=, <, >, <=, >=</div>
+                </div>
+                
+                <div class="mb-4">
+                    <label for="album_name" class="form-label fw-semibold">Target Album Name</label>
+                    <input type="text" class="form-control form-control-lg bg-light border-0 shadow-none px-3" id="album_name" name="album_name" placeholder="e.g. CT_Study_Jan_2022" required>
+                </div>
+                
+                <div class="d-grid mt-4 pt-2">
+                    <button type="submit" class="btn btn-primary btn-lg">Run Metadata Analysis</button>
+                    <a href="{{ url_for('select_directory') }}" class="btn btn-link text-muted mt-3 small text-decoration-none">Back to Upload</a>
+                </div>
+            </form>
+        </div>
     </div>
-</body>
-</html>
+</div>
+{% endblock %}
