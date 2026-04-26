@@ -192,9 +192,8 @@ def save_album_to_disk(subset_df, album_name):
         raise FileExistsError(f"Album '{album_name}' already exists. Please use a different name.")
     os.makedirs(album_directory)
 
-    for index, row in subset_df.iterrows():
-        dicom_file_path = row['FilePath']
-        if pd.notna(dicom_file_path) and os.path.exists(dicom_file_path):
+    for dicom_file_path in subset_df['FilePath'].dropna().unique():
+        if os.path.exists(dicom_file_path):
             shutil.copy(dicom_file_path, album_directory)
 
 if __name__ == "__main__":
