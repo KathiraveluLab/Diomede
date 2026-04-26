@@ -56,6 +56,9 @@ def anonymize_directory():
     if "src" not in data or "dest" not in data:
         return jsonify({"error": "'src' and 'dest' parameters are required"}), 400
 
+    if not isinstance(data.get("src"), str) or not isinstance(data.get("dest"), str):
+        return jsonify({"error": "'src' and 'dest' must be strings"}), 400
+
     try:
         src_dir = _validate_path(data["src"])
         # src is intentionally not restricted to STORAGE_PATH. It is treated as
