@@ -19,6 +19,25 @@ from Scripts.query_metadata import query_metadata
 app = create_app()
 app.template_folder = os.path.abspath('templates')
 
+def get_metadata_df(target_directory, force_refresh=False):
+    """
+    Returns metadata DataFrame, using a cached CSV if available to avoid 
+    expensive DICOM re-processing.
+    """
+    cache_path = os.path.join(target_directory, "metadata_cache.csv")
+    
+    if not force_refresh and os.path.exists(cache_path):
+        return pd.read_csv(cache_path)
+    
+    dicom_files = load_dicom_files(target_directory)
+    if not dicom_files:
+        return pd.DataFrame()
+        
+    metadata_df = extract_metadata(dicom_files)
+    # Save cache for future use
+    metadata_df.to_csv(cache_path, index=False)
+    return metadata_df
+
 def get_target_directory():
     """Returns absolute path to the DICOM storage directory."""
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "data", "dicom_files"))
@@ -42,6 +61,7 @@ def select_directory():
             if request.form['action'] == 'remove':
                 shutil.rmtree(target_directory)
                 os.makedirs(target_directory)
+                # Ensure cache is also removed (though rmtree handles it, being explicit)
                 flash("DICOM directory cleared successfully.", "success")
                 return redirect(url_for('select_directory'))
             elif request.form['action'] == 'proceed':
@@ -63,6 +83,11 @@ def select_directory():
                         file_path = os.path.join(target_directory, f"{base}_{counter}{ext}")
                         counter += 1
                     file.save(file_path)
+
+            # Invalidate metadata cache since new files were uploaded
+            cache_path = os.path.join(target_directory, "metadata_cache.csv")
+            if os.path.exists(cache_path):
+                os.remove(cache_path)
 
             flash(f"Successfully uploaded {len(files)} files.", "success")
             return redirect(url_for('create_album'))
@@ -86,13 +111,11 @@ def create_album():
 
         try:
             target_directory = get_target_directory()
-            dicom_files = load_dicom_files(target_directory)
+            metadata_df = get_metadata_df(target_directory)
             
-            if not dicom_files:
-                flash("No DICOM files found in target directory.", "error")
+            if metadata_df.empty:
+                flash("No DICOM files found or processed.", "error")
                 return redirect(url_for('select_directory'))
-                
-            metadata_df = extract_metadata(dicom_files)
 
             # Issue #55: Catch grammar/value errors from the query engine
             subset_df = query_metadata(metadata_df, query)
@@ -125,8 +148,12 @@ def view_query_results():
         
     try:
         target_directory = get_target_directory()
-        dicom_files = load_dicom_files(target_directory)
-        metadata_df = extract_metadata(dicom_files)
+        metadata_df = get_metadata_df(target_directory)
+        
+        if metadata_df.empty:
+            flash("No DICOM metadata found. Please upload files first.", "warning")
+            return redirect(url_for('select_directory'))
+            
         subset_df = query_metadata(metadata_df, query)
 
         if subset_df.empty:
