@@ -17,7 +17,7 @@ from Scripts.extract_metadata import extract_metadata
 from Scripts.query_metadata import query_metadata
 
 app = create_app()
-app.template_folder = os.path.abspath('templates')
+app.template_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), 'templates'))
 
 def get_metadata_df(target_directory, force_refresh=False):
     """
@@ -72,6 +72,9 @@ def select_directory():
                 flash("Please select at least one DICOM file to upload.", "warning")
                 return redirect(url_for('select_directory'))
 
+            for file in files:
+                filename = secure_filename(file.filename)
+                if filename:
             for file in files:
                 filename = secure_filename(file.filename)
                 if filename:
