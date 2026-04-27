@@ -97,7 +97,8 @@ def create_album():
         album = kheops.create_album(name, description)
         if not album:
             current_app.logger.error(
-        "Kheops album creation returned empty response for album=%s", name
+                "Kheops album creation returned empty response for album=%s", 
+                name
     )
             return jsonify({'error': 'Failed to create Kheops album'}), 500
 
@@ -117,7 +118,11 @@ def create_album():
         )
         db.session.add(new_album)
         db.session.commit()
-        current_app.logger.info("Created album id=%s name=%s kheops_id=%s", new_album.id, new_album.name, new_album.kheops_id)
+        current_app.logger.info(
+            "Created album id=%s name=%s kheops_id=%s",
+            new_album.id, 
+            new_album.name, 
+            new_album.kheops_id)
 
 
         return jsonify({
@@ -207,10 +212,9 @@ def index_from_niffler():
         creator = DICOMAlbumCreator(storage_path)
         if creator.create_album_index(valid_files):
             current_app.logger.info(
-    "Indexed %d files from Niffler CSV %s (skipped=%d)",
-    len(valid_files),
-    user_path,
-    skipped_files,
+                "Indexed %d files from Niffler CSV %s",
+                len(valid_files),
+                user_path,
 )
             return jsonify({
                 'status': 'success',
