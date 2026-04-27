@@ -7,7 +7,7 @@ from .models import Album, db
 from .niffler_reader import load_niffler_csv, filter_metadata, to_album_index_format
 
 albums_bp = Blueprint('albums', __name__)
-_SCAN_REVIEW_LIMIT = 10
+_SCAN_PREVIEW_LIMIT = 10
 
 
 @albums_bp.route('/scan', methods=['POST'])
