@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from flask import Blueprint, request, jsonify, current_app
 from .core import DICOMAlbumCreator
@@ -6,6 +7,7 @@ from .models import Album, db
 from .niffler_reader import load_niffler_csv, filter_metadata, to_album_index_format
 
 albums_bp = Blueprint('albums', __name__)
+_SCAN_REVIEW_LIMIT = 10
 
 
 @albums_bp.route('/scan', methods=['POST'])
@@ -46,10 +48,15 @@ def scan_directory():
         files = creator.scan_directory(str(user_path))
 
         if creator.create_album_index(files):
+            current_app.logger.info(
+                "Album scan indexed %d files from %s",
+                len(files),
+                user_path,
+            )
             return jsonify({
                 'status': 'success',
                 'file_count': len(files),
-                'files': files[:10]  # Return first 10 for preview
+                'files': files[:_SCAN_PREVIEW_LIMIT]  # Return first 10 for preview
             })
 
         return jsonify({'error': 'Failed to index files'}), 500
@@ -89,6 +96,16 @@ def create_album():
         # Create in Kheops
         album = kheops.create_album(name, description)
         if not album:
+            current_app.logger.error(
+        "Kheops album creation returned empty response for album=%s", name
+    )
+            return jsonify({'error': 'Failed to create Kheops album'}), 500
+
+        if not isinstance(album, dict):
+            current_app.logger.error(
+        "Kheops album creation returned non-dict response type=%s",
+        type(album).__name__,
+    )
             return jsonify({'error': 'Failed to create Kheops album'}), 500
 
         # Save to local database
@@ -100,6 +117,8 @@ def create_album():
         )
         db.session.add(new_album)
         db.session.commit()
+        current_app.logger.info("Created album id=%s name=%s kheops_id=%s", new_album.id, new_album.name, new_album.kheops_id)
+
 
         return jsonify({
             'status': 'success',
@@ -187,6 +206,12 @@ def index_from_niffler():
 
         creator = DICOMAlbumCreator(storage_path)
         if creator.create_album_index(valid_files):
+            current_app.logger.info(
+    "Indexed %d files from Niffler CSV %s (skipped=%d)",
+    len(valid_files),
+    user_path,
+    skipped_files,
+)
             return jsonify({
                 'status': 'success',
                 'indexed': len(valid_files)  # len() works fine — valid_files is a list
