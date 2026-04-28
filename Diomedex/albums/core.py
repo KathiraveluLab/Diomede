@@ -5,7 +5,7 @@ from .models import db, DICOMFile
 from ..utils.dicom_helpers import safe_load_dicom_file
 
 LOG = logging.getLogger(__name__)
-DB_BATCH_SIZE = 500
+DB_BATCH_SIZE = int(os.getenv("DB_BATCH_SIZE", 500))
 class DICOMAlbumCreator:
     def __init__(self, storage_path: str):
         self.storage_path = Path(storage_path)
