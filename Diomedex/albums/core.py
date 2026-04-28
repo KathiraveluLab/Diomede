@@ -5,7 +5,7 @@ from .models import db, DICOMFile
 from ..utils.dicom_helpers import safe_load_dicom_file
 
 LOG = logging.getLogger(__name__)
-
+DB_BATCH_SIZE = 500
 class DICOMAlbumCreator:
     def __init__(self, storage_path: str):
         self.storage_path = Path(storage_path)
@@ -61,8 +61,8 @@ class DICOMAlbumCreator:
             })
 
             existing_paths = set()
-            for i in range(0, len(unique_paths), 500):
-                chunk = unique_paths[i:i + 500]
+            for i in range(0, len(unique_paths), DB_BATCH_SIZE):
+                chunk = unique_paths[i:i + DB_BATCH_SIZE]
                 existing_paths.update(
                     f.file_path
                     for f in db.session.query(DICOMFile.file_path)
@@ -92,10 +92,15 @@ class DICOMAlbumCreator:
                     existing_paths.add(path)
                     count += 1
 
-                    if count % 500 == 0:
+                    if count % DB_BATCH_SIZE == 0:
                         db.session.commit()
 
             db.session.commit()
+            LOG.info(
+                "Album index update complete: inserted=%d, processed=%d", 
+                count, 
+                len(files)
+            )
             return True
 
         except Exception:
