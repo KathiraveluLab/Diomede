@@ -90,15 +90,9 @@ def index_folder(folder, db_path):
         # to avoid code duplication between the main loop and the final cleanup block
         def process_batch(current_batch):
             nonlocal added, skipped, failed
-            unique_batch = []
-            seen = set()
-
-            for abs_path in current_batch:
-                if abs_path in seen:
-                    skipped += 1
-                    continue
-                seen.add(abs_path)
-                unique_batch.append(abs_path)
+            
+            unique_batch = list(dict.fromkeys(current_batch))
+            skipped += len(current_batch) - len(unique_batch)
 
             existing = {
                 p for (p,) in session.query(DICOMIndex.file_path).filter(
