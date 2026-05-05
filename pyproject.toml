@@ -1,0 +1,9 @@
+[build-system]
+requires      = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "diomede"
+version         = "0.1.0"
+requires-python = ">=3.12"
+description     = "Dynamic DICOM endpoint routing for the Diomede framework."
