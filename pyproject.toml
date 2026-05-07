@@ -28,6 +28,7 @@ test = [
     "pydicom>=2.4",
     "httpx>=0.27",
     "redis>=5",
+    "python-dotenv>=1.0",
 ]
 dev = [
     "ruff>=0.15.8",
@@ -61,7 +62,7 @@ strict = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths    = ["tests"]
-pythonpath   = ["."]
+pythonpath   = [".", "tests/integration"]
 markers = [
     "unit: fast tests with no external dependencies",
     "integration: requires a running Docker Compose stack",
