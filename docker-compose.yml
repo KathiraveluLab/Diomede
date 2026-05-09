@@ -3,31 +3,15 @@ networks:
     driver: bridge
 
 volumes:
-  redis-data:
   orthanc-us-data:
   orthanc-eu-data:
   orthanc-asia-data:
   orthanc-af-data:
+  orchestrator-data:
   orthanc-edge-data:
 
 
 services:
-  # Redis - Shared state store for Orchestrator and Telemetry Daemon
-  redis:
-    image: redis:7-alpine
-    container_name: diomede-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    networks:
-      - diomede-net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
   # Cloud DICOM Node - US East (GCP us-east1 simulation)
   orthanc-us:
     image: orthancteam/orthanc:latest
@@ -143,11 +127,13 @@ services:
   # Orchestrator: FastAPI service with Telemetry Daemon
   orchestrator:
     build:
-      context: ./src/orchestrator
-      dockerfile: Dockerfile
-    container_name: diomede-orchestrator
+      context: .
+      dockerfile: ./config/orchestrator/Dockerfile
+    container_name: orchestrator
     ports:
       - "8000:8000"
+      # - "6379:6379"
+    env_file: .env
     environment:
       # Telemetry configuration
       REDIS_URL: "redis://redis:6379"
@@ -183,8 +169,6 @@ services:
       NODE_AF_PASS: "orthanc"
 
     depends_on:
-      redis:
-        condition: service_healthy
       orthanc-us:
         condition: service_healthy
       orthanc-eu:
