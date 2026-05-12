@@ -169,3 +169,5 @@ cython_debug/
 
 # DICOM anonymization output
 storage/
+
+commands.md
