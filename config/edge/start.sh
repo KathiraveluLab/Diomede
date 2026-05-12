@@ -6,13 +6,15 @@
 set -e
 
 echo "[start.sh] Generating Orthanc config from template..."
-sed 's/${orthanc_user}/'"$ORTHANC_USER"'/g; s/${orthanc_password}/'"$ORTHANC_PASSWORD"'/g' \
+sed "s|\${orthanc_user}|$ORTHANC_USER|g; s|\${orthanc_password}|$ORTHANC_PASSWORD|g" \
   /etc/orthanc/orthanc.template.json > /tmp/orthanc.json
 
 echo "[start.sh] Starting Orthanc..."
 exec Orthanc /tmp/orthanc.json
 
-echo "[start.sh] Starting Forwarder Daemon..."
+## when forwarder is ready use supervisord to run both processes
+
+#echo "[start.sh] Starting Forwarder Daemon..."
 # python3 /app/forwarder.py &
 # FORWARDER_PID=$!
 

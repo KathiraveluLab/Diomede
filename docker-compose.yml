@@ -136,7 +136,7 @@ services:
     env_file: .env
     environment:
       # Telemetry configuration
-      REDIS_URL: "redis://redis:6379"
+      REDIS_URL: "redis://localhost:6379"
       POLL_INTERVAL_S: "10"
       REDIS_TTL_S: "30"
       HTTP_TIMEOUT_S: "5"
@@ -148,7 +148,7 @@ services:
       MIN_FREE_MB: "500"
 
       # Orchestrator API
-      REDIS_HOST: "redis"
+      REDIS_HOST: "localhost"
       ORCHESTRATOR_API_KEY: "${ORCHESTRATOR_API_KEY:-diomede-secret-key-change-in-prod}"
 
       # Cloud node endpoints
@@ -208,7 +208,7 @@ services:
       # Orchestrator connection
       ORCH_URL: "http://orchestrator:8000/get-best-node"
       ORCH_HEARTBEAT_URL: "http://orchestrator:8000/heartbeat"
-      ORCHESTRATOR_API_KEY: ${ORCHESTRATOR_API_KEY}
+      ORCHESTRATOR_API_KEY: "${ORCHESTRATOR_API_KEY:-diomede-secret-key-change-in-prod}"
 
       # Cloud node credentials for Forwarder
       NODE_US_BASE: "http://orthanc-us:8042"
