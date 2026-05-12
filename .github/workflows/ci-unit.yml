@@ -1,0 +1,38 @@
+name: Unit Tests
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '**/requirements.txt'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '**/requirements.txt'
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[orchestrator,edge,test]"
+
+      - name: Run unit tests
+        run: |
+          pytest tests/unit/ \
+            -v -m unit \
+            --cov=src \
+            --cov-fail-under=80

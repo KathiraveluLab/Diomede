@@ -1,20 +1,37 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
 repos:
--   repo: https://github.com/pre-commit/pre-commit-hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
-    -   id: trailing-whitespace
-    -   id: end-of-file-fixer
-    -   id: check-yaml
-    -   id: check-added-large-files
-    -   id: check-merge-conflict
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: no-commit-to-branch
+        args: [--branch, main]
 
--   repo: https://github.com/astral-sh/ruff-pre-commit
+  - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.8
     hooks:
-      # Linter: checks for syntax errors, unused imports, etc.
+      # Linter: auto-fixes trivial issues (import order, etc.), blocks on the rest
       - id: ruff-check
-        args: [ --fix ] # Automatically fixes what it can
-      # Formatter: auto-styles code like Black
+        args: [--fix]
+      # Formatter: always safe to auto-apply
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        language: system
+        entry: bash -c 'for d in src/orchestrator src/edge src/simulator; do (cd "$d" && python -m mypy .); done'
+        pass_filenames: false
+        types: [python]
+
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
