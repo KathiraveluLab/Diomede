@@ -167,3 +167,21 @@ Docker Hub:
 ```bash
 docker pull orthancteam/orthanc:latest
 ```
+
+To start only the 4 regional Orthanc nodes:
+```bash
+docker compose up -d orthanc-us orthanc-eu orthanc-asia orthanc-af
+
+```
+
+Before starting Orchestrator container, make sure nodes are healthy and reachable to
+populate Redis:
+```bash
+docker compose ps
+```
+
+Since `orchestrator` and `edge-agent` have local Dockerfiles use `--build`:
+```bash
+docker compose up -d --build orchestrator edge-agent
+docker compose up -d orchestrator edge-agent
+```
