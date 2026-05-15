@@ -1,0 +1,243 @@
+networks:
+  diomede-net:
+    driver: bridge
+
+volumes:
+  orthanc-us-data:
+  orthanc-eu-data:
+  orthanc-asia-data:
+  orthanc-af-data:
+  orthanc-edge-data:
+
+
+services:
+  # Cloud DICOM Node - US East (GCP us-east1 simulation)
+  orthanc-us:
+    image: orthancteam/orthanc:26.4.2
+    container_name: orthanc-us
+    ports:
+      - "8042:8042"  # REST API
+      - "4242:4242"  # DICOM
+    env_file: .env
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        sed "s/\$${orthanc_user}/$$ORTHANC_USER/g; s/\$${orthanc_password}/$$ORTHANC_PASSWORD/g" \
+          /etc/orthanc/orthanc.template.json > /tmp/orthanc.json
+        exec Orthanc /tmp/orthanc.json
+    volumes:
+      - ./config/orthanc/us.template.json:/etc/orthanc/orthanc.template.json:ro
+      - orthanc-us-data:/var/lib/orthanc/db
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - diomede-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,base64,os; r=urllib.request.Request('http://localhost:8042/system'); r.add_header('Authorization','Basic '+base64.b64encode((os.environ['ORTHANC_USER']+':'+os.environ['ORTHANC_PASSWORD']).encode()).decode()); urllib.request.urlopen(r)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Cloud DICOM Node - EU West (GCP eu-west1 simulation)
+  orthanc-eu:
+    image: orthancteam/orthanc:26.4.2
+    container_name: orthanc-eu
+    ports:
+      - "8043:8042"  # REST API
+      - "4243:4242"  # DICOM
+    env_file: .env
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        sed "s/\$${orthanc_user}/$$ORTHANC_USER/g; s/\$${orthanc_password}/$$ORTHANC_PASSWORD/g" \
+          /etc/orthanc/orthanc.template.json > /tmp/orthanc.json
+        exec Orthanc /tmp/orthanc.json
+    volumes:
+      - ./config/orthanc/eu.template.json:/etc/orthanc/orthanc.template.json:ro
+      - orthanc-eu-data:/var/lib/orthanc/db
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - diomede-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,base64,os; r=urllib.request.Request('http://localhost:8042/system'); r.add_header('Authorization','Basic '+base64.b64encode((os.environ['ORTHANC_USER']+':'+os.environ['ORTHANC_PASSWORD']).encode()).decode()); urllib.request.urlopen(r)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Cloud DICOM Node - Asia Northeast (GCP asia-northeast1 simulation)
+  orthanc-asia:
+    image: orthancteam/orthanc:26.4.2
+    container_name: orthanc-asia
+    ports:
+      - "8044:8042"  # REST API
+      - "4244:4242"  # DICOM
+    env_file: .env
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        sed "s/\$${orthanc_user}/$$ORTHANC_USER/g; s/\$${orthanc_password}/$$ORTHANC_PASSWORD/g" \
+          /etc/orthanc/orthanc.template.json > /tmp/orthanc.json
+        exec Orthanc /tmp/orthanc.json
+    volumes:
+      - ./config/orthanc/asia.template.json:/etc/orthanc/orthanc.template.json:ro
+      - orthanc-asia-data:/var/lib/orthanc/db
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - diomede-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,base64,os; r=urllib.request.Request('http://localhost:8042/system'); r.add_header('Authorization','Basic '+base64.b64encode((os.environ['ORTHANC_USER']+':'+os.environ['ORTHANC_PASSWORD']).encode()).decode()); urllib.request.urlopen(r)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Cloud DICOM Node - Africa South (GCP af-south1 simulation)
+  orthanc-af:
+    image: orthancteam/orthanc:26.4.2
+    container_name: orthanc-af
+    ports:
+      - "8045:8042"  # REST API
+      - "4245:4242"  # DICOM
+    env_file: .env
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        sed "s/\$${orthanc_user}/$$ORTHANC_USER/g; s/\$${orthanc_password}/$$ORTHANC_PASSWORD/g" \
+          /etc/orthanc/orthanc.template.json > /tmp/orthanc.json
+        exec Orthanc /tmp/orthanc.json
+    volumes:
+      - ./config/orthanc/af.template.json:/etc/orthanc/orthanc.template.json:ro
+      - orthanc-af-data:/var/lib/orthanc/db
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - diomede-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,base64,os; r=urllib.request.Request('http://localhost:8042/system'); r.add_header('Authorization','Basic '+base64.b64encode((os.environ['ORTHANC_USER']+':'+os.environ['ORTHANC_PASSWORD']).encode()).decode()); urllib.request.urlopen(r)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Orchestrator: FastAPI service with Telemetry Daemon
+  orchestrator:
+    build:
+      context: .
+      dockerfile: ./config/orchestrator/Dockerfile
+    container_name: orchestrator
+    ports:
+      - "8000:8000"
+      # - "6379:6379"
+    env_file: .env
+    environment:
+      # Telemetry configuration
+      REDIS_URL: "redis://localhost:6379"
+      POLL_INTERVAL_S: "10"
+      REDIS_TTL_S: "30"
+      HTTP_TIMEOUT_S: "5"
+
+      # Orchestrator scoring weights
+      W_QUEUE: "0.5"
+      W_DISK: "0.15"
+      W_RTT: "0.35"
+      MIN_FREE_MB: "500"
+
+      # Orchestrator API
+      REDIS_HOST: "localhost"
+      ORCHESTRATOR_API_KEY: "${ORCHESTRATOR_API_KEY}"
+
+      # Cloud node endpoints
+      NODE_US_BASE: "http://orthanc-us:8042"
+      NODE_US_USER: "${ORTHANC_USER}"
+      NODE_US_PASS: "${ORTHANC_PASSWORD}"
+
+      NODE_EU_BASE: "http://orthanc-eu:8042"
+      NODE_EU_USER: "${ORTHANC_USER}"
+      NODE_EU_PASS: "${ORTHANC_PASSWORD}"
+
+      NODE_ASIA_BASE: "http://orthanc-asia:8042"
+      NODE_ASIA_USER: "${ORTHANC_USER}"
+      NODE_ASIA_PASS: "${ORTHANC_PASSWORD}"
+
+      NODE_AF_BASE: "http://orthanc-af:8042"
+      NODE_AF_USER: "${ORTHANC_USER}"
+      NODE_AF_PASS: "${ORTHANC_PASSWORD}"
+
+    depends_on:
+      orthanc-us:
+        condition: service_healthy
+      orthanc-eu:
+        condition: service_healthy
+      orthanc-asia:
+        condition: service_healthy
+      orthanc-af:
+        condition: service_healthy
+
+    networks:
+      - diomede-net
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Edge Agent: Edge Orthanc + Forwarder Daemon
+  edge-agent:
+    build:
+      context: .
+      dockerfile: ./config/edge/Dockerfile
+    container_name: edge-agent
+    ports:
+      - "8046:8042"  # Edge Orthanc REST API
+      - "4246:4242"  # Edge Orthanc DICOM
+    env_file: .env
+    volumes:
+      - ./config/orthanc/edge.template.json:/etc/orthanc/orthanc.template.json:ro
+      - orthanc-edge-data:/var/lib/orthanc/db
+    environment:
+      # Edge Orthanc configuration
+      EDGE_BASE: "http://localhost:8042"
+      EDGE_USER: "${ORTHANC_USER}"
+      EDGE_PASS: "${ORTHANC_PASSWORD}"
+
+      # Orchestrator connection
+      ORCH_URL: "http://orchestrator:8000/get-best-node"
+      ORCH_HEARTBEAT_URL: "http://orchestrator:8000/heartbeat"
+      ORCHESTRATOR_API_KEY: "${ORCHESTRATOR_API_KEY}"
+
+      # Cloud node credentials for Forwarder
+      NODE_US_BASE: "http://orthanc-us:8042"
+      NODE_US_USER: "${ORTHANC_USER}"
+      NODE_US_PASS: "${ORTHANC_PASSWORD}"
+
+      NODE_EU_BASE: "http://orthanc-eu:8042"
+      NODE_EU_USER: "${ORTHANC_USER}"
+      NODE_EU_PASS: "${ORTHANC_PASSWORD}"
+
+      NODE_ASIA_BASE: "http://orthanc-asia:8042"
+      NODE_ASIA_USER: "${ORTHANC_USER}"
+      NODE_ASIA_PASS: "${ORTHANC_PASSWORD}"
+
+      NODE_AF_BASE: "http://orthanc-af:8042"
+      NODE_AF_USER: "${ORTHANC_USER}"
+      NODE_AF_PASS: "${ORTHANC_PASSWORD}"
+
+      # Forwarder polling intervals
+      POLL_INTERVAL_S: "5"
+      PROBE_INTERVAL_S: "3600"
+
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+
+    networks:
+      - diomede-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,base64,os; r=urllib.request.Request('http://localhost:8042/system'); r.add_header('Authorization','Basic '+base64.b64encode((os.environ['ORTHANC_USER']+':'+os.environ['ORTHANC_PASSWORD']).encode()).decode()); urllib.request.urlopen(r)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
