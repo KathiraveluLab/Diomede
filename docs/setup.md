@@ -161,11 +161,10 @@ if the variable is missing.
 
 ### 2. Pull and start the 4 regional Orthanc nodes
 
-The cloud PACS nodes use the pre-built `orthancteam/orthanc:latest` image from
+The cloud PACS nodes use the pre-built `orthancteam/orthanc:26.4.2` image from
 Docker Hub:
-
 ```bash
-docker pull orthancteam/orthanc:latest
+docker pull orthancteam/orthanc:26.4.2
 ```
 
 To start only the 4 regional Orthanc nodes:
@@ -180,8 +179,7 @@ populate Redis:
 docker compose ps
 ```
 
-Since `orchestrator` and `edge-agent` have local Dockerfiles use `--build`:
+Since `orchestrator` and `edge-agent` have local Dockerfiles use `build`:
 ```bash
-docker compose up -d --build orchestrator edge-agent
-docker compose up -d orchestrator edge-agent
+docker compose build orchestrator edge-agent && docker compose up -d orchestrator edge-agent
 ```

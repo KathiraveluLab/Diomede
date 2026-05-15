@@ -1,5 +1,5 @@
 {
-    "Name": "Orthanc_US",
+    "Name": "Orthanc_AF",
     "RemoteAccessAllowed": true,
     "AuthenticationEnabled": true,
     "RegisteredUsers": {"${orthanc_user}": "${orthanc_password}"},
@@ -13,5 +13,6 @@
     "StorageDirectory": "/var/lib/orthanc/db",
     "RestApiWriteToFileSystemEnabled": true,
     "DicomModalities": {
-    "EdgeAgent": ["EDGE-AE", "edge-agent", 4242]}
+        "edge": ["Orthanc_Edge", "edge-agent", 4242]
+    }
 }

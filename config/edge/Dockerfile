@@ -1,5 +1,5 @@
 # FROM jodogne/orthanc:latest
-FROM orthancteam/orthanc:24.2.0
+FROM orthancteam/orthanc:26.4.2
 
 # Install Python 3.11 + pip on top of the Orthanc (Ubuntu-based) image.
 # Both Orthanc and the Forwarder Daemon run inside this single container,
