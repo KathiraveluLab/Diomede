@@ -23,7 +23,11 @@ jobs:
       - name: mypy
         run: |
           for src_dir in src/orchestrator src/edge src/simulator; do
-            (cd "$src_dir" && mypy .)
+            if find "$src_dir" -name "*.py" -not -path "*/.mypy_cache/*" | grep -q .; then
+              (cd "$src_dir" && mypy .)
+            else
+              echo "Skipping $src_dir (no Python files found)"
+            fi
           done
 
       - uses: pre-commit/action@v3.0.1

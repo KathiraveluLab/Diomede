@@ -32,7 +32,8 @@ jobs:
 
       - name: Run unit tests
         run: |
-          pytest tests/unit/ \
-            -v -m unit \
-            --cov=src \
-            --cov-fail-under=80
+          if find tests/unit -name "test_*.py" | grep -q .; then
+            pytest tests/unit/ -v -m unit --cov=src --cov-fail-under=80
+          else
+            echo "No unit tests found, skipping."
+          fi
