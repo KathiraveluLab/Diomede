@@ -6,8 +6,13 @@
 set -e
 
 echo "[start.sh] Generating Orthanc config from template..."
-envsubst '${orthanc_user} ${orthanc_password}' \
-  < /etc/orthanc/orthanc.template.json > /tmp/orthanc.json
+python3 -c "
+import os
+t = open('/etc/orthanc/orthanc.template.json').read()
+t = t.replace('\${orthanc_user}', os.environ['ORTHANC_USER'])
+t = t.replace('\${orthanc_password}', os.environ['ORTHANC_PASSWORD'])
+open('/tmp/orthanc.json', 'w').write(t)
+"
 
 echo "[start.sh] Starting Orthanc..."
 exec Orthanc /tmp/orthanc.json
