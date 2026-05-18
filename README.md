@@ -79,7 +79,3 @@ scoring weight tuning
 | [Contributing](CONTRIBUTING.md) | Development workflow, pre-commit hooks, test strategy |
 
 ---
-
-## License
-
-[MIT](LICENSE)
