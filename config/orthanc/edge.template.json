@@ -1,0 +1,21 @@
+{
+    "Name": "Orthanc_Edge",
+    "RemoteAccessAllowed": true,
+    "AuthenticationEnabled": true,
+    "RegisteredUsers": {"${orthanc_user}": "${orthanc_password}"},
+    "DicomPort": 4242,
+    "HttpPort": 8042,
+    "HttpServerEnabled": true,
+    "DicomServerEnabled": true,
+    "MaxStorageSize": 10000,
+    "IngestTranscodingEnabled": false,
+    "StorageCompression": true,
+    "StorageDirectory": "/var/lib/orthanc/db",
+    "RestApiWriteToFileSystemEnabled": true,
+    "DicomModalities": {
+        "us":   ["Orthanc_US",   "orthanc-us",   4242],
+        "eu":   ["Orthanc_EU",   "orthanc-eu",   4242],
+        "asia": ["Orthanc_ASIA", "orthanc-asia", 4242],
+        "af":   ["Orthanc_AF",   "orthanc-af",   4242]
+    }
+}

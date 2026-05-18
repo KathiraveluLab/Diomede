@@ -1,0 +1,18 @@
+{
+    "Name": "Orthanc_AF",
+    "RemoteAccessAllowed": true,
+    "AuthenticationEnabled": true,
+    "RegisteredUsers": {"${orthanc_user}": "${orthanc_password}"},
+    "DicomPort": 4242,
+    "HttpPort": 8042,
+    "HttpServerEnabled": true,
+    "DicomServerEnabled": true,
+    "MaxStorageSize": 10000,
+    "IngestTranscodingEnabled": false,
+    "StorageCompression": true,
+    "StorageDirectory": "/var/lib/orthanc/db",
+    "RestApiWriteToFileSystemEnabled": true,
+    "DicomModalities": {
+        "edge": ["Orthanc_Edge", "edge-agent", 4242]
+    }
+}
