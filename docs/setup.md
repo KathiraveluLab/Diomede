@@ -183,3 +183,39 @@ Since `orchestrator` and `edge-agent` have local Dockerfiles use `build`:
 ```bash
 docker compose build orchestrator edge-agent && docker compose up -d orchestrator edge-agent
 ```
+
+### 3. Inject Simulated WAN Latency
+
+The script injects three WAN metrics per node (latency, jitter, and packet loss) modeled after real Alaska → GCP paths:
+
+| Node | Latency | Jitter | Packet Loss | Rationale |
+|---|---|---|---|---|
+| `orthanc-us` | 85ms | 8ms | 0.08% | Alaska → US-East (Moncks Corner, South Carolina) |
+| `orthanc-eu` | 165ms | 17ms | 0.12% | Alaska → EU-West (St. Ghislain, Belgium) |
+| `orthanc-asia` | 115ms | 11ms | 0.08% | Alaska → Asia-Northeast (Tokyo, Japan) |
+| `orthanc-af` | 300ms | 35ms | 0.75% | Alaska → Africa-South (Johannesburg, South Africa) |
+
+> **Note:** `tc netem` delays *outbound* packets from the container (responses leaving that Orthanc node), so it captures the download half of the RTT from the Edge Agent's perspective.
+
+Apply the rules (`NET_ADMIN` is already set in `docker-compose.yml`):
+
+```bash
+bash scripts/inject_latency.sh
+```
+
+Inspect the active rules on each node:
+
+```bash
+docker exec orthanc-us tc qdisc show dev eth0
+docker exec orthanc-eu tc qdisc show dev eth0
+docker exec orthanc-asia tc qdisc show dev eth0
+docker exec orthanc-af tc qdisc show dev eth0
+```
+
+To remove all latency rules:
+
+```bash
+bash scripts/inject_latency.sh --reset
+```
+
+> **Note:** These rules are not persistent — re-run `bash scripts/inject_latency.sh` after every `docker compose up` or container restart.
