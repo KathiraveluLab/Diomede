@@ -46,7 +46,7 @@ services:
           r.add_header('Authorization', 'Basic ' + base64.b64encode(
               (os.environ['ORTHANC_USER'] + ':' + os.environ['ORTHANC_PASSWORD']).encode()
           ).decode())
-          urllib.request.urlopen(r, context=ctx)
+          with urllib.request.urlopen(r, context=ctx, timeout=5) as response: pass
       interval: 10s
       timeout: 5s
       retries: 3
@@ -86,7 +86,7 @@ services:
           r.add_header('Authorization', 'Basic ' + base64.b64encode(
               (os.environ['ORTHANC_USER'] + ':' + os.environ['ORTHANC_PASSWORD']).encode()
           ).decode())
-          urllib.request.urlopen(r, context=ctx)
+          with urllib.request.urlopen(r, context=ctx, timeout=5) as response: pass
       interval: 10s
       timeout: 5s
       retries: 3
@@ -126,7 +126,7 @@ services:
           r.add_header('Authorization', 'Basic ' + base64.b64encode(
               (os.environ['ORTHANC_USER'] + ':' + os.environ['ORTHANC_PASSWORD']).encode()
           ).decode())
-          urllib.request.urlopen(r, context=ctx)
+          with urllib.request.urlopen(r, context=ctx, timeout=5) as response: pass
       interval: 10s
       timeout: 5s
       retries: 3
@@ -166,7 +166,7 @@ services:
           r.add_header('Authorization', 'Basic ' + base64.b64encode(
               (os.environ['ORTHANC_USER'] + ':' + os.environ['ORTHANC_PASSWORD']).encode()
           ).decode())
-          urllib.request.urlopen(r, context=ctx)
+          with urllib.request.urlopen(r, context=ctx, timeout=5) as response: pass
       interval: 10s
       timeout: 5s
       retries: 3
@@ -318,7 +318,7 @@ services:
           r.add_header('Authorization', 'Basic ' + base64.b64encode(
               (os.environ['ORTHANC_USER'] + ':' + os.environ['ORTHANC_PASSWORD']).encode()
           ).decode())
-          urllib.request.urlopen(r, context=ctx)
+          with urllib.request.urlopen(r, context=ctx, timeout=5) as response: pass
       interval: 10s
       timeout: 5s
       retries: 3

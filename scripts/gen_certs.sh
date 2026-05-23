@@ -117,7 +117,7 @@ mkdir -p "$OUT"
 # Remove existing certificates directory to ensure a clean regeneration
 rm -rf "$OUT"/*
 # Root CA (30 years) ─────────────────────────────────────────────────────────
-echo "[1/7] Root CA (${DAYS_CA} days)"
+echo "[1/8] Root CA (${DAYS_CA} days)"
 openssl genrsa -out "$OUT/ca.key" "$KEY_BITS" 2>/dev/null
 chmod 600 "$OUT/ca.key"
 # -addext avoids process substitution so set -euo pipefail works correctly
@@ -140,8 +140,8 @@ sign_cert "orthanc-asia" && echo "[5/8] orthanc-asia  done"
 sign_cert "orthanc-af"   && echo "[6/8] orthanc-af    done"
 sign_cert "edge-agent"   && echo "[7/8] edge-agent    done"
 
-# Client cert (clientAuth EKU) — used by simulator scripts and the edge
-# forwarder to prove identity during DICOM TLS mutual authentication.
+# Client cert (clientAuth EKU) — used by simulator scripts to prove
+# identity during DICOM TLS mutual authentication.
 sign_client_cert "diomede-client" && echo "[8/8] diomede-client  done"
 
 # Summary ─────────────────────────────────────────────────────────────────────
