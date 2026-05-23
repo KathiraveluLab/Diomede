@@ -15,4 +15,6 @@ echo "[start.sh] Starting Telemetry Daemon..."
 # DAEMON_PID=$!
 
 echo "[start.sh] Starting Uvicorn for FastAPI endpoints..."
-exec uvicorn main:app --host 0.0.0.0 --port 8000
+exec uvicorn main:app --host 0.0.0.0 --port 8000 \
+    --ssl-keyfile  /certs/server.key \
+    --ssl-certfile /certs/server.crt
