@@ -24,6 +24,7 @@
     "StorageDirectory": "/var/lib/orthanc/db",
     "RestApiWriteToFileSystemEnabled": true,
     "DicomModalities": {
-        "edge": ["Orthanc_Edge", "edge-agent", 4242]
+        "edge": ["Orthanc_Edge", "edge-agent", 4242],
+        "simulator": ["Simulator", "host.docker.internal", 11112]
     }
 }

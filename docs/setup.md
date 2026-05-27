@@ -327,6 +327,20 @@ bash scripts/inject_latency.sh --reset
 
 > **Note:** These rules are not persistent — re-run `bash scripts/inject_latency.sh` after every `docker compose up` or container restart.
 
+### 5. Send a test DICOM
+
+Send a minimal 8×8 DICOM image directly to a cloud node via DIMSE-TLS to verify end-to-end connectivity:
+
+```bash
+python -m src.simulator.send_dicom_native --host 127.0.0.1 --port 4242 --called-aet Orthanc_US
+```
+
+On success you should see:
+
+```
+C-STORE success → Orthanc_EU at 127.0.0.1:4242
+```
+
 ---
 
 ## Troubleshooting

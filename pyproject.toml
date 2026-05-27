@@ -17,7 +17,7 @@ orchestrator = [
     "pydantic>=2.9.2",
 ]
 edge    = ["httpx>=0.27.2"]
-scripts = ["httpx>=0.27.2", "pydicom>=2.4", "python-dotenv>=1.0"]
+scripts = ["httpx>=0.27.2", "pydicom>=2.4", "pynetdicom>=3.0", "python-dotenv>=1.0"]
 load    = ["locust>=2.28"]
 test = [
     "pytest>=9",
@@ -26,6 +26,7 @@ test = [
     "respx>=0.21",
     "fakeredis>=2.23",
     "pydicom>=2.4",
+    "pynetdicom>=3.0",
     "httpx>=0.27",
     "redis>=5",
     "python-dotenv>=1.0",
