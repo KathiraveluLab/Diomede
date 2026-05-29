@@ -164,7 +164,7 @@ if the variable is missing.
 End-to-end TLS covers both local Docker and distributed GCP deployments.
 - Four cloud Orthanc nodes enabling DIMSE-TLS with native `SslEnabled` in Orthanc config
 - Orchestrator FastAPI enabling SSL with `--ssl-keyfile / --ssl-certfile` of Uvicorn
-- All httpx clients (Daemon, Forwarder) using `REQUESTS_CA_BUNDLE` env variable
+- All httpx clients (Daemon, Forwarder) using SSL_CERT_FILE / REQUESTS_CA_BUNDLE env variables
 
 Note the following stays plain HTTP intentionally:
 - Redis — bound to `127.0.0.1` inside the Orchestrator container only
