@@ -10,12 +10,12 @@ import argparse
 import ssl
 import sys
 
-from pydicom import uid as _dcm_uid
+from pydicom import uid as dcm_uid
 from pynetdicom import AE
 
 from src.simulator.generate_dicom import make_ct_8x8
 
-SecondaryCaptureImageStorage = _dcm_uid.SecondaryCaptureImageStorage
+SecondaryCaptureImageStorage = dcm_uid.SecondaryCaptureImageStorage
 
 _DEFAULT_CA_CERT = "certs/ca.pem"
 _DEFAULT_CLIENT_CERT = "certs/diomede-client/client.crt"

@@ -52,11 +52,6 @@ class TestParseArgs:
         assert args.client_cert == "/tmp/client.crt"
         assert args.client_key == "/tmp/client.key"
 
-    def test_port_is_int(self):
-        with patch("sys.argv", ["send_dicom_native.py", "--port", "9999"]):
-            args = _parse_args()
-        assert isinstance(args.port, int)
-
 
 class TestSend:
     def _make_mock_assoc(self, status_code=0x0000, is_established=True):

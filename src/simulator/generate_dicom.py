@@ -3,7 +3,7 @@ Synthetic DICOM file factory — no PHI, no real patient data.
 
 Public API:
   make_ct_8x8()   -->     generate 8x8 DICOM image
-  make_sized(kb)  -->     generate arbituary kb size DICOM image
+  make_sized(kb)  -->     generate arbitrary kb size DICOM image
 """
 
 import math

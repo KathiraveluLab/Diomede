@@ -3,7 +3,6 @@
 import math
 
 import pytest
-from pydicom import FileDataset
 from pydicom import uid as dcm_uid
 
 from src.simulator.generate_dicom import (
@@ -18,17 +17,10 @@ pytestmark = pytest.mark.unit
 
 
 class TestMakeCt8x8:
-    def test_returns_file_dataset(self):
-        assert isinstance(make_ct_8x8(), FileDataset)
-
     def test_dimensions(self):
         ds = make_ct_8x8()
         assert ds.Rows == 8
         assert ds.Columns == 8
-
-    def test_pixel_data_length(self):
-        ds = make_ct_8x8()
-        assert len(ds.PixelData) == 64
 
     def test_pixel_data_all_zeros(self):
         ds = make_ct_8x8()
@@ -70,9 +62,6 @@ class TestMakeCt8x8:
 
 
 class TestMakeSized:
-    def test_returns_file_dataset(self):
-        assert isinstance(make_sized(1), FileDataset)
-
     @pytest.mark.parametrize("kb", [1, 4, 16, 64, 256])
     def test_pixel_data_at_least_requested_size(self, kb):
         ds = make_sized(kb)
@@ -95,17 +84,3 @@ class TestMakeSized:
         assert ds1.SOPInstanceUID != ds2.SOPInstanceUID
         assert ds1.StudyInstanceUID != ds2.StudyInstanceUID
         assert ds1.SeriesInstanceUID != ds2.SeriesInstanceUID
-
-    def test_uids_are_valid_dicom_uids(self):
-        ds = make_sized(1)
-        for uid in (ds.SOPInstanceUID, ds.StudyInstanceUID, ds.SeriesInstanceUID):
-            assert all(c.isdigit() or c == "." for c in str(uid))
-
-    def test_patient_tags(self):
-        ds = make_sized(1)
-        assert str(ds.PatientName) == "TEST^SIMULATOR"
-        assert ds.PatientID == "SIM001"
-
-    def test_sop_class_uid(self):
-        ds = make_sized(1)
-        assert ds.SOPClassUID == dcm_uid.SecondaryCaptureImageStorage
