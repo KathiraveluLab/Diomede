@@ -32,9 +32,6 @@ def _base_dataset(sop_uid: str, study_uid: str, series_uid: str) -> FileDataset:
         preamble=b"\x00" * 128,
     )
 
-    ds.is_implicit_VR = False
-    ds.is_little_endian = True
-
     # Patient module
     ds.PatientName = "TEST^SIMULATOR"
     ds.PatientID = "SIM001"

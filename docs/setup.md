@@ -329,16 +329,40 @@ bash scripts/inject_latency.sh --reset
 
 ### 5. Send a test DICOM
 
-Send a minimal 8×8 DICOM image directly to a cloud node via DIMSE-TLS to verify end-to-end connectivity:
+Two simulator scripts are provided, each representing a different ingestion path.
+
+#### 5a. Native DICOM (DIMSE-TLS) — `send_dicom_native`
+
+Sends directly to a cloud node over a DIMSE-TLS association on port 4242.
+Use this to test the DICOM protocol stack end-to-end.
 
 ```bash
-python -m src.simulator.send_dicom_native --host 127.0.0.1 --port 4242 --called-aet Orthanc_US
+python -m src.simulator.send_dicom_native \
+  --host 127.0.0.1 \
+  --port 4242 \
+  --called-aet Orthanc_US
 ```
 
-On success you should see:
+On success:
 
 ```
-C-STORE success → Orthanc_EU at 127.0.0.1:4242
+C-STORE success → Orthanc_US at 127.0.0.1:4242
+```
+
+#### 5b. REST simulator — `send_dicom_rest`
+
+Posts raw DICOM bytes directly to an Orthanc node via `POST /instances` over HTTPS.
+Credentials are read from `ORTHANC_USER` / `ORTHANC_PASSWORD` in `.env`.
+
+```bash
+python -m src.simulator.send_dicom_rest \
+  --base-url https://127.0.0.1:8042
+```
+
+On success:
+
+```
+REST send success → https://127.0.0.1:8042 (HTTP 200)
 ```
 
 ---

@@ -6,10 +6,8 @@ Requires the Docker Compose stack to be running:
 
 """
 
-import os
 import ssl
 
-import httpx
 import pytest
 from pydicom import Dataset
 from pynetdicom import AE
@@ -20,16 +18,10 @@ from pynetdicom.sop_class import (
 
 from src.simulator.generate_dicom import _RTT_SOP_UID, _RTT_STUDY_UID
 from src.simulator.send_dicom_native import send
+from tests.integration.conftest import CA_CERT
 
 pytestmark = pytest.mark.integration
 
-ORTHANC_URL = "https://localhost:8042"
-ORTHANC_AUTH = (
-    os.environ.get("ORTHANC_USER", "orthanc"),
-    os.environ.get("ORTHANC_PASSWORD", "CHANGE_IN_PRODUCTION"),
-)
-CA_CERT = "certs/ca.pem"
-_SSL_CTX = ssl.create_default_context(cafile=CA_CERT)
 CLIENT_CERT = "certs/diomede-client/client.crt"
 CLIENT_KEY = "certs/diomede-client/client.key"
 
@@ -42,30 +34,6 @@ _DICOM_DEFAULTS = dict(
     client_cert=CLIENT_CERT,
     client_key=CLIENT_KEY,
 )
-
-
-def _delete_instance(sop_uid: str) -> None:
-    resp = httpx.post(
-        f"{ORTHANC_URL}/tools/find",
-        json={"Level": "Instance", "Query": {"SOPInstanceUID": sop_uid}, "Expand": True},
-        auth=ORTHANC_AUTH,
-        verify=_SSL_CTX,
-    )
-    resp.raise_for_status()
-    for item in resp.json():
-        httpx.delete(
-            f"{ORTHANC_URL}/instances/{item['ID']}",
-            auth=ORTHANC_AUTH,
-            verify=_SSL_CTX,
-        ).raise_for_status()
-
-
-@pytest.fixture(autouse=True)
-def clean_instance():
-    """Remove the fixed-UID test instance before and after each test."""
-    _delete_instance(_RTT_SOP_UID)
-    yield
-    _delete_instance(_RTT_SOP_UID)
 
 
 def _send(**overrides) -> None:
