@@ -159,7 +159,82 @@ if the variable is missing.
 
 `.env` is gitignored and must never be committed.
 
-### 2. Pull and start the 4 regional Orthanc nodes
+### 2. Deploy TLS
+
+End-to-end TLS covers both local Docker and distributed GCP deployments.
+- Four cloud Orthanc nodes enabling DIMSE-TLS with native `SslEnabled` in Orthanc config
+- Orchestrator FastAPI enabling SSL with `--ssl-keyfile / --ssl-certfile` of Uvicorn
+- All httpx clients (Daemon, Forwarder) using `REQUESTS_CA_BUNDLE` env variable
+
+Note the following stays plain HTTP intentionally:
+- Redis — bound to `127.0.0.1` inside the Orchestrator container only
+
+Generate certificates using the following script:
+
+```bash
+bash scripts/gen_certs.sh
+```
+
+This output certificates below:
+
+```
+certs/
+├── ca.key                          # CA private key — never commit or share
+├── ca.pem                          # CA public cert — distribute to any client that needs to verify servers
+├── orchestrator/
+│   ├── server.crt
+│   └── server.key
+├── orthanc-us/combined.pem         # cert + key in one file (Orthanc's required format)
+├── orthanc-eu/combined.pem
+├── orthanc-asia/combined.pem
+├── orthanc-af/combined.pem
+├── edge-agent/combined.pem         # Edge Orthanc uses the same combined format
+└── diomede-client/
+    ├── client.crt                  # clientAuth certificate — used by the simulator
+    └── client.key
+```
+
+`certs/` is gitignored.  Re-run `gen_certs.sh` on every fresh clone.
+
+You can view generated certificates with `openssl` (`x.509` for public key certificates and `rsa` for private key certificates):
+```bash
+# Root ca certificate
+openssl x509 -in certs/ca.pem -text -noout
+openssl rsa -in certs/ca.key -text -noout
+
+# Public certificate
+openssl x509 -in certs/diomede-client/client.crt -text -noout
+openssl x509 -in certs/edge-agent/server.crt -text -noout
+openssl x509 -in certs/orchestrator/server.crt -text -noout
+openssl x509 -in certs/orthanc-us/server.crt -text -noout
+openssl x509 -in certs/orthanc-eu/server.crt -text -noout
+openssl x509 -in certs/orthanc-asia/server.crt -text -noout
+openssl x509 -in certs/orthanc-af/server.crt -text -noout
+
+# Private key (no password for being used on the server)
+openssl rsa -in certs/diomede-client/client.key -text -noout
+openssl rsa -in certs/edge-agent/server.key -text -noout
+openssl rsa -in certs/orchestrator/server.key -text -noout
+openssl rsa -in certs/orthanc-us/server.key -text -noout
+openssl rsa -in certs/orthanc-eu/server.key -text -noout
+openssl rsa -in certs/orthanc-asia/server.key -text -noout
+openssl rsa -in certs/orthanc-af/server.key -text -noout
+
+# Combined server certificate
+openssl x509 -in certs/edge-agent/combined.pem -text -noout
+openssl rsa -in certs/edge-agent/combined.pem
+openssl x509 -in certs/orchestrator/combined.pem -text -noout
+openssl rsa -in certs/orchestrator/combined.pem
+openssl x509 -in certs/orthanc-us/combined.pem -text -noout
+openssl rsa -in certs/orthanc-us/combined.pem
+openssl x509 -in certs/orthanc-eu/combined.pem -text -noout
+openssl rsa -in certs/orthanc-eu/combined.pem
+openssl x509 -in certs/orthanc-asia/combined.pem -text -noout
+openssl rsa -in certs/orthanc-asia/combined.pem
+openssl x509 -in certs/orthanc-af/combined.pem -text -noout
+openssl rsa -in certs/orthanc-af/combined.pem
+
+### 3. Pull and start the 4 regional Orthanc nodes
 
 The cloud PACS nodes use the pre-built `orthancteam/orthanc:26.4.2` image from
 Docker Hub:
@@ -184,7 +259,7 @@ Since `orchestrator` and `edge-agent` have local Dockerfiles use `build`:
 docker compose build orchestrator edge-agent && docker compose up -d orchestrator edge-agent
 ```
 
-### 3. Inject Simulated WAN Latency
+### 4. Inject Simulated WAN Latency
 
 The script injects three WAN metrics per node (latency, jitter, and packet loss) modeled after real Alaska → GCP paths:
 
@@ -203,6 +278,38 @@ Apply the rules (`NET_ADMIN` is already set in `docker-compose.yml`):
 bash scripts/inject_latency.sh
 ```
 
+Verify latency is applied with a timed REST call:
+
+```bash
+python3 - << 'EOF'
+import urllib.request, ssl, base64, time
+
+env = {}
+with open('.env') as f:
+    for line in f:
+        line = line.strip()
+        if line and not line.startswith('#') and '=' in line:
+            k, v = line.split('=', 1)
+            env[k] = v
+
+auth = base64.b64encode(f"{env['ORTHANC_USER']}:{env['ORTHANC_PASSWORD']}".encode()).decode()
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+# HTTPS measures ~3.5x the injected one-way delay: tc netem delays every
+# outbound packet, and a full HTTPS request hits 3-4 of them (TCP SYN-ACK,
+# TLS handshake, response).
+for name, port, injected, expect in [('us', 8042, 85, 300), ('eu', 8043, 165, 600), ('asia', 8044, 115, 450), ('af', 8045, 300, 1000)]:
+    req = urllib.request.Request(f'https://localhost:{port}/system')
+    req.add_header('Authorization', f'Basic {auth}')
+    t = time.time()
+    urllib.request.urlopen(req, context=ctx)
+    ms = (time.time() - t) * 1000
+    print(f'orthanc-{name:<5} :{port}  {ms:6.0f}ms  (injected {injected}ms one-way, expect ~{expect}ms total)')
+EOF
+```
+
 Inspect the active rules on each node:
 
 ```bash
@@ -219,3 +326,70 @@ bash scripts/inject_latency.sh --reset
 ```
 
 > **Note:** These rules are not persistent — re-run `bash scripts/inject_latency.sh` after every `docker compose up` or container restart.
+
+---
+
+## Troubleshooting
+
+### Docker Containers
+
+Start by running `docker compose ps` to list all 6 containers and their current state.
+
+```bash
+docker compose ps
+```
+
+The `STATUS` column shows `Up (health: starting)`, `Up (healthy)`, `Up (unhealthy)`, or `Exited`.
+- `Up (health: starting)` means the service URL is not responding yet; wait a few seconds and re-check.
+- An `Exited` status means the process crashed; check logs immediately.
+- `Up (unhealthy)` means the process is running but the healthcheck is failing.
+
+Look for the following cases:
+
+- **Missing containers** — a service that does not appear in the list failed to start before Docker could track it; check logs with `docker compose logs <service>`.
+- **Unhealthy containers** — the process is running but the health check is failing; check logs with `docker inspect <service>`
+
+#### Get logs when a container fails to start
+
+```bash
+# All output from one service (most useful after a startup failure)
+docker compose logs <service>
+
+# Follow in real time (Ctrl-C to stop)
+docker compose logs -f <service>
+
+# Last 50 lines only
+docker compose logs --tail=50 <service>
+
+# All services at once
+docker compose logs
+```
+
+Any of the six service names works: `orthanc-us`, `orthanc-eu`, `orthanc-asia`, `orthanc-af`, `orchestrator`, `edge-agent`.
+
+#### Check container status and health
+
+> **Note:** `docker compose logs` only captures output from the main service process (Orthanc or Uvicorn). To see the output of individual health-check queries including the exact HTTP requests and return codes, use `docker inspect`:
+>
+> ```bash
+> docker inspect --format='{{json .State.Health}}' <service> | python3 -m json.tool
+> ```
+>
+> The `Log` array in the output lists the last five health-check attempts with their exit codes and stdout/stderr.
+
+Some services only become healthy after their dependencies are healthy (e.g. `edge-agent` waits for `orchestrator`). If the dependency is unhealthy, fix it first, then restart the dependent service.
+
+```bash
+docker compose restart <service>
+```
+
+Some common failures and their fixes are:
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `orchestrator` exits immediately | `ORCHESTRATOR_API_KEY` missing from `.env` | Add it to `.env` |
+| `orchestrator` unhealthy | Redis or uvicorn not ready within healthcheck window | `docker compose logs orchestrator` to confirm, then `docker compose restart orchestrator` |
+| `edge-agent` unhealthy | `orchestrator` not healthy yet (`depends_on` blocks it) | Wait for orchestrator to become healthy first |
+| Regional node unhealthy | Template substitution failed (bad variable replacement) or Orthanc config error | Check logs: `docker compose logs orthanc-<region>` |
+
+---
