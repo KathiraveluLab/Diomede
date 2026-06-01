@@ -2,7 +2,7 @@
     "Name": "Orthanc_Edge",
     "DicomAet": "Orthanc_Edge",
     "DicomCheckCalledAet": true,
-    "DicomCheckCallingAet": true,
+    "DicomCheckCallingAet": false,
     "RemoteAccessAllowed": true,
     "AuthenticationEnabled": true,
     "RegisteredUsers": {"${orthanc_user}": "${orthanc_password}"},

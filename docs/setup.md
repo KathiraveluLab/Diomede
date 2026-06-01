@@ -164,7 +164,7 @@ if the variable is missing.
 End-to-end TLS covers both local Docker and distributed GCP deployments.
 - Four cloud Orthanc nodes enabling DIMSE-TLS with native `SslEnabled` in Orthanc config
 - Orchestrator FastAPI enabling SSL with `--ssl-keyfile / --ssl-certfile` of Uvicorn
-- All httpx clients (Daemon, Forwarder) using `REQUESTS_CA_BUNDLE` env variable
+- All httpx clients (Daemon, Forwarder) using SSL_CERT_FILE / REQUESTS_CA_BUNDLE env variables
 
 Note the following stays plain HTTP intentionally:
 - Redis — bound to `127.0.0.1` inside the Orchestrator container only
@@ -326,6 +326,44 @@ bash scripts/inject_latency.sh --reset
 ```
 
 > **Note:** These rules are not persistent — re-run `bash scripts/inject_latency.sh` after every `docker compose up` or container restart.
+
+### 5. Send a test DICOM
+
+Two simulator scripts are provided, each representing a different ingestion path.
+
+#### 5a. Native DICOM (DIMSE-TLS) — `send_dicom_native`
+
+Sends directly to a cloud node over a DIMSE-TLS association on port 4242.
+Use this to test the DICOM protocol stack end-to-end.
+
+```bash
+python -m src.simulator.send_dicom_native \
+  --host 127.0.0.1 \
+  --port 4242 \
+  --called-aet Orthanc_US
+```
+
+On success:
+
+```
+C-STORE success → Orthanc_US at 127.0.0.1:4242
+```
+
+#### 5b. REST simulator — `send_dicom_rest`
+
+Posts raw DICOM bytes directly to an Orthanc node via `POST /instances` over HTTPS.
+Credentials are read from `ORTHANC_USER` / `ORTHANC_PASSWORD` in `.env`.
+
+```bash
+python -m src.simulator.send_dicom_rest \
+  --base-url https://127.0.0.1:8042
+```
+
+On success:
+
+```
+REST send success → https://127.0.0.1:8042 (HTTP 200)
+```
 
 ---
 

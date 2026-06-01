@@ -59,7 +59,7 @@ sign_cert() {
 
   openssl x509 -req \
     -in "$dir/server.csr" \
-    -CA "$OUT/ca.pem" -CAkey "$OUT/ca.key" -CAcreateserial \
+    -CA "$OUT/ca.pem" -CAkey "$OUT/ca.key" -CAcreateserial -CAserial "$OUT/ca.srl" \
     -days "$DAYS_SERVER" -sha256 \
     -extfile "$ext" \
     -out "$dir/server.crt" 2>/dev/null
@@ -98,7 +98,7 @@ sign_client_cert() {
 
   openssl x509 -req \
     -in "$dir/client.csr" \
-    -CA "$OUT/ca.pem" -CAkey "$OUT/ca.key" -CAcreateserial \
+    -CA "$OUT/ca.pem" -CAkey "$OUT/ca.key" -CAcreateserial -CAserial "$OUT/ca.srl" \
     -days "$DAYS_SERVER" -sha256 \
     -extfile "$ext" \
     -out "$dir/client.crt" 2>/dev/null
