@@ -79,7 +79,79 @@ The `-e` flag installs the package so Python imports resolve directly from your 
 - `test` - pytest, fakeredis, respx, pytest-cov, and friends
 - `dev` - ruff, mypy, types-redis, pre-commit
 
-### 3. Run unit tests
+### 3. Run the Telemetry Daemon locally
+
+The Telemetry Daemon requires Redis. The easiest way on macOS is to run Redis in
+a single Docker container rather than installing it natively:
+
+```bash
+docker run -d --name redis-local -p 6379:6379 redis:7-alpine
+```
+
+Then run the daemon pointing at the cloud Orthanc nodes (requires `orthanc-us`
+to be healthy):
+
+```bash
+NODE_US_BASE=https://localhost:8042 \
+NODE_EU_BASE=https://localhost:8043 \
+NODE_ASIA_BASE=https://localhost:8044 \
+NODE_AF_BASE=https://localhost:8045 \
+NODE_US_USER=orthanc NODE_US_PASS=CHANGE_IN_PRODUCTION \
+NODE_EU_USER=orthanc NODE_EU_PASS=CHANGE_IN_PRODUCTION \
+NODE_ASIA_USER=orthanc NODE_ASIA_PASS=CHANGE_IN_PRODUCTION \
+NODE_AF_USER=orthanc NODE_AF_PASS=CHANGE_IN_PRODUCTION \
+REQUESTS_CA_BUNDLE=certs/ca.pem \
+REDIS_URL=redis://localhost:6379 \
+POLL_INTERVAL_S=5 \
+python -m src.orchestrator.daemon
+```
+
+Verify the payloads land in Redis (in a second terminal):
+
+```bash
+docker exec redis-local redis-cli keys 'node:*'
+docker exec redis-local redis-cli get 'node:us-east1'
+```
+
+Stop the local Redis container when done:
+
+```bash
+docker rm -f redis-local
+```
+
+### 3. Verify the Telemetry Daemon
+
+```bash
+# 1. Start a local Redis container and orthanc-us
+docker run -d --name redis-local -p 6379:6379 redis:7-alpine
+docker compose up -d orthanc-us
+
+# 2. Run the daemon
+NODE_US_BASE=https://localhost:8042 \
+NODE_EU_BASE=https://localhost:8043 \
+NODE_ASIA_BASE=https://localhost:8044 \
+NODE_AF_BASE=https://localhost:8045 \
+NODE_US_USER=orthanc NODE_US_PASS=CHANGE_IN_PRODUCTION \
+NODE_EU_USER=orthanc NODE_EU_PASS=CHANGE_IN_PRODUCTION \
+NODE_ASIA_USER=orthanc NODE_ASIA_PASS=CHANGE_IN_PRODUCTION \
+NODE_AF_USER=orthanc NODE_AF_PASS=CHANGE_IN_PRODUCTION \
+REQUESTS_CA_BUNDLE=certs/ca.pem \
+REDIS_URL=redis://localhost:6379 \
+POLL_INTERVAL_S=5 \
+python -m src.orchestrator.daemon
+
+# 3. In a second terminal — confirm us-east1 payload landed in Redis
+docker exec redis-local redis-cli keys 'node:*'
+docker exec redis-local redis-cli get 'node:us-east1'
+
+# 4. Cleanup
+docker rm -f redis-local
+```
+
+Expected: `node=us-east1 healthy` every 5 s. The other three nodes log
+`unreachable` because only `orthanc-us` is running — that is correct behaviour.
+
+### 4. Run unit tests
 
 No Docker needed. All tests use mocks:
 
