@@ -12,8 +12,10 @@ from datetime import UTC, datetime
 import httpx
 import redis.asyncio as aioredis
 
+log_level = os.getenv("LOG_LEVEL")
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, log_level),
     format="%(asctime)s [DAEMON] %(levelname)s %(message)s",
 )
 log = logging.getLogger(__name__)
@@ -27,7 +29,8 @@ REDIS_TTL_S = int(os.getenv("REDIS_TTL_S", "30"))
 HTTP_TIMEOUT_S = float(os.getenv("HTTP_TIMEOUT_S", "5"))
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "")
 
-NODES: dict[str, dict] = {
+
+NODES: dict[str, dict[str, str | tuple[str, str]]] = {
     "us-east1": {
         "base": os.getenv("NODE_US_BASE", "https://orthanc-us:8042"),
         "ae_title": "Orthanc_US",
@@ -70,7 +73,7 @@ async def poll_node(
     client: httpx.AsyncClient,
     redis: aioredis.Redis,
     node_id: str,
-    cfg: dict,
+    cfg: dict[str, str | tuple[str, str]],
 ) -> None:
     """Get /statistics and /jobs?expand from one node and write to Redis."""
     base = cfg["base"]
@@ -81,6 +84,13 @@ async def poll_node(
         stats_resp.raise_for_status()
         stats = stats_resp.json()
 
+        system_resp = await client.get(f"{base}/system", auth=auth, timeout=HTTP_TIMEOUT_S)
+        system_resp.raise_for_status()
+        system = system_resp.json()
+
+        log.debug("System info for %s: %s", node_id, system)
+        log.debug("Statistics for %s: %s", node_id, stats)
+
         # /jobs?expand returns full job objects; plain /jobs returns only IDs.
         jobs_resp = await client.get(f"{base}/jobs?expand", auth=auth, timeout=HTTP_TIMEOUT_S)
         jobs_resp.raise_for_status()
@@ -88,9 +98,9 @@ async def poll_node(
 
         queue_size = len([j for j in jobs if j.get("State") in ("Pending", "Running")])
 
-        disk_used_mb = stats.get("TotalDiskSizeMB", 0)
-        disk_free_mb = stats.get("FreeDiskSpaceMB", 0)
-        disk_total_mb = disk_used_mb + disk_free_mb if disk_free_mb else 10_000
+        disk_used_mb = stats.get("TotalDiskSizeMB")
+        max_storage_mb = system.get("MaximumStorageSize")
+        disk_free_mb = max_storage_mb - disk_used_mb
 
         payload = {
             "node_id": node_id,
@@ -98,7 +108,7 @@ async def poll_node(
             "base_url": base,
             "queue_size": queue_size,
             "disk_free_mb": disk_free_mb,
-            "disk_total_mb": disk_total_mb,
+            "disk_total_mb": max_storage_mb,
             "instance_count": stats.get("CountInstances", 0),
             "healthy": True,
             "ts": datetime.now(tz=UTC).isoformat(),
