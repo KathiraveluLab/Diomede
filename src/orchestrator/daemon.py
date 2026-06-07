@@ -3,6 +3,8 @@ Telemetry Daemon polls all Orthanc nodes every POLL_INTERVAL_S seconds and
 writes a structured JSON heartbeat to Redis with a REDIS_TTL_S expiry.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -12,10 +14,10 @@ from datetime import UTC, datetime
 import httpx
 import redis.asyncio as aioredis
 
-log_level = os.getenv("LOG_LEVEL")
+log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
 logging.basicConfig(
-    level=getattr(logging, log_level),
+    level=getattr(logging, log_level, logging.INFO),
     format="%(asctime)s [DAEMON] %(levelname)s %(message)s",
 )
 log = logging.getLogger(__name__)
@@ -68,10 +70,12 @@ NODES: dict[str, dict[str, str | tuple[str, str]]] = {
 
 # Polling logic
 
+node_quota_map: dict[str, int] = {}
+
 
 async def poll_node(
     client: httpx.AsyncClient,
-    redis: aioredis.Redis,
+    redis: aioredis.Redis[str],
     node_id: str,
     cfg: dict[str, str | tuple[str, str]],
 ) -> None:
@@ -84,11 +88,14 @@ async def poll_node(
         stats_resp.raise_for_status()
         stats = stats_resp.json()
 
-        system_resp = await client.get(f"{base}/system", auth=auth, timeout=HTTP_TIMEOUT_S)
-        system_resp.raise_for_status()
-        system = system_resp.json()
+        if node_id not in node_quota_map:
+            system_resp = await client.get(f"{base}/system", auth=auth, timeout=HTTP_TIMEOUT_S)
+            system_resp.raise_for_status()
+            system = system_resp.json()
+            log.debug("System info for %s: %s", node_id, system)
+            node_quota_map[node_id] = system.get("MaximumStorageSize")
+        max_storage_mb = node_quota_map[node_id]
 
-        log.debug("System info for %s: %s", node_id, system)
         log.debug("Statistics for %s: %s", node_id, stats)
 
         # /jobs?expand returns full job objects; plain /jobs returns only IDs.
@@ -99,7 +106,6 @@ async def poll_node(
         queue_size = len([j for j in jobs if j.get("State") in ("Pending", "Running")])
 
         disk_used_mb = stats.get("TotalDiskSizeMB")
-        max_storage_mb = system.get("MaximumStorageSize")
         disk_free_mb = max_storage_mb - disk_used_mb
 
         payload = {

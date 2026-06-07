@@ -14,10 +14,13 @@ pytestmark = pytest.mark.unit
 
 BASE = "https://orthanc-us:8042"
 
+SYSTEM_OK = {
+    "MaximumStorageSize": 10000,
+}
+
 STATS_OK = {
     "CountInstances": 5,
     "TotalDiskSizeMB": 200,
-    "FreeDiskSpaceMB": 9800,
 }
 
 JOBS_MIXED = [
@@ -40,6 +43,7 @@ async def _redis() -> fakeredis.aioredis.FakeRedis:
 @pytest.mark.asyncio
 async def test_healthy_payload_written_to_redis():
     respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=STATS_OK))
+    respx.get(f"{BASE}/system").mock(return_value=Response(200, json=SYSTEM_OK))
     respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=JOBS_MIXED))
 
     redis = await _redis()
@@ -62,13 +66,14 @@ async def test_healthy_payload_written_to_redis():
 @pytest.mark.asyncio
 async def test_queue_size_counts_only_pending_and_running():
     jobs = [
-        {"State": "Running"},
-        {"State": "Pending"},
-        {"State": "Pending"},
-        {"State": "Success"},
-        {"State": "Failure"},
+        {"ID": "a", "State": "Running"},
+        {"ID": "b", "State": "Pending"},
+        {"ID": "c", "State": "Pending"},
+        {"ID": "d", "State": "Success"},
+        {"ID": "e", "State": "Failure"},
     ]
     respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=STATS_OK))
+    respx.get(f"{BASE}/system").mock(return_value=Response(200, json=SYSTEM_OK))
     respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=jobs))
 
     redis = await _redis()
@@ -80,18 +85,19 @@ async def test_queue_size_counts_only_pending_and_running():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_disk_total_fallback_when_free_disk_absent():
-    """Orthanc versions that omit FreeDiskSpaceMB fall back to disk_total=10_000."""
+async def test_disk_size():
     stats = {"CountInstances": 0, "TotalDiskSizeMB": 100}
     respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=stats))
     respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=[]))
+
+    respx.get(f"{BASE}/system").mock(return_value=Response(200, json=SYSTEM_OK))
 
     redis = await _redis()
     async with httpx.AsyncClient() as client:
         await poll_node(client, redis, "us-east1", _cfg())
 
     payload = json.loads(await redis.get("node:us-east1"))
-    assert payload["disk_free_mb"] == 0
+    assert payload["disk_free_mb"] == 9900
     assert payload["disk_total_mb"] == 10_000
 
 
