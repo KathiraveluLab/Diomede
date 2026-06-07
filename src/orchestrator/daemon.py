@@ -82,6 +82,7 @@ async def poll_node(
     """Get /statistics and /jobs?expand from one node and write to Redis."""
     base = cfg["base"]
     auth = cfg["auth"]
+    assert isinstance(auth, tuple)
 
     try:
         stats_resp = await client.get(f"{base}/statistics", auth=auth, timeout=HTTP_TIMEOUT_S)
@@ -138,25 +139,31 @@ async def poll_node(
             "ts": datetime.now(tz=UTC).isoformat(),
         }
 
-    await redis.setex(f"node:{node_id}", REDIS_TTL_S, json.dumps(payload))
+    try:
+        await redis.setex(f"node:{node_id}", REDIS_TTL_S, json.dumps(payload))
+    except Exception as redis_err:
+        log.error("Failed to write node:%s status to Redis: %s", node_id, redis_err)
 
 
 async def run() -> None:
     redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     verify: str | bool = CA_CERT if CA_CERT else True
 
-    async with httpx.AsyncClient(verify=verify) as client:
-        log.info(
-            "Telemetry Daemon started — polling %d nodes every %ds (TTL %ds)",
-            len(NODES),
-            POLL_INTERVAL_S,
-            REDIS_TTL_S,
-        )
-        while True:
-            await asyncio.gather(
-                *[poll_node(client, redis, nid, cfg) for nid, cfg in NODES.items()]
+    try:
+        async with httpx.AsyncClient(verify=verify) as client:
+            log.info(
+                "Telemetry Daemon started — polling %d nodes every %ds (TTL %ds)",
+                len(NODES),
+                POLL_INTERVAL_S,
+                REDIS_TTL_S,
             )
-            await asyncio.sleep(POLL_INTERVAL_S)
+            while True:
+                await asyncio.gather(
+                    *[poll_node(client, redis, nid, cfg) for nid, cfg in NODES.items()]
+                )
+                await asyncio.sleep(POLL_INTERVAL_S)
+    finally:
+        await redis.close()
 
 
 if __name__ == "__main__":
