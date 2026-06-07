@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 import httpx
 import redis.asyncio as aioredis
 
-log_level: str = os.getenv("LOG_LEVEL", "INFO")
+log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
 
 logging.basicConfig(
     level=getattr(logging, log_level, logging.INFO),

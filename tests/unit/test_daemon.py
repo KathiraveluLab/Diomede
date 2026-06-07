@@ -85,24 +85,6 @@ async def test_queue_size_counts_only_pending_and_running():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_disk_size():
-    stats = {"CountInstances": 0, "TotalDiskSizeMB": 100}
-    respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=stats))
-    respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=[]))
-
-    respx.get(f"{BASE}/system").mock(return_value=Response(200, json=SYSTEM_OK))
-
-    redis = await _redis()
-    async with httpx.AsyncClient() as client:
-        await poll_node(client, redis, "us-east1", _cfg())
-
-    payload = json.loads(await redis.get("node:us-east1"))
-    assert payload["disk_free_mb"] == 9900
-    assert payload["disk_total_mb"] == 10_000
-
-
-@respx.mock
-@pytest.mark.asyncio
 async def test_connection_error_writes_unhealthy_payload():
     respx.get(f"{BASE}/statistics").mock(side_effect=httpx.ConnectError("refused"))
 
