@@ -79,7 +79,18 @@ The `-e` flag installs the package so Python imports resolve directly from your 
 - `test` - pytest, fakeredis, respx, pytest-cov, and friends
 - `dev` - ruff, mypy, types-redis, pre-commit
 
-### 3. Run unit tests
+
+### 3. Verify the Telemetry Daemon
+
+Iterate through all nodes to see the values stored in Redis of the Orchestrator
+```bash
+for node in us-east1 eu-west1 asia-northeast1 af-south1; do
+  echo "============ $node ==============="
+  docker compose exec orchestrator redis-cli GET node:$node | python3 -m json.tool
+done
+```
+
+### 4. Run unit tests
 
 No Docker needed. All tests use mocks:
 
@@ -87,7 +98,7 @@ No Docker needed. All tests use mocks:
 python -m pytest tests/unit/ -v -m unit --cov=src --cov-fail-under=80
 ```
 
-### 4. Run linting and type checks
+### 5. Run linting and type checks
 
 ```bash
 # Ruff linter + formatter check
@@ -233,6 +244,7 @@ openssl x509 -in certs/orthanc-asia/combined.pem -text -noout
 openssl rsa -in certs/orthanc-asia/combined.pem
 openssl x509 -in certs/orthanc-af/combined.pem -text -noout
 openssl rsa -in certs/orthanc-af/combined.pem
+```
 
 ### 3. Pull and start the 4 regional Orthanc nodes
 
