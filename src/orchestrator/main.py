@@ -17,6 +17,7 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from .daemon import NODES
 from .scorer import get_scorer
 from .weighted_scorer import WeightedScorer  # noqa: F401 to trigger self-registration
 
@@ -35,8 +36,6 @@ class NodeResponse(BaseModel):
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
-_redis: aioredis.Redis[str] | None = None
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -48,13 +47,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="Diomede Orchestrator", lifespan=lifespan)
+_redis: aioredis.Redis[str] | None = None
 
 
 @app.get("/get-best-node")
 async def get_best_node() -> NodeResponse:
     """Return the highest-scoring healthy node in Redis."""
     assert _redis is not None
-    keys = await _redis.keys("node:*")
+    keys: list[str] = [f"node:{k}" for k in NODES.keys()]
     if not keys:
         raise HTTPException(status_code=503, detail="No node telemetry available")
 
