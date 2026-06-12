@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from .scorer import get_scorer
+from .weighted_scorer import WeightedScorer  # noqa: F401 to trigger self-registration
 
 
 class NodeResponse(BaseModel):
@@ -66,3 +67,8 @@ async def get_best_node() -> NodeResponse:
         raise HTTPException(status_code=503, detail="No healthy nodes available")
 
     return NodeResponse.model_validate(max(healthy, key=scorer.score))
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
