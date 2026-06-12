@@ -27,7 +27,7 @@ repos:
       - id: mypy
         name: mypy
         language: system
-        entry: bash -c 'r=0; for d in src/orchestrator src/edge src/simulator; do .venv/bin/python -m mypy "$d" || r=1; done; exit $r'
+        entry: bash -c 'r=0; for d in src/orchestrator src/edge src/simulator; do python -m mypy "$d" || r=1; done; exit $r'
         pass_filenames: false
         types: [python]
 
