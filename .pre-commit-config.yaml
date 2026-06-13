@@ -27,7 +27,7 @@ repos:
       - id: mypy
         name: mypy
         language: system
-        entry: bash -c 'for d in src/orchestrator src/edge src/simulator; do (cd "$d" && python -m mypy .); done'
+        entry: bash -c 'r=0; for d in src/orchestrator src/edge src/simulator; do python -m mypy "$d" || r=1; done; exit $r'
         pass_filenames: false
         types: [python]
 

@@ -24,7 +24,7 @@ jobs:
         run: |
           for src_dir in src/orchestrator src/edge src/simulator; do
             if find "$src_dir" -name "*.py" -not -path "*/.mypy_cache/*" | grep -q .; then
-              (cd "$src_dir" && mypy .)
+              mypy "$src_dir"
             else
               echo "Skipping $src_dir (no Python files found)"
             fi
