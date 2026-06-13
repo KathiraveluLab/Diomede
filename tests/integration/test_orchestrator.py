@@ -1,0 +1,79 @@
+"""
+Integration tests for orchestrator.
+
+Requires the Docker Compose stack to be running:
+    docker compose up -d
+"""
+
+import ssl
+import subprocess
+import time
+
+import httpx
+import pytest
+
+pytestmark = pytest.mark.integration
+
+ORCH_URL = "https://localhost:8000"
+CA_CERT = "certs/ca.pem"
+_SSL_CTX = ssl.create_default_context(cafile=CA_CERT)
+
+# node_id (Docker container name)
+_NODE_CONTAINER = {
+    "us-east1": "orthanc-us",
+    "eu-west1": "orthanc-eu",
+    "asia-northeast1": "orthanc-asia",
+    "af-south1": "orthanc-af",
+}
+
+_POLL_INTERVAL_S = 10
+_HTTP_TIMEOUT_S = 5
+_FAILOVER_TIMEOUT_S = _POLL_INTERVAL_S + _HTTP_TIMEOUT_S + 5
+
+
+def _get_best_node() -> dict:
+    resp = httpx.get(f"{ORCH_URL}/get-best-node", verify=_SSL_CTX, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _stop_container(name: str) -> None:
+    subprocess.run(["docker", "stop", name], check=True, capture_output=True)
+
+
+def _start_container(name: str) -> None:
+    subprocess.run(["docker", "start", name], check=True, capture_output=True)
+
+
+def test_get_best_node_returns_healthy_node():
+    node = _get_best_node()
+    assert node["healthy"] is True
+    assert node["node_id"] in _NODE_CONTAINER
+
+
+def test_failover_when_best_node_goes_down():
+    best = _get_best_node()
+    best_id = best["node_id"]
+    container = _NODE_CONTAINER[best_id]
+
+    try:
+        _stop_container(container)
+
+        # Poll until the daemon reaches an unhealthy node and chooses a different node
+        deadline = time.monotonic() + _FAILOVER_TIMEOUT_S
+        new_node = None
+        while time.monotonic() < deadline:
+            try:
+                candidate = _get_best_node()
+                if candidate["node_id"] != best_id:
+                    new_node = candidate
+                    break
+            except httpx.HTTPStatusError:
+                pass  # 503 while daemon hasn't completed its next cycle yet
+            time.sleep(2)
+
+        assert new_node is not None, (
+            f"Orchestrator still returned {best_id} after {_FAILOVER_TIMEOUT_S}s"
+        )
+    finally:
+        _start_container(container)
