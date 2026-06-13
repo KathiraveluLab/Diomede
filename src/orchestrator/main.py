@@ -53,7 +53,8 @@ _redis: aioredis.Redis[str] | None = None
 @app.get("/get-best-node")
 async def get_best_node() -> NodeResponse:
     """Return the highest-scoring healthy node in Redis."""
-    assert _redis is not None
+    if _redis is None:
+        raise HTTPException(status_code=503, detail="Redis client not initialized")
     keys: list[str] = [f"node:{k}" for k in NODES.keys()]
     if not keys:
         raise HTTPException(status_code=503, detail="No node telemetry available")

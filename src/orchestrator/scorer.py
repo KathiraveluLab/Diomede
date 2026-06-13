@@ -23,14 +23,23 @@ class NodeScorer(ABC):
 _REGISTRY: dict[str, type[NodeScorer]] = {}
 
 
+_SCORER_INSTANCE: NodeScorer | None = None
+
+
 def get_scorer() -> NodeScorer:
     """Instantiate the scorer named by the SCORER env var (default: 'weighted').
 
-    Raises ValueError if the name isn't in the registry, which usually means
-    the concrete scorer module was never imported to trigger self-registration.
+    Raises ValueError if the name isn't in the registry. Set global variable only once to
+    be optimized.
     """
-    name = os.getenv("SCORER", "weighted")
-    cls = _REGISTRY.get(name)
-    if cls is None:
-        raise ValueError(f"Unknown scorer '{name}'. Registered: {list(_REGISTRY)}")
-    return cls()
+
+    global _SCORER_INSTANCE
+
+    if _SCORER_INSTANCE is None:
+        name = os.getenv("SCORER", "weighted")
+        cls = _REGISTRY.get(name)
+        if cls is None:
+            raise ValueError(f"Unknown scorer '{name}'. Registered: {list(_REGISTRY)}")
+
+        _SCORER_INSTANCE = cls()
+    return _SCORER_INSTANCE

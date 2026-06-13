@@ -49,6 +49,11 @@ def test_get_scorer_default_is_weighted(monkeypatch):
 
 
 def test_get_scorer_unknown_raises(monkeypatch):
+    import src.orchestrator.scorer as scorer_module
+
+    monkeypatch.setattr(
+        scorer_module, "_SCORER_INSTANCE", None
+    )  # reset singleton for test isolation
     monkeypatch.setenv("SCORER", "nonexistent")
     with pytest.raises(ValueError, match="nonexistent"):
         get_scorer()

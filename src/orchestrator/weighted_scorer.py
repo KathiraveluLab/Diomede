@@ -34,11 +34,15 @@ class WeightedScorer(NodeScorer):
 
     def score(self, node: dict[str, Any]) -> float:
         """Compute score = w_queue*(1/(q+1)) + w_disk*(free/total) + w_rtt*(1/(rtt+1))."""
-        q_score = 1.0 / (float(node.get("queue_size", 0)) + 1)
-        disk_free = float(node.get("disk_free_mb", 0))
-        disk_total = max(int(node.get("disk_total_mb", 10_000)), 1)
+        q_size = node.get("queue_size")
+        q_score = 1.0 / (float(q_size if q_size is not None else 0) + 1)
+        raw_free = node.get("disk_free_mb")
+        disk_free = float(raw_free if raw_free is not None else 0.0)
+        raw_total = node.get("disk_total_mb")
+        disk_total = max(int(raw_total if raw_total is not None else 10_000), 1)
         disk_score = disk_free / disk_total
-        rtt_ms = max(float(node.get("rtt_ms", 100)), 1)
+        raw_rtt = node.get("rtt_ms")
+        rtt_ms = max(float(raw_rtt if raw_rtt is not None else 250.0), 1.0)
         rtt_score = 1.0 / (rtt_ms + 1)
         return self.w_queue * q_score + self.w_disk * disk_score + self.w_rtt * rtt_score
 
