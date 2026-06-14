@@ -17,9 +17,13 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from src.utils.logging_config import get_logger
+
 from .daemon import NODES
 from .scorer import get_scorer
 from .weighted_scorer import WeightedScorer  # noqa: F401 to trigger self-registration
+
+log = get_logger(__name__, "ORCHESTRATOR")
 
 
 class NodeResponse(BaseModel):
@@ -50,9 +54,8 @@ app = FastAPI(title="Diomede Orchestrator", lifespan=lifespan)
 _redis: aioredis.Redis[str] | None = None
 
 
-@app.get("/get-best-node")
-async def get_best_node() -> NodeResponse:
-    """Return the highest-scoring healthy node in Redis."""
+async def _get_nodes() -> list[dict[str, Any]]:
+    """Gets all available telemetry nodes from Redis"""
     if _redis is None:
         raise HTTPException(status_code=503, detail="Redis client not initialized")
     keys: list[str] = [f"node:{k}" for k in NODES.keys()]
@@ -60,10 +63,33 @@ async def get_best_node() -> NodeResponse:
         raise HTTPException(status_code=503, detail="No node telemetry available")
 
     raw = await _redis.mget(*keys)
-    nodes: list[dict[str, Any]] = [json.loads(v) for v in raw if v is not None]
+    log.info(f"Fetched raw nodes: {raw}")
+
+    nodes = [json.loads(node) for node in raw if node is not None]
+    return nodes
+
+
+@app.get("/nodes")
+async def get_nodes() -> list[NodeResponse]:
+    """Return the latest telemetry for all nodes"""
+    node_list = await _get_nodes()
+    log.info(f"Node list: {node_list}")
+
+    node_responses: list[NodeResponse] = []
+    for node in node_list:
+        if node is not None:
+            node_response = NodeResponse.model_validate(node)
+            node_responses.append(node_response)
+    return node_responses
+
+
+@app.get("/get-best-node")
+async def get_best_node() -> NodeResponse:
+    """Return the highest-scoring healthy node in Redis."""
+    node_list = await _get_nodes()
 
     scorer = get_scorer()
-    healthy = [n for n in nodes if n.get("healthy") is True]
+    healthy = [n for n in node_list if n.get("healthy") is True]
     if not healthy:
         raise HTTPException(status_code=503, detail="No healthy nodes available")
 

@@ -7,20 +7,15 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 from datetime import UTC, datetime
 
 import httpx
 import redis.asyncio as aioredis
 
-log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
+from src.utils.logging_config import get_logger
 
-logging.basicConfig(
-    level=getattr(logging, log_level, logging.INFO),
-    format="%(asctime)s [DAEMON] %(levelname)s %(message)s",
-)
-log = logging.getLogger(__name__)
+log = get_logger(__name__, "DAEMON")
 
 
 # Configuration from environment
