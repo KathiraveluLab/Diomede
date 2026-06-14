@@ -113,3 +113,64 @@ async def test_response_matches_node_response_schema(client, fake_redis):
     await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
     resp = await client.get("/get-best-node")
     NodeResponse.model_validate(resp.json())
+
+
+# /nodes endpoint
+async def test_nodes_empty_list_when_no_redis_data(client):
+    """NODES keys are registered but no telemetry written → empty list, not an error."""
+    resp = await client.get("/nodes")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+async def test_nodes_returns_all_seeded_nodes(client, fake_redis):
+    node_b = {**_HEALTHY_NODE, "node_id": "eu-west1", "ae_title": "Orthanc_EU"}
+    await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
+    await fake_redis.set("node:eu-west1", json.dumps(node_b))
+
+    resp = await client.get("/nodes")
+    assert resp.status_code == 200
+    ids = {n["node_id"] for n in resp.json()}
+    assert "us-east1" in ids
+    assert "eu-west1" in ids
+
+
+async def test_nodes_includes_unhealthy_nodes(client, fake_redis):
+    """Unlike /get-best-node, /nodes returns every node regardless of health."""
+    await fake_redis.set("node:us-east1", json.dumps({**_HEALTHY_NODE, "healthy": False}))
+
+    resp = await client.get("/nodes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["healthy"] is False
+
+
+async def test_nodes_skips_keys_absent_from_redis(client, fake_redis):
+    """Nodes with no telemetry entry in Redis are omitted from the response."""
+    await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
+    # eu-west1, asia-northeast1, af-south1 intentionally not seeded
+
+    resp = await client.get("/nodes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["node_id"] == "us-east1"
+
+
+async def test_nodes_each_item_matches_schema(client, fake_redis):
+    node_b = {**_HEALTHY_NODE, "node_id": "eu-west1", "ae_title": "Orthanc_EU"}
+    await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
+    await fake_redis.set("node:eu-west1", json.dumps(node_b))
+
+    resp = await client.get("/nodes")
+    assert resp.status_code == 200
+    for item in resp.json():
+        NodeResponse.model_validate(item)
+
+
+async def test_nodes_returns_503_when_redis_uninitialized(monkeypatch):
+    monkeypatch.setattr(main_module, "_redis", None)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        resp = await c.get("/nodes")
+    assert resp.status_code == 503
