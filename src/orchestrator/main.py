@@ -30,10 +30,10 @@ class NodeResponse(BaseModel):
     node_id: str
     ae_title: str
     base_url: str
-    queue_size: int
-    disk_free_mb: float
-    disk_total_mb: int
-    instance_count: int
+    queue_size: int | None = None
+    disk_free_mb: float | None = None
+    disk_total_mb: int | None = None
+    instance_count: int | None = None
     healthy: bool
     ts: str
 

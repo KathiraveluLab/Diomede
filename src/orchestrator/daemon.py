@@ -90,7 +90,6 @@ async def poll_node(
             system = system_resp.json()
             log.debug("System info for %s: %s", node_id, system)
             node_quota_map[node_id] = system.get("MaximumStorageSize")
-        max_storage_mb = node_quota_map[node_id]
 
         log.debug("Statistics for %s: %s", node_id, stats)
 
@@ -102,7 +101,8 @@ async def poll_node(
         queue_size = len([j for j in jobs if j.get("State") in ("Pending", "Running")])
 
         disk_used_mb = stats.get("TotalDiskSizeMB")
-        disk_free_mb = max(0.0, max_storage_mb - disk_used_mb)
+        max_storage_mb = node_quota_map.get(node_id, 0) or 0
+        disk_free_mb = max(0.0, float(max_storage_mb - disk_used_mb))
 
         # TODO: RTT from edge agent to regional node is to be implemented later
         payload = {
