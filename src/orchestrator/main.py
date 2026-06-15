@@ -14,7 +14,8 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Security, status
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 
 from src.utils.logging_config import get_logger
@@ -24,6 +25,19 @@ from .scorer import get_scorer
 from .weighted_scorer import WeightedScorer  # noqa: F401 to trigger self-registration
 
 log = get_logger(__name__, "ORCHESTRATOR")
+
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
+API_KEY = os.getenv("ORCHESTRATOR_API_KEY")
+
+
+def validate_api_key(api_key_str: str = Security(api_key_header)) -> str:
+    if api_key_str != API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API Key",
+        )
+    return api_key_str
 
 
 class NodeResponse(BaseModel):
@@ -70,7 +84,7 @@ async def _get_nodes() -> list[dict[str, Any]]:
 
 
 @app.get("/nodes")
-async def get_nodes() -> list[NodeResponse]:
+async def get_nodes(api_key: str = Depends(validate_api_key)) -> list[NodeResponse]:
     """Return the latest telemetry for all nodes"""
     node_list = await _get_nodes()
     log.info(f"Node list: {node_list}")
@@ -84,7 +98,7 @@ async def get_nodes() -> list[NodeResponse]:
 
 
 @app.get("/get-best-node")
-async def get_best_node() -> NodeResponse:
+async def get_best_node(api_key: str = Depends(validate_api_key)) -> NodeResponse:
     """Return the highest-scoring healthy node in Redis."""
     node_list = await _get_nodes()
 

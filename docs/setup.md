@@ -379,9 +379,20 @@ REST send success → https://127.0.0.1:8042 (HTTP 200)
 
 #### 6. Access FastAPI endpoints in Orchestrator
 
-Run the following command to get the best node
+All endpoints require the `X-API-Key` header matching `ORCHESTRATOR_API_KEY` from your `.env`.
+Use `-k` to skip certificate verification against the self-signed cert:
+
 ```bash
-curl -k "https://localhost:8000/get-best-node"
+# Get the best node for routing
+curl -k -H "X-API-Key: your-api-key-here" "https://localhost:8000/get-best-node"
+
+# List all registered nodes and their current telemetry
+curl -k -H "X-API-Key: your-api-key-here" "https://localhost:8000/nodes"
+
+# Post a manual heartbeat for a node
+curl -k -H "X-API-Key: your-api-key-here" -H "Content-Type: application/json" \
+  -X POST "https://localhost:8000/heartbeat" \
+  -d '{"node_id": "us-east1", "latency_ms": 85.0}'
 ```
 
 Stop Docker container hosting the best node, then run the command above, wait for 30 seconds,

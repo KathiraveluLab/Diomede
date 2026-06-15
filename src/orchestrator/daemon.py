@@ -104,6 +104,9 @@ async def poll_node(
         max_storage_mb = node_quota_map.get(node_id, 0) or 0
         disk_free_mb = max(0.0, float(max_storage_mb - disk_used_mb))
 
+        # if free disk space is less than 2%, set node to unhealthy
+        is_disk_full = True if float(disk_free_mb / max_storage_mb) < 0.02 else False
+
         # TODO: RTT from edge agent to regional node is to be implemented later
         payload = {
             "node_id": node_id,
@@ -113,7 +116,7 @@ async def poll_node(
             "disk_free_mb": disk_free_mb,
             "disk_total_mb": max_storage_mb,
             "instance_count": stats.get("CountInstances", 0),
-            "healthy": True,
+            "healthy": not is_disk_full,
             "ts": datetime.now(tz=UTC).isoformat(),
         }
 
