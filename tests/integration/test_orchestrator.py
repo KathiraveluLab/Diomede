@@ -5,18 +5,24 @@ Requires the Docker Compose stack to be running:
     docker compose up -d
 """
 
+import os
 import ssl
 import subprocess
 import time
 
 import httpx
 import pytest
+from dotenv import load_dotenv
+
+load_dotenv()
 
 pytestmark = pytest.mark.integration
 
 ORCH_URL = "https://localhost:8000"
 CA_CERT = "certs/ca.pem"
 _SSL_CTX = ssl.create_default_context(cafile=CA_CERT)
+_API_KEY = os.environ.get("ORCHESTRATOR_API_KEY", "")
+_AUTH_HEADERS = {"X-API-Key": _API_KEY}
 
 # node_id (Docker container name)
 _NODE_CONTAINER = {
@@ -32,13 +38,15 @@ _FAILOVER_TIMEOUT_S = _POLL_INTERVAL_S + _HTTP_TIMEOUT_S + 5
 
 
 def _get_nodes() -> list[dict]:
-    resp = httpx.get(f"{ORCH_URL}/nodes", verify=_SSL_CTX, timeout=10)
+    resp = httpx.get(f"{ORCH_URL}/nodes", headers=_AUTH_HEADERS, verify=_SSL_CTX, timeout=10)
     resp.raise_for_status()
     return resp.json()
 
 
 def _get_best_node() -> dict:
-    resp = httpx.get(f"{ORCH_URL}/get-best-node", verify=_SSL_CTX, timeout=10)
+    resp = httpx.get(
+        f"{ORCH_URL}/get-best-node", headers=_AUTH_HEADERS, verify=_SSL_CTX, timeout=10
+    )
     resp.raise_for_status()
     return resp.json()
 

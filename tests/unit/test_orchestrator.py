@@ -14,6 +14,14 @@ from src.orchestrator.weighted_scorer import WeightedScorer
 
 pytestmark = pytest.mark.unit
 
+_TEST_API_KEY = "test-api-key"
+
+
+@pytest.fixture(autouse=True)
+def _set_api_key(monkeypatch):
+    monkeypatch.setattr(main_module, "API_KEY", _TEST_API_KEY)
+
+
 # WeightedScorer
 _NODE = {
     "queue_size": 0,
@@ -83,7 +91,11 @@ async def fake_redis():
 @pytest.fixture
 async def client(fake_redis, monkeypatch):
     monkeypatch.setattr(main_module, "_redis", fake_redis)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-API-Key": _TEST_API_KEY},
+    ) as c:
         yield c
 
 
@@ -171,6 +183,10 @@ async def test_nodes_each_item_matches_schema(client, fake_redis):
 
 async def test_nodes_returns_503_when_redis_uninitialized(monkeypatch):
     monkeypatch.setattr(main_module, "_redis", None)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-API-Key": _TEST_API_KEY},
+    ) as c:
         resp = await c.get("/nodes")
     assert resp.status_code == 503
