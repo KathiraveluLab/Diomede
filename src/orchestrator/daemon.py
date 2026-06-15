@@ -107,8 +107,9 @@ async def poll_node(
         queue_size = len([j for j in jobs if j.get("State") in ("Pending", "Running")])
 
         disk_used_mb = stats.get("TotalDiskSizeMB")
-        disk_free_mb = max_storage_mb - disk_used_mb
+        disk_free_mb = max(0.0, max_storage_mb - disk_used_mb)
 
+        # TODO: RTT from edge agent to regional node is to be implemented later
         payload = {
             "node_id": node_id,
             "ae_title": cfg["ae_title"],

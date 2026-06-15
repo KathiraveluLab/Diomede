@@ -377,6 +377,16 @@ On success:
 REST send success → https://127.0.0.1:8042 (HTTP 200)
 ```
 
+#### 6. Access FastAPI endpoints in Orchestrator
+
+Run the following command to get the best node
+```bash
+curl -k "https://localhost:8000/get-best-node"
+```
+
+Stop Docker container hosting the best node, then run the command above, wait for 30 seconds,
+another node should be the best node. This confirms the failover scenario.
+
 ---
 
 ## Troubleshooting
