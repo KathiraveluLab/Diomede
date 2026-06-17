@@ -112,6 +112,8 @@ ruff format --check src/
 for src_dir in src/orchestrator src/edge src/simulator; do
   (cd "$src_dir" && mypy .)
 done
+
+.venv/bin/python -m mypy src/orchestrator src/edge src/simulator
 ```
 
 To run all pre-commit hooks (check-yaml, check-json, hadolint, ruff, mypy,

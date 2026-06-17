@@ -190,3 +190,38 @@ async def test_nodes_returns_503_when_redis_uninitialized(monkeypatch):
     ) as c:
         resp = await c.get("/nodes")
     assert resp.status_code == 503
+
+
+# /heartbeat endpoint
+async def test_heartbeat_returns_204(client):
+    resp = await client.post("/heartbeat", json={"node_id": "us-east1", "rtt_ms": 45.0})
+    assert resp.status_code == 204
+
+
+async def test_heartbeat_updates_rtt_cache(client, monkeypatch):
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await client.post("/heartbeat", json={"node_id": "us-east1", "rtt_ms": 42.0})
+    assert main_module._rtt_cache["us-east1"] == 42.0
+
+
+async def test_heartbeat_overwrites_existing_rtt(client, monkeypatch):
+    monkeypatch.setattr(main_module, "_rtt_cache", {"us-east1": 100.0})
+    await client.post("/heartbeat", json={"node_id": "us-east1", "rtt_ms": 25.0})
+    assert main_module._rtt_cache["us-east1"] == 25.0
+
+
+async def test_heartbeat_affects_scoring(client, fake_redis, monkeypatch):
+    """Node with lower RTT in cache should be preferred over one with higher RTT."""
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    node_us = {**_HEALTHY_NODE, "node_id": "us-east1", "queue_size": 0}
+    node_eu = {**_HEALTHY_NODE, "node_id": "eu-west1", "ae_title": "Orthanc_EU", "queue_size": 0}
+    await fake_redis.set("node:us-east1", json.dumps(node_us))
+    await fake_redis.set("node:eu-west1", json.dumps(node_eu))
+
+    # Give eu-west1 a much better RTT
+    await client.post("/heartbeat", json={"node_id": "us-east1", "rtt_ms": 500.0})
+    await client.post("/heartbeat", json={"node_id": "eu-west1", "rtt_ms": 10.0})
+
+    resp = await client.get("/get-best-node")
+    assert resp.status_code == 200
+    assert resp.json()["node_id"] == "eu-west1"
