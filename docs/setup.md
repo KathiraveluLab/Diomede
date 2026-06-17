@@ -405,6 +405,48 @@ curl -k -H "X-API-Key: your-api-key-here" "https://localhost:8000/nodes"
 Stop Docker container hosting the best node, then run the command above, wait for 30 seconds,
 another node should be the best node. This confirms the failover scenario.
 
+#### 7. Probe RTT for all nodes
+
+To measure and print the current round-trip time from your machine to each Orthanc node:
+
+```bash
+.venv/bin/python - << 'EOF'
+import asyncio, time, httpx, ssl, json
+
+ctx = ssl.create_default_context(cafile="certs/ca.pem")
+auth = ("orthanc", "CHANGE_IN_PRODUCTION")
+nodes = {
+    "us-east1":        "https://localhost:8042",
+    "eu-west1":        "https://localhost:8043",
+    "asia-northeast1": "https://localhost:8044",
+    "af-south1":       "https://localhost:8045",
+}
+
+async def probe():
+    results = {}
+    async with httpx.AsyncClient(verify=ctx) as client:
+        for node_id, base in nodes.items():
+            t0 = time.monotonic()
+            await client.get(f"{base}/system", auth=auth, timeout=5)
+            rtt_ms = (time.monotonic() - t0) * 1000
+            results[node_id] = round(rtt_ms, 1)
+    print(json.dumps(results, indent=2))
+
+asyncio.run(probe())
+EOF
+```
+
+Expected output (values will be low since all nodes are local):
+
+```json
+{
+  "us-east1": 3.2,
+  "eu-west1": 4.1,
+  "asia-northeast1": 3.8,
+  "af-south1": 5.0
+}
+```
+
 ---
 
 ## Troubleshooting
