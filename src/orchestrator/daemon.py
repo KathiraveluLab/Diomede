@@ -107,7 +107,6 @@ async def poll_node(
         # if free disk space is less than 2%, set node to unhealthy
         is_disk_full = True if float(disk_free_mb / max_storage_mb) < 0.02 else False
 
-        # TODO: RTT from edge agent to regional node is to be implemented later
         payload = {
             "node_id": node_id,
             "ae_title": cfg["ae_title"],

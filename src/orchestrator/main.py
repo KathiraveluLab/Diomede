@@ -30,6 +30,8 @@ API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 API_KEY = os.getenv("ORCHESTRATOR_API_KEY")
 
+_rtt_cache: dict[str, float] = {}
+
 
 def validate_api_key(api_key_str: str = Security(api_key_header)) -> str:
     if api_key_str != API_KEY:
@@ -50,6 +52,11 @@ class NodeResponse(BaseModel):
     instance_count: int | None = None
     healthy: bool
     ts: str
+
+
+class HeartbeatPayload(BaseModel):
+    node_id: str
+    rtt_ms: float
 
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -107,7 +114,19 @@ async def get_best_node(api_key: str = Depends(validate_api_key)) -> NodeRespons
     if not healthy:
         raise HTTPException(status_code=503, detail="No healthy nodes available")
 
+    for node in healthy:
+        node["rtt_ms"] = _rtt_cache.get(node["node_id"], node.get("rtt_ms", 250.0))
+
     return NodeResponse.model_validate(max(healthy, key=scorer.score))
+
+
+@app.post("/heartbeat", status_code=204)
+async def heartbeat(
+    payload: HeartbeatPayload,
+    api_key: str = Depends(validate_api_key),
+) -> None:
+    """RTT probe from the Forwarder Daemon and update the cache."""
+    _rtt_cache[payload.node_id] = payload.rtt_ms
 
 
 @app.get("/health")
