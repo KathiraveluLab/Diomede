@@ -7,7 +7,11 @@ module, then append _REGISTRY["<name>"] = <Class> at the bottom.
 
 from typing import Any
 
+from src.utils.logging_config import get_logger
+
 from .scorer import _REGISTRY, NodeScorer
+
+log = get_logger(__name__, "ORCHESTRATOR")
 
 
 class WeightedScorer(NodeScorer):
@@ -18,7 +22,13 @@ class WeightedScorer(NodeScorer):
     a backlogged or slow node is a worse destination than a nearly-full one.
     """
 
-    def __init__(self, w_queue: float = 0.5, w_disk: float = 0.15, w_rtt: float = 0.35) -> None:
+    def __init__(
+        self,
+        w_queue: float = 0.5,
+        w_disk: float = 0.15,
+        w_rtt: float = 0.35,
+        rtt_ref_ms: float = 100.0,
+    ) -> None:
         """
         Args:
             w_queue: Weight for queue-depth signal. Should dominate since a long queue
@@ -27,10 +37,20 @@ class WeightedScorer(NodeScorer):
                      have plenty of headroom until they don't.
             w_rtt:   Weight for round-trip-time signal. High weight because latency
                      directly affects transfer speed.
+            rtt_ref_ms: Reference RTT value for normalization.
         """
         self.w_queue = w_queue
         self.w_disk = w_disk
         self.w_rtt = w_rtt
+        self.rtt_ref_ms = rtt_ref_ms
+        log.info(
+            "WeightedScorer initialized with weights:\n"
+            "w_queue=%f, w_disk=%f, w_rtt=%f, rtt_ref_ms=%f",
+            self.w_queue,
+            self.w_disk,
+            self.w_rtt,
+            self.rtt_ref_ms,
+        )
 
     def score(self, node: dict[str, Any]) -> float:
         """Compute score = w_queue*(1/(q+1)) + w_disk*(free/total) + w_rtt*(1/(rtt+1))."""
@@ -43,8 +63,19 @@ class WeightedScorer(NodeScorer):
         disk_score = disk_free / disk_total
         raw_rtt = node.get("rtt_ms")
         rtt_ms = max(float(raw_rtt if raw_rtt is not None else 250.0), 1.0)
-        rtt_score = 1.0 / (rtt_ms + 1)
-        return self.w_queue * q_score + self.w_disk * disk_score + self.w_rtt * rtt_score
+        rtt_score = 1.0 / (rtt_ms / self.rtt_ref_ms + 1)
+
+        total_score = self.w_queue * q_score + self.w_disk * disk_score + self.w_rtt * rtt_score
+
+        log.info(
+            f"Scoring node {node.get('node_id', 'unknown')}:\n"
+            f"  q_size={q_size}, q_score={q_score:.4f}, disk_free={disk_free}, \n"
+            f"  disk_total={disk_total}, disk_score={disk_score:.4f},\n"
+            f"  rtt_ms={rtt_ms}, rtt_score={rtt_score:.4f}"
+        )
+        log.info(f"TOTAL SCORE: {node.get('node_id', 'unknown')} = {total_score:.4f}")
+
+        return total_score
 
 
 _REGISTRY["weighted"] = WeightedScorer

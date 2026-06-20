@@ -271,6 +271,9 @@ docker compose ps
 Since `orchestrator` and `edge-agent` have local Dockerfiles use `build`:
 ```bash
 docker compose build orchestrator edge-agent && docker compose up -d orchestrator edge-agent
+
+docker compose build orchestrator && docker compose up -d orchestrator
+docker compose build edge-agent && docker compose up -d edge-agent
 ```
 
 ### 4. Inject Simulated WAN Latency
@@ -386,15 +389,17 @@ Use `-k` to skip certificate verification against the self-signed cert:
 
 ```bash
 # Get the best node for routing
-curl -k -H "X-API-Key: your-api-key-here" "https://localhost:8000/get-best-node"
+curl -k -H "X-API-Key: your-api-key-here" "https://localhost:8000/get-best-node?agent_id=edge-agent"
 
 # List all registered nodes and their current telemetry
 curl -k -H "X-API-Key: your-api-key-here" "https://localhost:8000/nodes"
 
 # Post a manual heartbeat for a node
-curl -k -H "X-API-Key: your-api-key-here" -H "Content-Type: application/json" \
-  -X POST "https://localhost:8000/heartbeat" \
-  -d '{"node_id": "us-east1", "latency_ms": 85.0}'
+ curl -k \
+  -H "X-API-Key: your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "edge-agent", "rtt_dict": {"us-east1": 10000, "eu-west1": 10000, "asia-northeast1": 10000, "af-south1": 1000}}' \
+  "https://localhost:8000/heartbeat"
 ```
 
 Stop Docker container hosting the best node, then run the command above, wait for 30 seconds,

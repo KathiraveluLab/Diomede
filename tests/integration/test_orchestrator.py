@@ -43,9 +43,13 @@ def _get_nodes() -> list[dict]:
     return resp.json()
 
 
-def _get_best_node() -> dict:
+def _get_best_node(agent_id: str = "test-agent") -> dict:
     resp = httpx.get(
-        f"{ORCH_URL}/get-best-node", headers=_AUTH_HEADERS, verify=_SSL_CTX, timeout=10
+        f"{ORCH_URL}/get-best-node",
+        params={"agent_id": agent_id},
+        headers=_AUTH_HEADERS,
+        verify=_SSL_CTX,
+        timeout=10,
     )
     resp.raise_for_status()
     return resp.json()

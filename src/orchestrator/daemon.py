@@ -105,7 +105,7 @@ async def poll_node(
         disk_free_mb = max(0.0, float(max_storage_mb - disk_used_mb))
 
         # if free disk space is less than 2%, set node to unhealthy
-        is_disk_full = True if float(disk_free_mb / max_storage_mb) < 0.02 else False
+        is_disk_full = (disk_free_mb / max_storage_mb < 0.02) if max_storage_mb > 0 else False
 
         payload = {
             "node_id": node_id,

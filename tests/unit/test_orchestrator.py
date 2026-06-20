@@ -32,7 +32,7 @@ _NODE = {
 
 
 def test_score_formula():
-    assert WeightedScorer().score(_NODE) == pytest.approx(0.5785)
+    assert WeightedScorer().score(_NODE) == pytest.approx(0.75088, abs=1e-6)
 
 
 def test_score_prefers_low_queue():
@@ -100,12 +100,16 @@ async def client(fake_redis, monkeypatch):
 
 
 async def test_no_nodes_returns_503(client):
-    assert (await client.get("/get-best-node")).status_code == 503
+    assert (
+        await client.get("/get-best-node", params={"agent_id": "test-agent"})
+    ).status_code == 503
 
 
 async def test_all_unhealthy_returns_503(client, fake_redis):
     await fake_redis.set("node:us-east1", json.dumps({**_HEALTHY_NODE, "healthy": False}))
-    assert (await client.get("/get-best-node")).status_code == 503
+    assert (
+        await client.get("/get-best-node", params={"agent_id": "test-agent"})
+    ).status_code == 503
 
 
 async def test_returns_best_healthy_node(client, fake_redis):
@@ -114,7 +118,7 @@ async def test_returns_best_healthy_node(client, fake_redis):
     await fake_redis.set("node:us-east1", json.dumps(best))
     await fake_redis.set("node:eu-west1", json.dumps(worse))
 
-    resp = await client.get("/get-best-node")
+    resp = await client.get("/get-best-node", params={"agent_id": "test-agent"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["node_id"] == "us-east1"
@@ -123,7 +127,7 @@ async def test_returns_best_healthy_node(client, fake_redis):
 
 async def test_response_matches_node_response_schema(client, fake_redis):
     await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
-    resp = await client.get("/get-best-node")
+    resp = await client.get("/get-best-node", params={"agent_id": "test-agent"})
     NodeResponse.model_validate(resp.json())
 
 
@@ -194,20 +198,22 @@ async def test_nodes_returns_503_when_redis_uninitialized(monkeypatch):
 
 # /heartbeat endpoint
 async def test_heartbeat_returns_204(client):
-    resp = await client.post("/heartbeat", json={"node_id": "us-east1", "rtt_ms": 45.0})
+    resp = await client.post(
+        "/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 45.0}}
+    )
     assert resp.status_code == 204
 
 
 async def test_heartbeat_updates_rtt_cache(client, monkeypatch):
     monkeypatch.setattr(main_module, "_rtt_cache", {})
-    await client.post("/heartbeat", json={"node_id": "us-east1", "rtt_ms": 42.0})
-    assert main_module._rtt_cache["us-east1"] == 42.0
+    await client.post("/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 42.0}})
+    assert main_module._rtt_cache["test-agent"] == {"us-east1": 42.0}
 
 
 async def test_heartbeat_overwrites_existing_rtt(client, monkeypatch):
-    monkeypatch.setattr(main_module, "_rtt_cache", {"us-east1": 100.0})
-    await client.post("/heartbeat", json={"node_id": "us-east1", "rtt_ms": 25.0})
-    assert main_module._rtt_cache["us-east1"] == 25.0
+    monkeypatch.setattr(main_module, "_rtt_cache", {"test-agent": {"us-east1": 100.0}})
+    await client.post("/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 25.0}})
+    assert main_module._rtt_cache["test-agent"] == {"us-east1": 25.0}
 
 
 async def test_heartbeat_affects_scoring(client, fake_redis, monkeypatch):
@@ -219,9 +225,11 @@ async def test_heartbeat_affects_scoring(client, fake_redis, monkeypatch):
     await fake_redis.set("node:eu-west1", json.dumps(node_eu))
 
     # Give eu-west1 a much better RTT
-    await client.post("/heartbeat", json={"node_id": "us-east1", "rtt_ms": 500.0})
-    await client.post("/heartbeat", json={"node_id": "eu-west1", "rtt_ms": 10.0})
+    await client.post(
+        "/heartbeat",
+        json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 500.0, "eu-west1": 10.0}},
+    )
 
-    resp = await client.get("/get-best-node")
+    resp = await client.get("/get-best-node", params={"agent_id": "test-agent"})
     assert resp.status_code == 200
     assert resp.json()["node_id"] == "eu-west1"

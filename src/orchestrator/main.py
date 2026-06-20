@@ -16,7 +16,7 @@ from typing import Any
 import redis.asyncio as aioredis
 from fastapi import Depends, FastAPI, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.utils.logging_config import get_logger
 
@@ -29,8 +29,11 @@ log = get_logger(__name__, "ORCHESTRATOR")
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 API_KEY = os.getenv("ORCHESTRATOR_API_KEY")
+if not API_KEY:
+    raise RuntimeError("ORCHESTRATOR_API_KEY environment variable is missing or empty")
 
-_rtt_cache: dict[str, float] = {}
+
+_rtt_cache: dict[str, dict[str, float]] = {}
 
 
 def validate_api_key(api_key_str: str = Security(api_key_header)) -> str:
@@ -54,9 +57,26 @@ class NodeResponse(BaseModel):
     ts: str
 
 
+# {"agent_id": {"us-east1": 10000, "eu-west1": 10000, "af-south1": 10000, "asia-northeast1": 10}}
 class HeartbeatPayload(BaseModel):
-    node_id: str
-    rtt_ms: float
+    agent_id: str
+    rtt_dict: dict[str, float]
+
+    @field_validator("rtt_dict")
+    @classmethod
+    def rtt_must_be_positive(cls, v: dict[str, float]) -> dict[str, float]:
+        for node_id, rtt in v.items():
+            if rtt <= 0:
+                raise ValueError(f"rtt_ms for {node_id!r} must be positive, got {rtt}")
+        return v
+
+    @field_validator("rtt_dict")
+    @classmethod
+    def node_id_must_be_valid(cls, v: dict[str, float]) -> dict[str, float]:
+        for node_id in v.keys():
+            if node_id not in NODES.keys():
+                raise ValueError(f"Invalid node id: {node_id!r}")
+        return v
 
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -105,7 +125,7 @@ async def get_nodes(api_key: str = Depends(validate_api_key)) -> list[NodeRespon
 
 
 @app.get("/get-best-node")
-async def get_best_node(api_key: str = Depends(validate_api_key)) -> NodeResponse:
+async def get_best_node(agent_id: str, api_key: str = Depends(validate_api_key)) -> NodeResponse:
     """Return the highest-scoring healthy node in Redis."""
     node_list = await _get_nodes()
 
@@ -114,9 +134,15 @@ async def get_best_node(api_key: str = Depends(validate_api_key)) -> NodeRespons
     if not healthy:
         raise HTTPException(status_code=503, detail="No healthy nodes available")
 
-    for node in healthy:
-        node["rtt_ms"] = _rtt_cache.get(node["node_id"], node.get("rtt_ms", 250.0))
-
+    agent_rtt = _rtt_cache.get(agent_id)
+    log.info(f"THIS IS agent_rtt: {agent_rtt}")
+    if agent_rtt is not None:
+        for node in healthy:
+            rtt = agent_rtt.get(node["node_id"])
+            log.info(f"Node {node['node_id']} has RTT {rtt} ms for agent {agent_id}")
+            if rtt is not None:
+                node["rtt_ms"] = rtt
+                log.info(f"Node rtt_ms: {node['node_id']} = {node['rtt_ms']}")
     return NodeResponse.model_validate(max(healthy, key=scorer.score))
 
 
@@ -126,7 +152,8 @@ async def heartbeat(
     api_key: str = Depends(validate_api_key),
 ) -> None:
     """RTT probe from the Forwarder Daemon and update the cache."""
-    _rtt_cache[payload.node_id] = payload.rtt_ms
+    _rtt_cache[payload.agent_id] = payload.rtt_dict
+    log.info(f"rtt cache {_rtt_cache}")
 
 
 @app.get("/health")
