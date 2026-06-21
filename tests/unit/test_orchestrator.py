@@ -1,6 +1,9 @@
 """Unit tests for scorer, weighted_scorer, and the /get-best-node endpoint."""
 
 import json
+import os
+
+os.environ.setdefault("ORCHESTRATOR_API_KEY", "test-api-key")
 
 import fakeredis.aioredis
 import pytest

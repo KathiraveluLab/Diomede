@@ -143,7 +143,17 @@ async def poll_node(
         log.error("Failed to write node:%s status to Redis: %s", node_id, redis_err)
 
 
+def _warn_default_creds() -> None:
+    if os.getenv("NODE_US_PASS", "orthanc") == "orthanc":
+        log.warning(
+            "NODE_*_PASS is using the insecure default 'orthanc'. "
+            "Set NODE_*_PASS env vars before deploying outside local dev."
+        )
+
+
 async def run() -> None:
+    _warn_default_creds()
+
     redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     verify: str | bool = CA_CERT if CA_CERT else True
 

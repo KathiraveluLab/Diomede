@@ -30,8 +30,7 @@ API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 API_KEY = os.getenv("ORCHESTRATOR_API_KEY")
 if not API_KEY:
-    raise RuntimeError("ORCHESTRATOR_API_KEY environment variable is missing or empty")
-
+    raise RuntimeError("ORCHESTRATOR_API_KEY environment variable must be set")
 
 _rtt_cache: dict[str, dict[str, float]] = {}
 
