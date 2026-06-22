@@ -9,6 +9,9 @@ import respx
 from httpx import Response
 
 from src.orchestrator.daemon import NODES, REDIS_TTL_S, poll_node
+from src.utils.logging_config import get_logger
+
+log = get_logger(__name__, "TEST")
 
 pytestmark = pytest.mark.unit
 

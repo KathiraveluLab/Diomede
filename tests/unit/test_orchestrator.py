@@ -1,6 +1,9 @@
 """Unit tests for scorer, weighted_scorer, and the /get-best-node endpoint."""
 
 import json
+import os
+
+os.environ.setdefault("ORCHESTRATOR_API_KEY", "test-api-key")
 
 import fakeredis.aioredis
 import pytest
@@ -14,6 +17,14 @@ from src.orchestrator.weighted_scorer import WeightedScorer
 
 pytestmark = pytest.mark.unit
 
+_TEST_API_KEY = "test-api-key"
+
+
+@pytest.fixture(autouse=True)
+def _set_api_key(monkeypatch):
+    monkeypatch.setattr(main_module, "API_KEY", _TEST_API_KEY)
+
+
 # WeightedScorer
 _NODE = {
     "queue_size": 0,
@@ -24,7 +35,7 @@ _NODE = {
 
 
 def test_score_formula():
-    assert WeightedScorer().score(_NODE) == pytest.approx(0.5785)
+    assert WeightedScorer().score(_NODE) == pytest.approx(0.75088, abs=1e-6)
 
 
 def test_score_prefers_low_queue():
@@ -83,17 +94,25 @@ async def fake_redis():
 @pytest.fixture
 async def client(fake_redis, monkeypatch):
     monkeypatch.setattr(main_module, "_redis", fake_redis)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-API-Key": _TEST_API_KEY},
+    ) as c:
         yield c
 
 
 async def test_no_nodes_returns_503(client):
-    assert (await client.get("/get-best-node")).status_code == 503
+    assert (
+        await client.get("/get-best-node", params={"agent_id": "test-agent"})
+    ).status_code == 503
 
 
 async def test_all_unhealthy_returns_503(client, fake_redis):
     await fake_redis.set("node:us-east1", json.dumps({**_HEALTHY_NODE, "healthy": False}))
-    assert (await client.get("/get-best-node")).status_code == 503
+    assert (
+        await client.get("/get-best-node", params={"agent_id": "test-agent"})
+    ).status_code == 503
 
 
 async def test_returns_best_healthy_node(client, fake_redis):
@@ -102,7 +121,7 @@ async def test_returns_best_healthy_node(client, fake_redis):
     await fake_redis.set("node:us-east1", json.dumps(best))
     await fake_redis.set("node:eu-west1", json.dumps(worse))
 
-    resp = await client.get("/get-best-node")
+    resp = await client.get("/get-best-node", params={"agent_id": "test-agent"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["node_id"] == "us-east1"
@@ -111,5 +130,109 @@ async def test_returns_best_healthy_node(client, fake_redis):
 
 async def test_response_matches_node_response_schema(client, fake_redis):
     await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
-    resp = await client.get("/get-best-node")
+    resp = await client.get("/get-best-node", params={"agent_id": "test-agent"})
     NodeResponse.model_validate(resp.json())
+
+
+# /nodes endpoint
+async def test_nodes_empty_list_when_no_redis_data(client):
+    """NODES keys are registered but no telemetry written → empty list, not an error."""
+    resp = await client.get("/nodes")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+async def test_nodes_returns_all_seeded_nodes(client, fake_redis):
+    node_b = {**_HEALTHY_NODE, "node_id": "eu-west1", "ae_title": "Orthanc_EU"}
+    await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
+    await fake_redis.set("node:eu-west1", json.dumps(node_b))
+
+    resp = await client.get("/nodes")
+    assert resp.status_code == 200
+    ids = {n["node_id"] for n in resp.json()}
+    assert "us-east1" in ids
+    assert "eu-west1" in ids
+
+
+async def test_nodes_includes_unhealthy_nodes(client, fake_redis):
+    """Unlike /get-best-node, /nodes returns every node regardless of health."""
+    await fake_redis.set("node:us-east1", json.dumps({**_HEALTHY_NODE, "healthy": False}))
+
+    resp = await client.get("/nodes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["healthy"] is False
+
+
+async def test_nodes_skips_keys_absent_from_redis(client, fake_redis):
+    """Nodes with no telemetry entry in Redis are omitted from the response."""
+    await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
+    # eu-west1, asia-northeast1, af-south1 intentionally not seeded
+
+    resp = await client.get("/nodes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["node_id"] == "us-east1"
+
+
+async def test_nodes_each_item_matches_schema(client, fake_redis):
+    node_b = {**_HEALTHY_NODE, "node_id": "eu-west1", "ae_title": "Orthanc_EU"}
+    await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
+    await fake_redis.set("node:eu-west1", json.dumps(node_b))
+
+    resp = await client.get("/nodes")
+    assert resp.status_code == 200
+    for item in resp.json():
+        NodeResponse.model_validate(item)
+
+
+async def test_nodes_returns_503_when_redis_uninitialized(monkeypatch):
+    monkeypatch.setattr(main_module, "_redis", None)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-API-Key": _TEST_API_KEY},
+    ) as c:
+        resp = await c.get("/nodes")
+    assert resp.status_code == 503
+
+
+# /heartbeat endpoint
+async def test_heartbeat_returns_204(client):
+    resp = await client.post(
+        "/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 45.0}}
+    )
+    assert resp.status_code == 204
+
+
+async def test_heartbeat_updates_rtt_cache(client, monkeypatch):
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await client.post("/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 42.0}})
+    assert main_module._rtt_cache["test-agent"] == {"us-east1": 42.0}
+
+
+async def test_heartbeat_overwrites_existing_rtt(client, monkeypatch):
+    monkeypatch.setattr(main_module, "_rtt_cache", {"test-agent": {"us-east1": 100.0}})
+    await client.post("/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 25.0}})
+    assert main_module._rtt_cache["test-agent"] == {"us-east1": 25.0}
+
+
+async def test_heartbeat_affects_scoring(client, fake_redis, monkeypatch):
+    """Node with lower RTT in cache should be preferred over one with higher RTT."""
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    node_us = {**_HEALTHY_NODE, "node_id": "us-east1", "queue_size": 0}
+    node_eu = {**_HEALTHY_NODE, "node_id": "eu-west1", "ae_title": "Orthanc_EU", "queue_size": 0}
+    await fake_redis.set("node:us-east1", json.dumps(node_us))
+    await fake_redis.set("node:eu-west1", json.dumps(node_eu))
+
+    # Give eu-west1 a much better RTT
+    await client.post(
+        "/heartbeat",
+        json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 500.0, "eu-west1": 10.0}},
+    )
+
+    resp = await client.get("/get-best-node", params={"agent_id": "test-agent"})
+    assert resp.status_code == 200
+    assert resp.json()["node_id"] == "eu-west1"

@@ -7,20 +7,15 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 from datetime import UTC, datetime
 
 import httpx
 import redis.asyncio as aioredis
 
-log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
+from src.utils.logging_config import get_logger
 
-logging.basicConfig(
-    level=getattr(logging, log_level, logging.INFO),
-    format="%(asctime)s [DAEMON] %(levelname)s %(message)s",
-)
-log = logging.getLogger(__name__)
+log = get_logger(__name__, "DAEMON")
 
 
 # Configuration from environment
@@ -95,7 +90,6 @@ async def poll_node(
             system = system_resp.json()
             log.debug("System info for %s: %s", node_id, system)
             node_quota_map[node_id] = system.get("MaximumStorageSize")
-        max_storage_mb = node_quota_map[node_id]
 
         log.debug("Statistics for %s: %s", node_id, stats)
 
@@ -107,9 +101,12 @@ async def poll_node(
         queue_size = len([j for j in jobs if j.get("State") in ("Pending", "Running")])
 
         disk_used_mb = stats.get("TotalDiskSizeMB")
-        disk_free_mb = max(0.0, max_storage_mb - disk_used_mb)
+        max_storage_mb = node_quota_map.get(node_id, 0) or 0
+        disk_free_mb = max(0.0, float(max_storage_mb - disk_used_mb))
 
-        # TODO: RTT from edge agent to regional node is to be implemented later
+        # if free disk space is less than 2%, set node to unhealthy
+        is_disk_full = (disk_free_mb / max_storage_mb < 0.02) if max_storage_mb > 0 else False
+
         payload = {
             "node_id": node_id,
             "ae_title": cfg["ae_title"],
@@ -118,7 +115,7 @@ async def poll_node(
             "disk_free_mb": disk_free_mb,
             "disk_total_mb": max_storage_mb,
             "instance_count": stats.get("CountInstances", 0),
-            "healthy": True,
+            "healthy": not is_disk_full,
             "ts": datetime.now(tz=UTC).isoformat(),
         }
 
@@ -146,7 +143,17 @@ async def poll_node(
         log.error("Failed to write node:%s status to Redis: %s", node_id, redis_err)
 
 
+def _warn_default_creds() -> None:
+    if os.getenv("NODE_US_PASS", "orthanc") == "orthanc":
+        log.warning(
+            "NODE_*_PASS is using the insecure default 'orthanc'. "
+            "Set NODE_*_PASS env vars before deploying outside local dev."
+        )
+
+
 async def run() -> None:
+    _warn_default_creds()
+
     redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     verify: str | bool = CA_CERT if CA_CERT else True
 

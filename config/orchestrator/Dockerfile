@@ -8,7 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends redis-server re
 # FastAPI, Redis, and Telemetry Daemon all run in this container
 WORKDIR /app
 
-COPY src/orchestrator/ orchestrator/
+COPY src/orchestrator/ src/orchestrator/
+COPY src/utils/ src/utils/
 COPY config/orchestrator/requirements.txt .
 
 # Create the virtual environment

@@ -5,18 +5,24 @@ Requires the Docker Compose stack to be running:
     docker compose up -d
 """
 
+import os
 import ssl
 import subprocess
 import time
 
 import httpx
 import pytest
+from dotenv import load_dotenv
+
+load_dotenv()
 
 pytestmark = pytest.mark.integration
 
 ORCH_URL = "https://localhost:8000"
 CA_CERT = "certs/ca.pem"
 _SSL_CTX = ssl.create_default_context(cafile=CA_CERT)
+_API_KEY = os.environ.get("ORCHESTRATOR_API_KEY", "")
+_AUTH_HEADERS = {"X-API-Key": _API_KEY}
 
 # node_id (Docker container name)
 _NODE_CONTAINER = {
@@ -31,8 +37,20 @@ _HTTP_TIMEOUT_S = 5
 _FAILOVER_TIMEOUT_S = _POLL_INTERVAL_S + _HTTP_TIMEOUT_S + 5
 
 
-def _get_best_node() -> dict:
-    resp = httpx.get(f"{ORCH_URL}/get-best-node", verify=_SSL_CTX, timeout=10)
+def _get_nodes() -> list[dict]:
+    resp = httpx.get(f"{ORCH_URL}/nodes", headers=_AUTH_HEADERS, verify=_SSL_CTX, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _get_best_node(agent_id: str = "test-agent") -> dict:
+    resp = httpx.get(
+        f"{ORCH_URL}/get-best-node",
+        params={"agent_id": agent_id},
+        headers=_AUTH_HEADERS,
+        verify=_SSL_CTX,
+        timeout=10,
+    )
     resp.raise_for_status()
     return resp.json()
 
@@ -43,6 +61,41 @@ def _stop_container(name: str) -> None:
 
 def _start_container(name: str) -> None:
     subprocess.run(["docker", "start", name], check=True, capture_output=True)
+
+
+def test_nodes_returns_non_empty_list():
+    nodes = _get_nodes()
+    assert isinstance(nodes, list)
+    assert len(nodes) > 0
+
+
+def test_nodes_all_items_have_required_fields():
+    required = {
+        "node_id",
+        "ae_title",
+        "base_url",
+        "queue_size",
+        "disk_free_mb",
+        "disk_total_mb",
+        "instance_count",
+        "healthy",
+        "ts",
+    }
+    for node in _get_nodes():
+        missing = required - node.keys()
+        assert not missing, f"Node {node.get('node_id')} missing fields: {missing}"
+
+
+def test_nodes_healthy_field_is_bool():
+    for node in _get_nodes():
+        assert isinstance(node["healthy"], bool), (
+            f"Node {node.get('node_id')} has non-bool healthy: {node['healthy']!r}"
+        )
+
+
+def test_nodes_includes_all_registered_nodes():
+    ids = {n["node_id"] for n in _get_nodes()}
+    assert ids == set(_NODE_CONTAINER.keys())
 
 
 def test_get_best_node_returns_healthy_node():
