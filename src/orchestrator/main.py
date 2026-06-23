@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="Diomede Orchestrator", lifespan=lifespan)
-_redis: aioredis.Redis[str] | None = None
+_redis: aioredis.Redis[str] | None = None  # type: ignore[type-arg]
 
 
 async def _get_nodes() -> list[dict[str, Any]]:
