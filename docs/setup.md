@@ -436,17 +436,31 @@ asyncio.run(probe())
 EOF
 ```
 
-Expected output (values will be low since all nodes are local):
+#### 8. Edge Agent Test
 
-```json
-{
-  "us-east1": 3.2,
-  "eu-west1": 4.1,
-  "asia-northeast1": 3.8,
-  "af-south1": 5.0
-}
+Confirm the edge agent
+
+```bash
+curl -k -u orthanc:CHANGE_IN_PRODUCTION https://localhost:8046/system
 ```
 
+Send a DICOM file to Edge Agent
+
+```bash
+python -m src.simulator.send_dicom_rest --base-url https://localhost:8046
+```
+
+Verify instance on node
+
+```bash
+curl -k -u orthanc:CHANGE_IN_PRODUCTION https://localhost:8042/instances
+```
+
+Now verify the copy at the edge agent is deleted
+
+```bash
+curl -k -u orthanc:CHANGE_IN_PRODUCTION https://localhost:8046/instances
+```
 ---
 
 ## Troubleshooting

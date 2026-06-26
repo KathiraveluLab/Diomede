@@ -60,7 +60,7 @@ class OrthancSource(DicomSource):
             timeout=60,
         )
         resp.raise_for_status()
-        return resp.content
+        return bytes(resp.content)
 
     async def acknowledge(self, client: httpx.AsyncClient, instance_id: str) -> None:
         """Delete the instance from Edge Orthanc to prevent disk fill."""

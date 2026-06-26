@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 import respx
 from httpx import AsyncClient, ConnectError, HTTPStatusError, Response
@@ -330,30 +332,20 @@ async def test_latency_probe_reports_rtt_for_all_nodes(monkeypatch):
         respx.get(f"{cfg['base']}/system").mock(return_value=Response(200, json={}))
     hb_route = respx.post(_ORCH_HB_URL).mock(return_value=Response(204))
 
-    async def _one_iteration(client: AsyncClient) -> None:
-        for node_id, cfg in CLOUD_NODES.items():
-            import time
-
-            base = cfg["base"]
-            auth = cfg["auth"]
-            assert isinstance(auth, tuple)
-            import src.edge.forwarder as fw
-
-            t0 = time.monotonic()
-            resp = await client.get(f"{base}/system", auth=auth, timeout=10)
-            rtt_ms = (time.monotonic() - t0) * 1000
-            resp.raise_for_status()
-            await client.post(
-                _ORCH_HB_URL,
-                json={"node_id": node_id, "rtt_ms": round(rtt_ms, 1)},
-                headers=fw._orch_headers(),
-                timeout=5,
-            )
-
     async with AsyncClient() as client:
-        await _one_iteration(client)
+        task = asyncio.create_task(forwarder_module.latency_probe_loop(client))
+        await asyncio.sleep(0.1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
 
-    assert hb_route.call_count == len(CLOUD_NODES)
+    assert hb_route.call_count >= 1
+    payload = hb_route.calls[0].request
+    import json
+
+    body = json.loads(payload.content)
+    assert "agent_id" in body
+    assert set(body["rtt_dict"].keys()) == set(CLOUD_NODES.keys())
 
 
 @respx.mock
@@ -361,6 +353,7 @@ async def test_latency_probe_reports_rtt_for_all_nodes(monkeypatch):
 async def test_latency_probe_skips_failed_node_and_continues(monkeypatch):
     """One node unreachable → probe loop continues and reports the other nodes."""
     monkeypatch.setattr(forwarder_module, "ORCH_HEARTBEAT_URL", _ORCH_HB_URL)
+    monkeypatch.setattr(forwarder_module, "PROBE_INTERVAL_S", 0)
 
     nodes = dict(CLOUD_NODES)
     node_ids = list(nodes.keys())
@@ -371,30 +364,16 @@ async def test_latency_probe_skips_failed_node_and_continues(monkeypatch):
 
     hb_route = respx.post(_ORCH_HB_URL).mock(return_value=Response(204))
 
-    async def _one_iteration(client: AsyncClient) -> None:
-        import time
-
-        import src.edge.forwarder as fw
-
-        for node_id, cfg in nodes.items():
-            base = cfg["base"]
-            auth = cfg["auth"]
-            assert isinstance(auth, tuple)
-            try:
-                t0 = time.monotonic()
-                resp = await client.get(f"{base}/system", auth=auth, timeout=10)
-                rtt_ms = (time.monotonic() - t0) * 1000
-                resp.raise_for_status()
-                await client.post(
-                    _ORCH_HB_URL,
-                    json={"node_id": node_id, "rtt_ms": round(rtt_ms, 1)},
-                    headers=fw._orch_headers(),
-                    timeout=5,
-                )
-            except Exception:
-                pass
-
     async with AsyncClient() as client:
-        await _one_iteration(client)
+        task = asyncio.create_task(forwarder_module.latency_probe_loop(client))
+        await asyncio.sleep(0.1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
 
-    assert hb_route.call_count == len(node_ids) - 1
+    assert hb_route.call_count >= 1
+    import json
+
+    body = json.loads(hb_route.calls[0].request.content)
+    assert "agent_id" in body
+    assert set(body["rtt_dict"].keys()) == set(node_ids[1:])

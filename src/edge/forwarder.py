@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from typing import TypedDict
 
 import httpx
 
@@ -19,7 +20,13 @@ POLL_INTERVAL_S = int(os.getenv("POLL_INTERVAL_S", "5"))
 PROBE_INTERVAL_S = int(os.getenv("PROBE_INTERVAL_S", "3600"))
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "")
 
-CLOUD_NODES: dict[str, dict[str, str | tuple[str, str]]] = {
+
+class _NodeCfg(TypedDict):
+    base: str
+    auth: tuple[str, str]
+
+
+CLOUD_NODES: dict[str, _NodeCfg] = {
     "us-east1": {
         "base": os.getenv("NODE_US_BASE", "http://orthanc-us:8042"),
         "auth": (os.getenv("NODE_US_USER", "orthanc"), os.getenv("NODE_US_PASS", "orthanc")),
@@ -59,7 +66,9 @@ async def route_instance(
 
     # 2. Ask the Orchestrator for the best destination.
     try:
-        best_resp = await client.get(ORCH_URL, headers=_orch_headers(), timeout=5)
+        best_resp = await client.get(
+            ORCH_URL, params={"agent_id": os.getenv("AGENT_ID")}, headers=_orch_headers(), timeout=5
+        )
         best_resp.raise_for_status()
         best = best_resp.json()
     except Exception as exc:
@@ -78,7 +87,7 @@ async def route_instance(
             f"{node_cfg['base']}/instances",
             content=dcm_bytes,
             headers={"Content-Type": "application/dicom"},
-            auth=node_cfg["auth"],  # type: ignore[arg-type]
+            auth=node_cfg["auth"],
             timeout=120,
         )
         post_resp.raise_for_status()
@@ -110,25 +119,30 @@ async def forward_loop(client: httpx.AsyncClient, source: DicomSource) -> None:
 async def latency_probe_loop(client: httpx.AsyncClient) -> None:
     """GET /system on each cloud node once per hour, report RTT to /heartbeat."""
     while True:
+        rtt_dict: dict[str, float] = {}
         for node_id, cfg in CLOUD_NODES.items():
             base = cfg["base"]
             auth = cfg["auth"]
-            assert isinstance(auth, tuple)
             try:
                 t0 = time.monotonic()
                 resp = await client.get(f"{base}/system", auth=auth, timeout=10)
                 rtt_ms = (time.monotonic() - t0) * 1000
                 resp.raise_for_status()
-
-                await client.post(
-                    ORCH_HEARTBEAT_URL,
-                    json={"node_id": node_id, "rtt_ms": round(rtt_ms, 1)},
-                    headers=_orch_headers(),
-                    timeout=5,
-                )
+                rtt_dict[node_id] = round(rtt_ms, 1)
                 log.info("node=%-15s rtt=%.1f ms", node_id, rtt_ms)
             except Exception as exc:
                 log.warning("node=%-15s probe failed: %s", node_id, exc)
+
+        if rtt_dict:
+            try:
+                await client.post(
+                    ORCH_HEARTBEAT_URL,
+                    json={"agent_id": os.getenv("AGENT_ID"), "rtt_dict": rtt_dict},
+                    headers=_orch_headers(),
+                    timeout=5,
+                )
+            except Exception as exc:
+                log.warning("heartbeat failed: %s", exc)
 
         await asyncio.sleep(PROBE_INTERVAL_S)
 

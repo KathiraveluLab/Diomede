@@ -66,6 +66,7 @@ class WeightedScorer(NodeScorer):
         rtt_score = 1.0 / (rtt_ms / self.rtt_ref_ms + 1)
 
         total_score = self.w_queue * q_score + self.w_disk * disk_score + self.w_rtt * rtt_score
+        node["score"] = total_score
 
         log.info(
             f"Scoring node {node.get('node_id', 'unknown')}:\n"

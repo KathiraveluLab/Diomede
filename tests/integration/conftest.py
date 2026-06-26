@@ -15,7 +15,7 @@ import pytest
 from src.simulator.generate_dicom import _RTT_SOP_UID
 
 ORTHANC_URL = "https://localhost:8042"
-EDGE_URL = "http://localhost:8046"
+EDGE_URL = "https://localhost:8046"
 ORTHANC_AUTH = (
     os.environ.get("ORTHANC_USER", "orthanc"),
     os.environ.get("ORTHANC_PASSWORD", "CHANGE_IN_PRODUCTION"),
@@ -52,7 +52,7 @@ def _delete_instance(
                     verify=verify,
                 ).raise_for_status()
             return
-        except httpx.ConnectError:
+        except (httpx.ConnectError, httpx.RemoteProtocolError):
             if attempt < retries - 1:
                 time.sleep(delay)
             else:

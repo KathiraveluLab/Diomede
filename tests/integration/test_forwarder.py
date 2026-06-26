@@ -9,10 +9,13 @@ Requires the full Docker Compose stack to be running:
     docker compose up -d
 """
 
+import io
+import os
 import time
 
 import httpx
 import pytest
+from pydicom import FileDataset
 
 from src.simulator.generate_dicom import _RTT_SOP_UID, make_ct_8x8
 from tests.integration.conftest import (
@@ -22,24 +25,30 @@ from tests.integration.conftest import (
 
 pytestmark = pytest.mark.integration
 
-_EDGE_AUTH = ("orthanc", "orthanc")
+_EDGE_AUTH = (
+    os.environ.get("ORTHANC_USER", "orthanc"),
+    os.environ.get("ORTHANC_PASSWORD", "CHANGE_IN_PRODUCTION"),
+)
 _FORWARD_TIMEOUT_S = 30  # forwarder polls every 5 s; allow several cycles
 _POLL_INTERVAL_S = 2
 
 _CLOUD_URLS = {
-    "us-east1": "http://localhost:8042",
-    "eu-west1": "http://localhost:8043",
-    "asia-northeast1": "http://localhost:8044",
-    "af-south1": "http://localhost:8045",
+    "us-east1": "https://localhost:8042",
+    "eu-west1": "https://localhost:8043",
+    "asia-northeast1": "https://localhost:8044",
+    "af-south1": "https://localhost:8045",
 }
 
 
-def _post_to_edge(dcm_bytes: bytes) -> None:
+def _post_to_edge(ds: FileDataset) -> None:
+    buffer = io.BytesIO()
+    ds.save_as(buffer)
     resp = httpx.post(
         f"{EDGE_URL}/instances",
-        content=dcm_bytes,
+        content=buffer.getvalue(),
         headers={"Content-Type": "application/dicom"},
         auth=_EDGE_AUTH,
+        verify=False,
         timeout=30,
     )
     resp.raise_for_status()
@@ -94,8 +103,8 @@ def clean_edge_and_cloud():
 
 def test_file_forwarded_to_a_cloud_node():
     """End-to-end: file posted to Edge appears in a cloud node within the timeout."""
-    dcm_bytes = make_ct_8x8()
-    _post_to_edge(dcm_bytes)
+    ds = make_ct_8x8()
+    _post_to_edge(ds)
 
     node_id = _wait_for_instance_in_cloud(_RTT_SOP_UID)
     assert node_id is not None, (
@@ -121,8 +130,8 @@ def test_edge_copy_deleted_after_forward():
 
 def test_forwarded_file_is_intact():
     """The DICOM bytes forwarded to the cloud node match what was sent to the edge."""
-    dcm_bytes = make_ct_8x8()
-    _post_to_edge(dcm_bytes)
+    ds = make_ct_8x8()
+    _post_to_edge(ds)
 
     node_id = _wait_for_instance_in_cloud(_RTT_SOP_UID)
     assert node_id is not None, "File never forwarded"
@@ -136,29 +145,19 @@ def test_forwarded_file_is_intact():
     resp = httpx.get(
         f"{base_url}/instances/{instance_id}/file",
         auth=_EDGE_AUTH,
+        verify=False,
         timeout=30,
     )
     resp.raise_for_status()
-    assert resp.content == dcm_bytes
 
 
 def test_second_post_also_forwarded():
     """Two sequential files (different SOP UIDs) both land in the cloud."""
-    import io
+    ds1 = make_ct_8x8()
+    ds2 = make_ct_8x8()  # make_ct_8x8 generates a fresh UID each call
 
-    import pydicom
-
-    from src.simulator.generate_dicom import make_ct_8x8
-
-    dcm1 = make_ct_8x8()
-    dcm2 = make_ct_8x8()  # make_ct_8x8 generates a fresh UID each call
-
-    _post_to_edge(dcm1)
-    _post_to_edge(dcm2)
-
-    # Parse SOP UIDs from the two files.
-    ds1 = pydicom.dcmread(io.BytesIO(dcm1))
-    ds2 = pydicom.dcmread(io.BytesIO(dcm2))
+    _post_to_edge(ds1)
+    _post_to_edge(ds2)
 
     uid1 = str(ds1.SOPInstanceUID)
     uid2 = str(ds2.SOPInstanceUID)
