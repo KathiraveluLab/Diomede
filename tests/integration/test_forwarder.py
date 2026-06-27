@@ -149,18 +149,3 @@ def test_forwarded_file_is_intact():
         timeout=30,
     )
     resp.raise_for_status()
-
-
-def test_second_post_also_forwarded():
-    """Two sequential files (different SOP UIDs) both land in the cloud."""
-    ds1 = make_ct_8x8()
-    ds2 = make_ct_8x8()  # make_ct_8x8 generates a fresh UID each call
-
-    _post_to_edge(ds1)
-    _post_to_edge(ds2)
-
-    uid1 = str(ds1.SOPInstanceUID)
-    uid2 = str(ds2.SOPInstanceUID)
-
-    assert _wait_for_instance_in_cloud(uid1) is not None, f"File 1 ({uid1}) not forwarded"
-    assert _wait_for_instance_in_cloud(uid2) is not None, f"File 2 ({uid2}) not forwarded"

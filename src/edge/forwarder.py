@@ -75,7 +75,11 @@ async def route_instance(
         log.error("instance=%s orchestrator query failed: %s", instance_id, exc)
         return
 
-    node_id = best["node_id"]
+    node_id = best.get("node_id")
+    if not node_id:
+        log.error("instance=%s orchestrator response missing 'node_id'", instance_id)
+        return
+
     node_cfg = CLOUD_NODES.get(node_id)
     if not node_cfg:
         log.error("instance=%s unknown node_id '%s' from orchestrator", instance_id, node_id)

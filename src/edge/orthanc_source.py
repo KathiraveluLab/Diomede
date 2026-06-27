@@ -1,7 +1,7 @@
 """
 edge/orthanc_source.py – DicomSource backed by the Edge Orthanc REST API.
 
-Polls GET /changes for NewInstance events, fetches raw DICOM bytes via
+Polls GET /instances for NewInstance events, fetches raw DICOM bytes via
 GET /instances/{id}/file, and acknowledges by deleting the local copy.
 """
 
@@ -34,23 +34,16 @@ class OrthancSource(DicomSource):
         self._last_seq: int = 0
 
     async def poll_new(self, client: httpx.AsyncClient) -> list[str]:
-        """Return instance IDs from NewInstance events since the last poll."""
+        """Return all instance IDs currently in the Edge Orthanc buffer."""
         resp = await client.get(
-            f"{self._base}/changes",
-            params={"since": self._last_seq, "limit": 100},
+            f"{self._base}/instances",
             auth=self._auth,
             timeout=10,
         )
         resp.raise_for_status()
-        body = resp.json()
-
-        instance_ids: list[str] = []
-        for change in body.get("Changes", []):
-            if change.get("ChangeType") == "NewInstance":
-                instance_ids.append(change["ID"])
-            self._last_seq = change["Seq"]
-
-        return instance_ids
+        log.info("New instances: %s", resp.json())
+        list_response: list[str] = resp.json()
+        return list_response
 
     async def fetch(self, client: httpx.AsyncClient, instance_id: str) -> bytes:
         """Download raw DICOM bytes for instance_id from Edge Orthanc."""

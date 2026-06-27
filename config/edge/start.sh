@@ -22,7 +22,7 @@ echo "[start.sh] Starting Forwarder Daemon..."
 python -m src.edge.forwarder &
 FORWARDER_PID=$!
 
-
+trap 'kill $ORTHANC_PID $FORWARDER_PID 2>/dev/null' SIGTERM SIGINT
 wait -n $ORTHANC_PID $FORWARDER_PID
 EXIT_CODE=$?
 

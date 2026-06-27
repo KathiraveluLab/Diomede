@@ -130,3 +130,16 @@ def test_failover_when_best_node_goes_down():
         )
     finally:
         _start_container(container)
+
+
+def test_invalid_agent_id():
+    invalid_id = "agent-invalid"
+
+    resp = httpx.get(
+        f"{ORCH_URL}/get-best-node",
+        params={"agent_id": invalid_id},
+        headers=_AUTH_HEADERS,
+        verify=_SSL_CTX,
+        timeout=10,
+    )
+    assert resp.status_code == 400

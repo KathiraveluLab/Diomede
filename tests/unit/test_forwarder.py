@@ -28,26 +28,9 @@ _BEST_NODE_RESP = {
     "rtt_ms": 45.0,
 }
 
-_CHANGES_ONE = {
-    "Changes": [
-        {"ChangeType": "NewInstance", "ID": "abc123", "Seq": 10},
-    ],
-    "Done": True,
-    "Last": 10,
-}
-
-_CHANGES_MIXED = {
-    "Changes": [
-        {"ChangeType": "NewSeries", "ID": "series1", "Seq": 5},
-        {"ChangeType": "NewInstance", "ID": "abc123", "Seq": 10},
-        {"ChangeType": "NewStudy", "ID": "study1", "Seq": 15},
-        {"ChangeType": "NewInstance", "ID": "def456", "Seq": 20},
-    ],
-    "Done": True,
-    "Last": 20,
-}
-
-_CHANGES_EMPTY = {"Changes": [], "Done": True, "Last": 0}
+_INSTANCES_ONE = ["abc123"]
+_INSTANCES_MULTIPLE = ["abc123", "def456"]
+_INSTANCES_EMPTY: list[str] = []
 
 
 class _StubSource(DicomSource):
@@ -85,7 +68,7 @@ class _StubSource(DicomSource):
 @respx.mock
 @pytest.mark.asyncio
 async def test_poll_new_returns_new_instance_ids():
-    respx.get(f"{_EDGE_BASE}/changes").mock(return_value=Response(200, json=_CHANGES_ONE))
+    respx.get(f"{_EDGE_BASE}/instances").mock(return_value=Response(200, json=_INSTANCES_ONE))
     source = OrthancSource(base=_EDGE_BASE)
     async with AsyncClient() as client:
         ids = await source.poll_new(client)
@@ -94,8 +77,8 @@ async def test_poll_new_returns_new_instance_ids():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_poll_new_ignores_non_instance_change_types():
-    respx.get(f"{_EDGE_BASE}/changes").mock(return_value=Response(200, json=_CHANGES_MIXED))
+async def test_poll_new_returns_multiple_instance_ids():
+    respx.get(f"{_EDGE_BASE}/instances").mock(return_value=Response(200, json=_INSTANCES_MULTIPLE))
     source = OrthancSource(base=_EDGE_BASE)
     async with AsyncClient() as client:
         ids = await source.poll_new(client)
@@ -104,8 +87,8 @@ async def test_poll_new_ignores_non_instance_change_types():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_poll_new_returns_empty_list_when_no_changes():
-    respx.get(f"{_EDGE_BASE}/changes").mock(return_value=Response(200, json=_CHANGES_EMPTY))
+async def test_poll_new_returns_empty_list_when_no_instances():
+    respx.get(f"{_EDGE_BASE}/instances").mock(return_value=Response(200, json=_INSTANCES_EMPTY))
     source = OrthancSource(base=_EDGE_BASE)
     async with AsyncClient() as client:
         ids = await source.poll_new(client)
@@ -114,22 +97,8 @@ async def test_poll_new_returns_empty_list_when_no_changes():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_poll_new_advances_seq_cursor():
-    """Second poll sends since=20 (the Seq of the last change from first poll)."""
-    route = respx.get(f"{_EDGE_BASE}/changes").mock(return_value=Response(200, json=_CHANGES_MIXED))
-    source = OrthancSource(base=_EDGE_BASE)
-    async with AsyncClient() as client:
-        await source.poll_new(client)
-        await source.poll_new(client)
-
-    last_request = route.calls[-1].request
-    assert "since=20" in str(last_request.url)
-
-
-@respx.mock
-@pytest.mark.asyncio
 async def test_poll_new_raises_on_http_error():
-    respx.get(f"{_EDGE_BASE}/changes").mock(return_value=Response(500))
+    respx.get(f"{_EDGE_BASE}/instances").mock(return_value=Response(500))
     source = OrthancSource(base=_EDGE_BASE)
     async with AsyncClient() as client:
         with pytest.raises(HTTPStatusError):
