@@ -6,25 +6,32 @@ Requires the Docker Compose stack to be running:
 
 """
 
+import io
+import ssl
+
 import httpx
 import pytest
 
-from src.simulator.generate_dicom import _RTT_SOP_UID
+from src.simulator.generate_dicom import _RTT_SOP_UID, make_ct_8x8
 from src.simulator.send_dicom_rest import send
-from tests.integration.conftest import _SSL_CTX, CA_CERT, ORTHANC_AUTH, ORTHANC_URL
+from tests.integration.conftest import _SSL_CTX, ORTHANC_AUTH, ORTHANC_URL
 
 pytestmark = pytest.mark.integration
 
-_REST_DEFAULTS = dict(
-    base_url=ORTHANC_URL,
-    user=ORTHANC_AUTH[0],
-    password=ORTHANC_AUTH[1],
-    ca_cert=CA_CERT,
-)
+
+def _dicom_bytes() -> bytes:
+    buf = io.BytesIO()
+    make_ct_8x8().save_as(buf)
+    return buf.getvalue()
 
 
-def _send(**overrides) -> None:
-    send(**{**_REST_DEFAULTS, **overrides})
+def _send(
+    base_url: str = ORTHANC_URL,
+    user: str = ORTHANC_AUTH[0],
+    password: str = ORTHANC_AUTH[1],
+    ssl_ctx: ssl.SSLContext = _SSL_CTX,
+) -> None:
+    send(base_url, user, password, _dicom_bytes(), ssl_ctx)
 
 
 class TestRestSend:
@@ -54,8 +61,9 @@ class TestRestSend:
 
     def test_wrong_ca_cert_exits(self):
         """Client uses wrong CA cert → TLS handshake fails → exits with code 1."""
+        bad_ctx = ssl.create_default_context(cafile="certs/diomede-client/client.crt")
         with pytest.raises(SystemExit) as exc_info:
-            _send(ca_cert="certs/diomede-client/client.crt")
+            _send(ssl_ctx=bad_ctx)
         assert exc_info.value.code == 1
 
     def test_unreachable_url_exits(self):
