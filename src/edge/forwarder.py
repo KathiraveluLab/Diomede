@@ -16,6 +16,11 @@ log = get_logger(__name__, "FORWARDER")
 ORCH_URL = os.getenv("ORCH_URL", "http://orchestrator:8000/get-best-node")
 ORCH_HEARTBEAT_URL = os.getenv("ORCH_HEARTBEAT_URL", "http://orchestrator:8000/heartbeat")
 ORCH_API_KEY = os.getenv("ORCHESTRATOR_API_KEY", "")
+if not ORCH_API_KEY:
+    raise RuntimeError("ORCHESTRATOR_API_KEY environment variable must be set")
+AGENT_ID = os.getenv("AGENT_ID", "")
+if not AGENT_ID:
+    raise RuntimeError("AGENT_ID environment variable must be set")
 POLL_INTERVAL_S = int(os.getenv("POLL_INTERVAL_S", "5"))
 PROBE_INTERVAL_S = int(os.getenv("PROBE_INTERVAL_S", "3600"))
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "")
@@ -47,7 +52,7 @@ CLOUD_NODES: dict[str, _NodeCfg] = {
 
 
 def _orch_headers() -> dict[str, str]:
-    return {"X-API-Key": ORCH_API_KEY} if ORCH_API_KEY else {}
+    return {"X-API-Key": ORCH_API_KEY}
 
 
 async def route_instance(
@@ -67,7 +72,7 @@ async def route_instance(
     # 2. Ask the Orchestrator for the best destination.
     try:
         best_resp = await client.get(
-            ORCH_URL, params={"agent_id": os.getenv("AGENT_ID")}, headers=_orch_headers(), timeout=5
+            ORCH_URL, params={"agent_id": AGENT_ID}, headers=_orch_headers(), timeout=5
         )
         best_resp.raise_for_status()
         best = best_resp.json()
@@ -141,7 +146,7 @@ async def latency_probe_loop(client: httpx.AsyncClient) -> None:
             try:
                 await client.post(
                     ORCH_HEARTBEAT_URL,
-                    json={"agent_id": os.getenv("AGENT_ID"), "rtt_dict": rtt_dict},
+                    json={"agent_id": AGENT_ID, "rtt_dict": rtt_dict},
                     headers=_orch_headers(),
                     timeout=5,
                 )

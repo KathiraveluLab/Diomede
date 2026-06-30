@@ -121,11 +121,15 @@ def test_edge_copy_deleted_after_forward():
     node_id = _wait_for_instance_in_cloud(_RTT_SOP_UID)
     assert node_id is not None, "File never forwarded — cannot test edge cleanup"
 
-    # Give the Forwarder one extra poll cycle to delete the local copy.
-    time.sleep(_POLL_INTERVAL_S * 2)
-    assert not _instance_on_edge(_RTT_SOP_UID), (
-        "Edge Orthanc still holds the instance after confirmed forward — cleanup failed"
-    )
+    # Poll until the local copy is deleted from Edge Orthanc.
+    deadline = time.monotonic() + _FORWARD_TIMEOUT_S
+    deleted = False
+    while time.monotonic() < deadline:
+        if not _instance_on_edge(_RTT_SOP_UID):
+            deleted = True
+            break
+        time.sleep(_POLL_INTERVAL_S)
+    assert deleted, "Edge Orthanc still holds the instance after confirmed forward — cleanup failed"
 
 
 def test_forwarded_file_is_intact():
