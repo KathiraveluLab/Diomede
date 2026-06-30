@@ -272,6 +272,8 @@ services:
       EDGE_USER: "${ORTHANC_USER}"
       EDGE_PASS: "${ORTHANC_PASSWORD}"
 
+      AGENT_ID: "agent-001"
+
       # Orchestrator connection (HTTPS)
       ORCH_URL: "https://orchestrator:8000/get-best-node"
       ORCH_HEARTBEAT_URL: "https://orchestrator:8000/heartbeat"

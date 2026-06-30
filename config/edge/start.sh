@@ -15,16 +15,17 @@ open('/tmp/orthanc.json', 'w').write(t)
 "
 
 echo "[start.sh] Starting Orthanc..."
-exec Orthanc /tmp/orthanc.json
+Orthanc /tmp/orthanc.json &
+ORTHANC_PID=$!
 
-## when forwarder is ready use supervisord to run both processes
+echo "[start.sh] Starting Forwarder Daemon..."
+python -m src.edge.forwarder &
+FORWARDER_PID=$!
 
-#echo "[start.sh] Starting Forwarder Daemon..."
-# python3 /app/forwarder.py &
-# FORWARDER_PID=$!
+trap 'kill $ORTHANC_PID $FORWARDER_PID 2>/dev/null' SIGTERM SIGINT
+wait -n $ORTHANC_PID $FORWARDER_PID
+EXIT_CODE=$?
 
-# wait -n $ORTHANC_PID $FORWARDER_PID
-# EXIT_CODE=$?
-# echo "[start.sh] A process exited with code $EXIT_CODE – shutting down."
-# kill $ORTHANC_PID $FORWARDER_PID 2>/dev/null || true
-# exit $EXIT_CODE
+echo "[start.sh] A process exited with code $EXIT_CODE – shutting down."
+kill $ORTHANC_PID $FORWARDER_PID 2>/dev/null || true
+exit $EXIT_CODE

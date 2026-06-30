@@ -70,7 +70,7 @@ node_quota_map: dict[str, int] = {}
 
 async def poll_node(
     client: httpx.AsyncClient,
-    redis: aioredis.Redis[str],
+    redis: aioredis.Redis[str],  # type: ignore[type-arg]
     node_id: str,
     cfg: dict[str, str | tuple[str, str]],
 ) -> None:

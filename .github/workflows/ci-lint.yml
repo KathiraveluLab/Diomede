@@ -18,7 +18,7 @@ jobs:
           cache: pip
 
       - name: Install type-check deps
-        run: pip install mypy types-redis pydantic fastapi
+        run: pip install mypy types-redis pydantic fastapi httpx
 
       - name: mypy
         run: |
@@ -29,6 +29,11 @@ jobs:
               echo "Skipping $src_dir (no Python files found)"
             fi
           done
+
+      - name: Install hadolint
+        run: |
+          curl -sSL https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64 \
+            -o /usr/local/bin/hadolint && chmod +x /usr/local/bin/hadolint
 
       - uses: pre-commit/action@v3.0.1
         with:

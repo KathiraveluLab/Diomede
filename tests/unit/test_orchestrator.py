@@ -11,7 +11,7 @@ from httpx import ASGITransport, AsyncClient
 
 import src.orchestrator.main as main_module
 import src.orchestrator.weighted_scorer  # noqa: F401 — triggers self-registration
-from src.orchestrator.main import NodeResponse, app
+from src.orchestrator.main import NodeResponse, _rtt_cache, app
 from src.orchestrator.scorer import get_scorer
 from src.orchestrator.weighted_scorer import WeightedScorer
 
@@ -116,6 +116,7 @@ async def test_all_unhealthy_returns_503(client, fake_redis):
 
 
 async def test_returns_best_healthy_node(client, fake_redis):
+    _rtt_cache["test-agent"] = {"us-east1": 42.0}
     best = {**_HEALTHY_NODE, "queue_size": 0}
     worse = {**_HEALTHY_NODE, "node_id": "eu-west1", "ae_title": "Orthanc_EU", "queue_size": 20}
     await fake_redis.set("node:us-east1", json.dumps(best))

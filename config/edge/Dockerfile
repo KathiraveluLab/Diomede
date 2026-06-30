@@ -17,6 +17,8 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY config/edge/requirements.txt .
+COPY src/edge ./src/edge/
+COPY src/utils ./src/utils/
 
 # Create the virtual environment
 RUN python3 -m venv /opt/venv

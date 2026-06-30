@@ -60,6 +60,10 @@ explicit_package_bases = true
 module = ["generate", "send_test_dicom"]
 strict = false
 
+[[tool.mypy.overrides]]
+module = ["src.orchestrator.daemon", "src.orchestrator.main"]
+warn_unused_ignores = false
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths    = ["tests"]

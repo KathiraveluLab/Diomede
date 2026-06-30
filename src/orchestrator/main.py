@@ -56,6 +56,11 @@ class NodeResponse(BaseModel):
     ts: str
 
 
+class BestNodeResponse(NodeResponse):
+    rtt_ms: float | None = None
+    score: float | None = None
+
+
 # {"agent_id": {"us-east1": 10000, "eu-west1": 10000, "af-south1": 10000, "asia-northeast1": 10}}
 class HeartbeatPayload(BaseModel):
     agent_id: str
@@ -124,7 +129,9 @@ async def get_nodes(api_key: str = Depends(validate_api_key)) -> list[NodeRespon
 
 
 @app.get("/get-best-node")
-async def get_best_node(agent_id: str, api_key: str = Depends(validate_api_key)) -> NodeResponse:
+async def get_best_node(
+    agent_id: str, api_key: str = Depends(validate_api_key)
+) -> BestNodeResponse:
     """Return the highest-scoring healthy node in Redis."""
     node_list = await _get_nodes()
 
@@ -135,14 +142,18 @@ async def get_best_node(agent_id: str, api_key: str = Depends(validate_api_key))
 
     agent_rtt = _rtt_cache.get(agent_id)
     log.info(f"THIS IS agent_rtt: {agent_rtt}")
-    if agent_rtt is not None:
-        for node in healthy:
-            rtt = agent_rtt.get(node["node_id"])
-            log.info(f"Node {node['node_id']} has RTT {rtt} ms for agent {agent_id}")
-            if rtt is not None:
-                node["rtt_ms"] = rtt
-                log.info(f"Node rtt_ms: {node['node_id']} = {node['rtt_ms']}")
-    return NodeResponse.model_validate(max(healthy, key=scorer.score))
+    if agent_rtt is None:
+        log.warning(f"Invalid agent_id: {agent_id}")
+        raise HTTPException(status_code=400, detail=f"Invalid agent_id={agent_id}")
+
+    for node in healthy:
+        rtt = agent_rtt.get(node["node_id"])
+        log.info(f"Node {node['node_id']} has RTT {rtt} ms for agent {agent_id}")
+        if rtt is not None:
+            node["rtt_ms"] = rtt
+            log.info(f"Node rtt_ms: {node['node_id']} = {node['rtt_ms']}")
+    best_node = max(healthy, key=scorer.score)
+    return BestNodeResponse.model_validate(best_node)
 
 
 @app.post("/heartbeat", status_code=204)
