@@ -141,10 +141,11 @@ async def get_best_node(
         raise HTTPException(status_code=503, detail="No healthy nodes available")
 
     agent_rtt = _rtt_cache.get(agent_id)
-    log.info(f"THIS IS agent_rtt: {agent_rtt}")
     if agent_rtt is None:
-        log.warning(f"Invalid agent_id: {agent_id}")
-        raise HTTPException(status_code=400, detail=f"Invalid agent_id={agent_id}")
+        log.warning(
+            f"No RTT cache found for agent_id={agent_id!r}; falling back to default scoring"
+        )
+        agent_rtt = {}
 
     for node in healthy:
         rtt = agent_rtt.get(node["node_id"])
