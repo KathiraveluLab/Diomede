@@ -21,7 +21,7 @@ import httpx
 from src.simulator.generate_dicom import make_ct_8x8, make_sized
 from src.utils.logging_config import get_logger
 
-log = get_logger(__name__, "FORWARDER")
+log = get_logger(__name__, "SIMULATOR")
 
 
 _DEFAULT_CA_CERT = "certs/ca.pem"
@@ -67,7 +67,7 @@ def send_batch(
     user: str,
     password: str,
     ca_cert: str,
-    file_size: int,
+    file_size: int | None,
     batch_size: int = 1,
     interval: float = 0.0,
 ) -> None:
@@ -97,7 +97,7 @@ def send_batch(
         else:
             log.info(f"Batch {i + 1}: send a 8x8 DICOM file")
 
-        if interval > 0:
+        if interval > 0 and i < batch_size - 1:
             time.sleep(interval)
 
     elapsed_time = (time.monotonic() - t0) * 1000

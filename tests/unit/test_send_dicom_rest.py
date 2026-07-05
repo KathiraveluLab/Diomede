@@ -191,7 +191,7 @@ class TestSendBatch:
             interval=1.5,
         )
 
-        assert mock_sleep.call_count == 3
+        assert mock_sleep.call_count == 2
         mock_sleep.assert_called_with(1.5)
 
     @patch("src.simulator.send_dicom_rest.time.sleep")
