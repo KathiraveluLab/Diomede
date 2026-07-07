@@ -370,10 +370,13 @@ C-STORE success → Orthanc_US at 127.0.0.1:4242
 
 Posts raw DICOM bytes directly to an Orthanc node via `POST /instances` over HTTPS.
 Credentials are read from `ORTHANC_USER` / `ORTHANC_PASSWORD` in `.env`.
+The parameters `--file-size`, `--batch-size`, and `--interval` are configurable.
+Default values: file size is 8x8 bytes, batch size is 1, and interval is 0.0 ms.
 
 ```bash
-python -m src.simulator.send_dicom_rest \
-  --base-url https://127.0.0.1:8042
+python -m src.simulator.send_dicom_rest --base-url https://localhost:8042 --file-size 8
+
+python -m src.simulator.send_dicom_rest --base-url https://localhost:8046 --file-size 8 --batch-size 3 --interval 3
 ```
 
 On success:
