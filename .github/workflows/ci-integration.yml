@@ -1,0 +1,58 @@
+name: Integration Tests
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'docker-compose.yml'
+      - '**/requirements.txt'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'docker-compose.yml'
+      - '**/requirements.txt'
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[orchestrator,edge,scripts,test]"
+
+      - name: Create .env
+        run: cp .env.example .env
+
+      - name: Generate certs
+        run: bash scripts/gen_certs.sh
+
+      - name: Start Docker Compose stack
+        run: docker compose up -d --wait --wait-timeout 180
+
+      - name: Verify stack is reachable
+        run: |
+          curl -sf --cacert certs/ca.pem -u "$ORTHANC_USER:$ORTHANC_PASSWORD" https://localhost:8042/system
+          curl -sf --cacert certs/ca.pem https://localhost:8000/health
+        env:
+          ORTHANC_USER: orthanc
+          ORTHANC_PASSWORD: CHANGE_IN_PRODUCTION
+
+      - name: Run integration tests
+        run: pytest tests/integration/ -v -m integration
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose down -v
