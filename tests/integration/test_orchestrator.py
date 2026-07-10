@@ -14,12 +14,12 @@ import httpx
 import pytest
 from dotenv import load_dotenv
 
+from tests.integration.settings import CA_CERT, ORCH_URL
+
 load_dotenv()
 
 pytestmark = pytest.mark.integration
 
-ORCH_URL = "https://localhost:8000"
-CA_CERT = "certs/ca.pem"
 _SSL_CTX = ssl.create_default_context(cafile=CA_CERT)
 _API_KEY = os.environ.get("ORCHESTRATOR_API_KEY", "")
 _AUTH_HEADERS = {"X-API-Key": _API_KEY}

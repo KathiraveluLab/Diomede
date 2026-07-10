@@ -5,7 +5,6 @@ Requires the Docker Compose stack to be running:
     docker compose up -d
 """
 
-import os
 import ssl
 import time
 
@@ -13,14 +12,8 @@ import httpx
 import pytest
 
 from src.simulator.generate_dicom import _RTT_SOP_UID
+from tests.integration.settings import CA_CERT, ORTHANC_AUTH, ORTHANC_URL
 
-ORTHANC_URL = "https://localhost:8042"
-EDGE_URL = "https://localhost:8046"
-ORTHANC_AUTH = (
-    os.environ.get("ORTHANC_USER", "orthanc"),
-    os.environ.get("ORTHANC_PASSWORD", "CHANGE_IN_PRODUCTION"),
-)
-CA_CERT = "certs/ca.pem"
 _SSL_CTX = ssl.create_default_context(cafile=CA_CERT)
 
 

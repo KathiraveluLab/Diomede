@@ -108,7 +108,11 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Send 8×8 DICOM to an Orthanc node via REST POST /instances"
     )
-    p.add_argument("--base-url", default="https://localhost:8042", help="Orthanc base URL")
+    p.add_argument(
+        "--base-url",
+        default=os.environ.get("ORTHANC_BASE_URL", "https://localhost:8042"),
+        help="Orthanc base URL",
+    )
     p.add_argument(
         "--user", default=os.environ.get("ORTHANC_USER", "orthanc"), help="Orthanc username"
     )
