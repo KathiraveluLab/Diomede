@@ -7,6 +7,7 @@ Usage:
 """
 
 import argparse
+import os
 import ssl
 import sys
 
@@ -62,10 +63,27 @@ def send(
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Send 8×8 DICOM to an Orthanc node via DIMSE-TLS")
-    p.add_argument("--host", default="localhost", help="Orthanc DICOM host")
-    p.add_argument("--port", type=int, default=4242, help="Orthanc DICOM port")
-    p.add_argument("--called-aet", default="Orthanc_US", help="Called AET (remote)")
-    p.add_argument("--calling-aet", default="Simulator", help="Calling AET (ours)")
+    p.add_argument(
+        "--host",
+        default=os.environ.get("ORTHANC_DICOM_HOST", "localhost"),
+        help="Orthanc DICOM host",
+    )
+    p.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("ORTHANC_DICOM_PORT", "4242")),
+        help="Orthanc DICOM port",
+    )
+    p.add_argument(
+        "--called-aet",
+        default=os.environ.get("ORTHANC_CALLED_AET", "Orthanc_US"),
+        help="Called AET (remote)",
+    )
+    p.add_argument(
+        "--calling-aet",
+        default=os.environ.get("ORTHANC_CALLING_AET", "Simulator"),
+        help="Calling AET (ours)",
+    )
     p.add_argument("--ca-cert", default=_DEFAULT_CA_CERT, help="CA certificate path")
     p.add_argument("--client-cert", default=_DEFAULT_CLIENT_CERT, help="Client certificate path")
     p.add_argument("--client-key", default=_DEFAULT_CLIENT_KEY, help="Client private-key path")

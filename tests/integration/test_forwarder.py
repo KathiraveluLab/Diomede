@@ -10,7 +10,6 @@ Requires the full Docker Compose stack to be running:
 """
 
 import io
-import os
 import time
 
 import httpx
@@ -18,26 +17,16 @@ import pytest
 from pydicom import FileDataset
 
 from src.simulator.generate_dicom import _RTT_SOP_UID, make_ct_8x8
-from tests.integration.conftest import (
-    EDGE_URL,
-    _delete_instance,
-)
+from tests.integration.conftest import _delete_instance
+from tests.integration.settings import CLOUD_URLS, EDGE_URL, ORTHANC_AUTH
 
 pytestmark = pytest.mark.integration
 
-_EDGE_AUTH = (
-    os.environ.get("ORTHANC_USER", "orthanc"),
-    os.environ.get("ORTHANC_PASSWORD", "CHANGE_IN_PRODUCTION"),
-)
+_EDGE_AUTH = ORTHANC_AUTH
 _FORWARD_TIMEOUT_S = 30  # forwarder polls every 5 s; allow several cycles
 _POLL_INTERVAL_S = 2
 
-_CLOUD_URLS = {
-    "us-east1": "https://localhost:8042",
-    "eu-west1": "https://localhost:8043",
-    "asia-northeast1": "https://localhost:8044",
-    "af-south1": "https://localhost:8045",
-}
+_CLOUD_URLS = CLOUD_URLS
 
 
 def _post_to_edge(ds: FileDataset) -> None:

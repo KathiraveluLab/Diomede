@@ -18,18 +18,23 @@ from pynetdicom.sop_class import (
 
 from src.simulator.generate_dicom import _RTT_SOP_UID, _RTT_STUDY_UID
 from src.simulator.send_dicom_native import send
-from tests.integration.conftest import CA_CERT
+from tests.integration.settings import (
+    CA_CERT,
+    CLIENT_CERT,
+    CLIENT_KEY,
+    DICOM_CALLED_AET,
+    DICOM_CALLING_AET,
+    DICOM_HOST,
+    DICOM_PORT,
+)
 
 pytestmark = pytest.mark.integration
 
-CLIENT_CERT = "certs/diomede-client/client.crt"
-CLIENT_KEY = "certs/diomede-client/client.key"
-
 _DICOM_DEFAULTS = dict(
-    host="localhost",
-    port=4242,
-    called_aet="Orthanc_US",
-    calling_aet="Simulator",
+    host=DICOM_HOST,
+    port=DICOM_PORT,
+    called_aet=DICOM_CALLED_AET,
+    calling_aet=DICOM_CALLING_AET,
     ca_cert=CA_CERT,
     client_cert=CLIENT_CERT,
     client_key=CLIENT_KEY,
@@ -176,7 +181,7 @@ class TestSSL:
         ae = AE(ae_title="Simulator")
         ae.add_requested_context(SecondaryCaptureImageStorage)
         assoc = ae.associate(
-            "localhost", 4242, ae_title="Orthanc_US", tls_args=(ssl_ctx, "localhost")
+            DICOM_HOST, DICOM_PORT, ae_title=DICOM_CALLED_AET, tls_args=(ssl_ctx, DICOM_HOST)
         )
         assert not assoc.is_established
 
@@ -200,6 +205,6 @@ class TestSSL:
         ae = AE(ae_title="Simulator")
         ae.add_requested_context(StudyRootQueryRetrieveInformationModelFind)
         assoc = ae.associate(
-            "localhost", 4242, ae_title="Orthanc_US", tls_args=(ssl_ctx, "localhost")
+            DICOM_HOST, DICOM_PORT, ae_title=DICOM_CALLED_AET, tls_args=(ssl_ctx, DICOM_HOST)
         )
         assert not assoc.is_established
