@@ -33,6 +33,7 @@ if not API_KEY:
     raise RuntimeError("ORCHESTRATOR_API_KEY environment variable must be set")
 
 _rtt_cache: dict[str, dict[str, float]] = {}
+_MAX_AGENTS = 512
 
 
 def validate_api_key(api_key_str: str = Security(api_key_header)) -> str:
@@ -162,8 +163,12 @@ async def heartbeat(
     api_key: str = Depends(validate_api_key),
 ) -> None:
     """RTT probe from the Forwarder Daemon and update the cache."""
+    if payload.agent_id in _rtt_cache:
+        _rtt_cache.pop(payload.agent_id)
+    elif len(_rtt_cache) >= _MAX_AGENTS:
+        _rtt_cache.pop(next(iter(_rtt_cache)))
     _rtt_cache[payload.agent_id] = payload.rtt_dict
-    log.info(f"rtt cache {_rtt_cache}")
+    log.info("rtt cache updated: agent=%s (%d agents cached)", payload.agent_id, len(_rtt_cache))
 
 
 @app.get("/health")

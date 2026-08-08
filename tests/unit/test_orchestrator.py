@@ -237,3 +237,38 @@ async def test_heartbeat_affects_scoring(client, fake_redis, monkeypatch):
     resp = await client.get("/get-best-node", params={"agent_id": "test-agent"})
     assert resp.status_code == 200
     assert resp.json()["node_id"] == "eu-west1"
+
+
+async def test_heartbeat_cache_is_bounded(client, monkeypatch):
+    """Regression: posting far more distinct agent_ids than the cap must not grow
+    the cache without bound (the memory-leak fix)."""
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    monkeypatch.setattr(main_module, "_MAX_AGENTS", 8)
+
+    for i in range(50):
+        resp = await client.post(
+            "/heartbeat", json={"agent_id": f"agent-{i}", "rtt_dict": {"us-east1": 42.0}}
+        )
+        assert resp.status_code == 204
+
+    assert len(main_module._rtt_cache) == 8
+
+
+async def test_heartbeat_refresh_keeps_active_agent(client, monkeypatch):
+    """An agent that keeps reporting is moved to newest, so a flood of new agents
+    evicts the idle ones, not the active one."""
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    monkeypatch.setattr(main_module, "_MAX_AGENTS", 4)
+
+    await client.post("/heartbeat", json={"agent_id": "keeper", "rtt_dict": {"us-east1": 10.0}})
+    for i in range(3):  # fill to the cap: keeper + a0..a2
+        await client.post("/heartbeat", json={"agent_id": f"a{i}", "rtt_dict": {"us-east1": 20.0}})
+
+    # Refresh keeper -> becomes newest, so it survives the next evictions.
+    await client.post("/heartbeat", json={"agent_id": "keeper", "rtt_dict": {"us-east1": 11.0}})
+    for i in range(3, 6):  # three new agents evict a0, a1, a2 (the oldest), not keeper
+        await client.post("/heartbeat", json={"agent_id": f"a{i}", "rtt_dict": {"us-east1": 30.0}})
+
+    assert "keeper" in main_module._rtt_cache
+    assert main_module._rtt_cache["keeper"] == {"us-east1": 11.0}
+    assert len(main_module._rtt_cache) == 4
