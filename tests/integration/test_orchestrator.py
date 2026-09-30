@@ -132,14 +132,17 @@ def test_failover_when_best_node_goes_down():
         _start_container(container)
 
 
-def test_invalid_agent_id():
-    invalid_id = "agent-invalid"
+def test_unknown_agent_id_uses_default_scoring():
+    unknown_id = "agent-unknown"
 
     resp = httpx.get(
         f"{ORCH_URL}/get-best-node",
-        params={"agent_id": invalid_id},
+        params={"agent_id": unknown_id},
         headers=_AUTH_HEADERS,
         verify=_SSL_CTX,
         timeout=10,
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200
+    node = resp.json()
+    assert node["healthy"] is True
+    assert node["rtt_ms"] is None
