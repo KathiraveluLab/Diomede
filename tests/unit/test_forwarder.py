@@ -35,6 +35,11 @@ _INSTANCES_MULTIPLE = ["abc123", "def456"]
 _INSTANCES_EMPTY: list[str] = []
 
 
+@pytest.fixture(autouse=True)
+def _reset_pending_ack(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "_pending_ack", set())
+
+
 class _StubSource(DicomSource):
     """Controllable DicomSource for forwarder unit tests."""
 
@@ -306,6 +311,75 @@ async def test_route_instance_acknowledge_failure_does_not_raise(monkeypatch):
     source = _StubSource(ack_raises=ConnectError("timeout"))
     async with AsyncClient() as client:
         await route_instance(client, source, "abc123")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_route_instance_retries_failed_acknowledge_without_reforwarding(monkeypatch):
+    """After a failed acknowledge, the next poll only retries the delete, not the upload."""
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(
+        forwarder_module,
+        "CLOUD_NODES",
+        {"us-east1": {"base": "http://orthanc-us:8042", "auth": ("orthanc", "orthanc")}},
+    )
+    orch_route = respx.get(_ORCH_URL).mock(return_value=Response(200, json=_BEST_NODE_RESP))
+    post_route = respx.post("http://orthanc-us:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource(ack_raises=ConnectError("timeout"))
+    async with AsyncClient() as client:
+        await route_instance(client, source, "abc123")
+        assert "abc123" in forwarder_module._pending_ack
+
+        await route_instance(client, source, "abc123")
+        assert "abc123" in forwarder_module._pending_ack
+
+        source.ack_raises = None
+        await route_instance(client, source, "abc123")
+
+    assert orch_route.call_count == 1
+    assert post_route.call_count == 1
+    assert source.fetched == ["abc123"]
+    assert source.acknowledged == ["abc123"]
+    assert forwarder_module._pending_ack == set()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_route_instance_successful_acknowledge_is_not_tracked(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(
+        forwarder_module,
+        "CLOUD_NODES",
+        {"us-east1": {"base": "http://orthanc-us:8042", "auth": ("orthanc", "orthanc")}},
+    )
+    respx.get(_ORCH_URL).mock(return_value=Response(200, json=_BEST_NODE_RESP))
+    respx.post("http://orthanc-us:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    async with AsyncClient() as client:
+        await route_instance(client, _StubSource(), "abc123")
+
+    assert forwarder_module._pending_ack == set()
+
+
+@pytest.mark.asyncio
+async def test_forward_loop_drops_pending_ack_for_instances_no_longer_buffered(monkeypatch):
+    """An instance removed from the edge buffer by other means stops being tracked."""
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 0)
+    forwarder_module._pending_ack.add("gone")
+
+    task = asyncio.create_task(forwarder_module.forward_loop(_StubSource(instance_ids=[])))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert forwarder_module._pending_ack == set()
 
 
 @respx.mock
