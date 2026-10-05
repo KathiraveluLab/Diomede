@@ -237,3 +237,15 @@ async def test_heartbeat_affects_scoring(client, fake_redis, monkeypatch):
     resp = await client.get("/get-best-node", params={"agent_id": "test-agent"})
     assert resp.status_code == 200
     assert resp.json()["node_id"] == "eu-west1"
+
+
+async def test_unknown_agent_falls_back_to_default_scoring(client, fake_redis, monkeypatch):
+    """An agent with no heartbeat yet is still routed, even if other agents have RTT data."""
+    monkeypatch.setattr(main_module, "_rtt_cache", {"other-agent": {"us-east1": 10.0}})
+    await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
+
+    resp = await client.get("/get-best-node", params={"agent_id": "new-agent"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["node_id"] == "us-east1"
+    assert data["rtt_ms"] is None
