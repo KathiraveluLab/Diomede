@@ -53,8 +53,21 @@ CLOUD_NODES: dict[str, _NodeCfg] = {
 }
 
 
+_pending_ack: set[str] = set()
+
+
 def _orch_headers() -> dict[str, str]:
     return {"X-API-Key": ORCH_API_KEY}
+
+
+async def _acknowledge(client: httpx.AsyncClient, source: DicomSource, instance_id: str) -> None:
+    try:
+        await source.acknowledge(client, instance_id)
+    except Exception as exc:
+        log.warning("instance=%s acknowledge failed: %s", instance_id, exc)
+        _pending_ack.add(instance_id)
+    else:
+        _pending_ack.discard(instance_id)
 
 
 async def route_instance(
@@ -63,6 +76,10 @@ async def route_instance(
     instance_id: str,
 ) -> None:
     """Forward to the best node and delete the local copy."""
+
+    if instance_id in _pending_ack:
+        await _acknowledge(client, source, instance_id)
+        return
 
     # 1. Ask the Orchestrator for the best destination (before downloading anything).
     try:
@@ -104,10 +121,7 @@ async def route_instance(
     log.info("instance=%s routed -> %s (score=%.4f)", instance_id, node_id, best.get("score", 0))
 
     # 3. Acknowledge (delete local copy) only after a confirmed successful forward.
-    try:
-        await source.acknowledge(client, instance_id)
-    except Exception as exc:
-        log.warning("instance=%s acknowledge failed: %s", instance_id, exc)
+    await _acknowledge(client, source, instance_id)
 
 
 async def forward_loop(source: DicomSource) -> None:
@@ -116,6 +130,7 @@ async def forward_loop(source: DicomSource) -> None:
         try:
             async with httpx.AsyncClient(verify=_VERIFY) as client:
                 instance_ids = await source.poll_new(client)
+                _pending_ack.intersection_update(instance_ids)
                 for instance_id in instance_ids:
                     await route_instance(client, source, instance_id)
         except Exception as exc:
