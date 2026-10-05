@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, field_validator
+from redis.exceptions import RedisError
 
 from src.utils.env import require_env
 from src.utils.logging_config import get_logger
@@ -107,7 +108,11 @@ async def _get_nodes() -> list[dict[str, Any]]:
     if not keys:
         raise HTTPException(status_code=503, detail="No node telemetry available")
 
-    raw = await _redis.mget(*keys)
+    try:
+        raw = await _redis.mget(*keys)
+    except RedisError as exc:
+        log.warning("Redis unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Telemetry store unavailable") from exc
     log.info(f"Fetched raw nodes: {raw}")
 
     nodes = [json.loads(node) for node in raw if node is not None]

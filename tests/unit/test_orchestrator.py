@@ -189,6 +189,22 @@ async def test_nodes_each_item_matches_schema(client, fake_redis):
         NodeResponse.model_validate(item)
 
 
+@pytest.mark.parametrize("path", ["/nodes", "/get-best-node?agent_id=test-agent"])
+async def test_returns_503_when_redis_unreachable(monkeypatch, path):
+    server = fakeredis.FakeServer()
+    server.connected = False
+    monkeypatch.setattr(
+        main_module, "_redis", fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-API-Key": _TEST_API_KEY},
+    ) as c:
+        resp = await c.get(path)
+    assert resp.status_code == 503
+
+
 async def test_nodes_returns_503_when_redis_uninitialized(monkeypatch):
     monkeypatch.setattr(main_module, "_redis", None)
     async with AsyncClient(
