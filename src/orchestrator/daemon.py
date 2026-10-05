@@ -26,6 +26,7 @@ REDIS_URL = require_env("REDIS_URL")
 POLL_INTERVAL_S = int(require_env("DAEMON_POLL_INTERVAL_S"))
 REDIS_TTL_S = int(require_env("REDIS_TTL_S"))
 HTTP_TIMEOUT_S = float(require_env("HTTP_TIMEOUT_S"))
+POLL_DEADLINE_S = 3 * HTTP_TIMEOUT_S
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
 
 
@@ -82,23 +83,24 @@ async def poll_node(
     assert isinstance(auth, tuple)
 
     try:
-        stats_resp = await client.get(f"{base}/statistics", auth=auth, timeout=HTTP_TIMEOUT_S)
-        stats_resp.raise_for_status()
-        stats = stats_resp.json()
+        async with asyncio.timeout(POLL_DEADLINE_S):
+            stats_resp = await client.get(f"{base}/statistics", auth=auth, timeout=HTTP_TIMEOUT_S)
+            stats_resp.raise_for_status()
+            stats = stats_resp.json()
 
-        if node_id not in node_quota_map:
-            system_resp = await client.get(f"{base}/system", auth=auth, timeout=HTTP_TIMEOUT_S)
-            system_resp.raise_for_status()
-            system = system_resp.json()
-            log.debug("System info for %s: %s", node_id, system)
-            node_quota_map[node_id] = system.get("MaximumStorageSize")
+            if node_id not in node_quota_map:
+                system_resp = await client.get(f"{base}/system", auth=auth, timeout=HTTP_TIMEOUT_S)
+                system_resp.raise_for_status()
+                system = system_resp.json()
+                log.debug("System info for %s: %s", node_id, system)
+                node_quota_map[node_id] = system.get("MaximumStorageSize")
 
-        log.debug("Statistics for %s: %s", node_id, stats)
+            log.debug("Statistics for %s: %s", node_id, stats)
 
-        # /jobs?expand returns full job objects; plain /jobs returns only IDs.
-        jobs_resp = await client.get(f"{base}/jobs?expand", auth=auth, timeout=HTTP_TIMEOUT_S)
-        jobs_resp.raise_for_status()
-        jobs = jobs_resp.json()
+            # /jobs?expand returns full job objects; plain /jobs returns only IDs.
+            jobs_resp = await client.get(f"{base}/jobs?expand", auth=auth, timeout=HTTP_TIMEOUT_S)
+            jobs_resp.raise_for_status()
+            jobs = jobs_resp.json()
 
         queue_size = len([j for j in jobs if j.get("State") in ("Pending", "Running")])
 
@@ -130,7 +132,7 @@ async def poll_node(
         )
 
     except Exception as exc:
-        log.warning("node=%-15s unreachable: %s", node_id, exc)
+        log.warning("node=%-15s unreachable: %r", node_id, exc)
         payload = {
             "node_id": node_id,
             "ae_title": cfg["ae_title"],
@@ -153,8 +155,20 @@ def _warn_default_creds() -> None:
         )
 
 
+def _warn_short_ttl() -> None:
+    if POLL_INTERVAL_S + POLL_DEADLINE_S >= REDIS_TTL_S:
+        log.warning(
+            "REDIS_TTL_S=%ds is not longer than a worst-case poll cycle (%ds interval + %.0fs "
+            "deadline); node telemetry can expire between polls.",
+            REDIS_TTL_S,
+            POLL_INTERVAL_S,
+            POLL_DEADLINE_S,
+        )
+
+
 async def run() -> None:
     _warn_default_creds()
+    _warn_short_ttl()
 
     redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     verify: str | bool = CA_CERT if CA_CERT else True
