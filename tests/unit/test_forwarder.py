@@ -82,41 +82,50 @@ class _StubSource(DicomSource):
         self.acknowledged.append(instance_id)
 
 
+def _series(study_id: str, *instance_ids: str) -> dict:
+    return {
+        "ID": f"series-{instance_ids[0]}",
+        "ParentStudy": study_id,
+        "Instances": list(instance_ids),
+    }
+
+
 @respx.mock
 @pytest.mark.asyncio
-async def test_poll_new_groups_instances_by_study():
-    respx.get(f"{_EDGE_BASE}/studies").mock(return_value=Response(200, json=["s1", "s2"]))
-    respx.get(f"{_EDGE_BASE}/studies/s1/instances").mock(
-        return_value=Response(200, json=[{"ID": "abc123"}, {"ID": "def456"}])
+async def test_poll_new_groups_instances_by_study_in_one_request():
+    route = respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(
+            200,
+            json=[_series("s1", "abc123"), _series("s1", "def456"), _series("s2", "ghi789")],
+        )
     )
-    respx.get(f"{_EDGE_BASE}/studies/s2/instances").mock(
-        return_value=Response(200, json=[{"ID": "ghi789"}])
-    )
-    source = OrthancSource(base=_EDGE_BASE)
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=False)
     async with AsyncClient() as client:
         studies = await source.poll_new(client)
     assert studies == {"s1": ["abc123", "def456"], "s2": ["ghi789"]}
+    assert route.call_count == 1
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_poll_new_returns_empty_dict_when_no_studies():
-    respx.get(f"{_EDGE_BASE}/studies").mock(return_value=Response(200, json=[]))
-    source = OrthancSource(base=_EDGE_BASE)
+async def test_poll_new_returns_empty_dict_when_buffer_empty():
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(return_value=Response(200, json=[]))
+    studies_route = respx.get(f"{_EDGE_BASE}/studies?expand")
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=True)
     async with AsyncClient() as client:
         studies = await source.poll_new(client)
     assert studies == {}
+    assert not studies_route.called
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_poll_new_skips_study_deleted_between_requests():
-    respx.get(f"{_EDGE_BASE}/studies").mock(return_value=Response(200, json=["gone", "s1"]))
-    respx.get(f"{_EDGE_BASE}/studies/gone/instances").mock(return_value=Response(404))
-    respx.get(f"{_EDGE_BASE}/studies/s1/instances").mock(
-        return_value=Response(200, json=[{"ID": "abc123"}])
+async def test_poll_new_skips_series_without_instances():
+    empty = {"ID": "series-x", "ParentStudy": "s9", "Instances": []}
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(200, json=[empty, _series("s1", "abc123")])
     )
-    source = OrthancSource(base=_EDGE_BASE)
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=False)
     async with AsyncClient() as client:
         studies = await source.poll_new(client)
     assert studies == {"s1": ["abc123"]}
@@ -124,8 +133,39 @@ async def test_poll_new_skips_study_deleted_between_requests():
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_poll_new_waits_for_stable_study_when_enabled():
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(200, json=[_series("s1", "abc123"), _series("s2", "def456")])
+    )
+    respx.get(f"{_EDGE_BASE}/studies?expand").mock(
+        return_value=Response(
+            200, json=[{"ID": "s1", "IsStable": True}, {"ID": "s2", "IsStable": False}]
+        )
+    )
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=True)
+    async with AsyncClient() as client:
+        studies = await source.poll_new(client)
+    assert studies == {"s1": ["abc123"]}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_ignores_stability_when_disabled():
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(200, json=[_series("s2", "def456")])
+    )
+    studies_route = respx.get(f"{_EDGE_BASE}/studies?expand")
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=False)
+    async with AsyncClient() as client:
+        studies = await source.poll_new(client)
+    assert studies == {"s2": ["def456"]}
+    assert not studies_route.called
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_poll_new_raises_on_http_error():
-    respx.get(f"{_EDGE_BASE}/studies").mock(return_value=Response(500))
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(return_value=Response(500))
     source = OrthancSource(base=_EDGE_BASE)
     async with AsyncClient() as client:
         with pytest.raises(HTTPStatusError):

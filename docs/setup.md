@@ -115,6 +115,9 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
 - **`STUDY_AFFINITY_TTL_S`** (optional, default `3600`) — how long the
   Orchestrator keeps a study pinned to its node after the last routing request
   for that study (see *Study affinity* in `docs/architecture.md`).
+- **`FORWARDER_WAIT_FOR_STABLE_STUDY`** (optional, default `false`) — set to `true`
+  to route a study only after Edge Orthanc marks it stable (no new instance for
+  Orthanc's `StableAge`, 60 s by default).
 
 `.env` is gitignored and must never be committed.
 

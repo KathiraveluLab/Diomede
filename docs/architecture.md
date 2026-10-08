@@ -47,8 +47,9 @@ spoke.
 1. Scanner sends DICOM C-STORE → Edge Orthanc (production path), or simulation
    script POSTs raw DICOM bytes to `POST /instances` on the Edge Orthanc REST
    API (test path, which is identical from the Forwarder's perspective)
-2. Forwarder polls Edge Orthanc every 5 s (`GET /studies`, then
-   `GET /studies/{id}/instances`) and groups buffered instances by study
+2. Forwarder polls Edge Orthanc every 5 s with one `GET /series?expand` and groups
+   buffered instances by their parent study. With `FORWARDER_WAIT_FOR_STABLE_STUDY=true`
+   it also calls `GET /studies?expand` and only routes studies Orthanc marks stable
 3. Forwarder queries `GET /orchestrator:8000/get-best-node?agent_id=...&study_id=...`
    once per study
 4. Orchestrator returns the node the study is pinned to, or scores all healthy
@@ -74,13 +75,23 @@ would see an incomplete series. Diomede therefore routes per study:
   now scores higher, and refresh the TTL. Expired keys clean themselves up.
 - If the pinned node is unhealthy or its telemetry key has expired, the study is
   re-pinned to the current best node, a warning is logged, and the response carries
-  `"rerouted": true` so the split is visible to operators.
+  `"rerouted": true` so the split is visible to operators. The re-pin is a
+  compare-and-set (`WATCH`/`MULTI`/`EXEC`): it only succeeds if the key still holds
+  the dead node. When two agents notice the dead node at the same moment, one wins and
+  the other follows its choice instead of overwriting it. If the pin keeps changing
+  for three attempts, the request returns `503` and the forwarder retries next poll.
 - If a forward fails part way through a study, the remaining instances stay in the
   edge buffer. The next poll asks again and gets the same node (or the re-pinned one),
   so nothing is lost and nothing is uploaded twice.
 
 Requests without `study_id` keep the old per-instance behaviour, so the Orchestrator
 and the edge agents can be upgraded independently.
+
+**Waiting for complete studies (optional).** By default a study is routed as soon as
+its first instances reach the edge; later instances follow the pin. With
+`FORWARDER_WAIT_FOR_STABLE_STUDY=true` the Forwarder waits until Orthanc marks the
+study stable, i.e. no new instance arrived for `StableAge` seconds (Orthanc default
+60 s). This delays delivery by up to `StableAge` but routes each study in one go.
 
 ## 4. Scoring Algorithm
 

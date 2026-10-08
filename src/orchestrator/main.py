@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, field_validator
-from redis.exceptions import RedisError
+from redis.exceptions import RedisError, WatchError
 
 from src.utils.env import require_env
 from src.utils.logging_config import get_logger
@@ -40,6 +40,9 @@ API_KEY = require_env("ORCHESTRATOR_API_KEY")
 
 # How long a study stays pinned to its node after its last routing request.
 STUDY_AFFINITY_TTL_S = int(os.getenv("STUDY_AFFINITY_TTL_S", "3600"))
+
+# Attempts to settle a study's pin when other agents keep changing it concurrently.
+_PIN_ATTEMPTS = 3
 
 _rtt_cache: dict[str, dict[str, float]] = {}
 
@@ -186,30 +189,50 @@ async def _route_study(
     study_id: str, best_node: dict[str, Any], healthy: dict[str, dict[str, Any]]
 ) -> BestNodeResponse:
     """Return the node study_id is pinned to, pinning or re-pinning it to best_node if needed."""
-    assert _redis is not None  # checked by _get_nodes()
+    redis = _redis
+    assert redis is not None  # checked by _get_nodes()
     key = f"study:{study_id}"
+    best_id = best_node["node_id"]
 
-    pinned = await _redis.get(key)
-    if pinned is None:
-        # NX: when two agents race on a new study, the first writer wins.
-        if await _redis.set(key, best_node["node_id"], nx=True, ex=STUDY_AFFINITY_TTL_S):
-            log.info("study=%s pinned to %s", study_id, best_node["node_id"])
-            return BestNodeResponse.model_validate({**best_node, "study_id": study_id})
-        pinned = await _redis.get(key)
+    for _ in range(_PIN_ATTEMPTS):
+        pinned = await redis.get(key)
+        if pinned is None:
+            # NX: when two agents race on a new study, the first writer wins.
+            if await redis.set(key, best_id, nx=True, ex=STUDY_AFFINITY_TTL_S):
+                log.info("study=%s pinned to %s", study_id, best_id)
+                return BestNodeResponse.model_validate({**best_node, "study_id": study_id})
+            continue
 
-    if pinned in healthy:
-        await _redis.expire(key, STUDY_AFFINITY_TTL_S)
-        return BestNodeResponse.model_validate({**healthy[pinned], "study_id": study_id})
+        if pinned in healthy:
+            await redis.expire(key, STUDY_AFFINITY_TTL_S)
+            return BestNodeResponse.model_validate({**healthy[pinned], "study_id": study_id})
 
-    # Pinned node is unhealthy or its telemetry expired: move the rest of the study.
-    await _redis.set(key, best_node["node_id"], ex=STUDY_AFFINITY_TTL_S)
-    log.warning(
-        "study=%s re-pinned from unavailable node %s to %s",
-        study_id,
-        pinned,
-        best_node["node_id"],
-    )
-    return BestNodeResponse.model_validate({**best_node, "study_id": study_id, "rerouted": True})
+        # Pinned node is unhealthy or its telemetry expired: move the rest of the study,
+        # unless another agent already moved it since we read the pin.
+        if await _replace_pin(redis, key, pinned, best_id):
+            log.warning(
+                "study=%s re-pinned from unavailable node %s to %s", study_id, pinned, best_id
+            )
+            return BestNodeResponse.model_validate(
+                {**best_node, "study_id": study_id, "rerouted": True}
+            )
+
+    raise HTTPException(status_code=503, detail="Study assignment is changing, retry later")
+
+
+async def _replace_pin(redis: aioredis.Redis[str], key: str, old: str, new: str) -> bool:
+    """Atomically set key to new only if it still holds old (compare-and-set)."""
+    async with redis.pipeline(transaction=True) as pipe:
+        try:
+            await pipe.watch(key)
+            if await pipe.get(key) != old:
+                return False
+            pipe.multi()
+            pipe.set(key, new, ex=STUDY_AFFINITY_TTL_S)
+            await pipe.execute()
+        except WatchError:
+            return False
+    return True
 
 
 @app.post("/heartbeat", status_code=204)

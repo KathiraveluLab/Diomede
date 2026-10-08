@@ -355,12 +355,12 @@ async def test_study_nx_race_second_writer_gets_first_writers_node(client, fake_
     await _seed(fake_redis, us_queue=0, eu_queue=20)
 
     real_get = fake_redis.get
-    calls = 0
+    raced = False
 
     async def racing_get(key):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
+        nonlocal raced
+        if key == "study:s1" and not raced:
+            raced = True
             await fake_redis.set(key, "eu-west1")  # the other agent wins the race
             return None
         return await real_get(key)
@@ -378,3 +378,73 @@ async def test_invalid_study_id_rejected(client, fake_redis, study_id):
         "/get-best-node", params={"agent_id": "test-agent", "study_id": study_id}
     )
     assert resp.status_code == 422
+
+
+# Atomic re-pin (compare-and-set)
+async def test_replace_pin_succeeds_when_key_unchanged(fake_redis):
+    await fake_redis.set("study:s1", "eu-west1")
+    assert await main_module._replace_pin(fake_redis, "study:s1", "eu-west1", "us-east1")
+    assert await fake_redis.get("study:s1") == "us-east1"
+
+
+async def test_replace_pin_fails_when_another_agent_already_moved_it(fake_redis):
+    await fake_redis.set("study:s1", "asia-northeast1")
+    assert not await main_module._replace_pin(fake_redis, "study:s1", "eu-west1", "us-east1")
+    assert await fake_redis.get("study:s1") == "asia-northeast1"
+
+
+async def test_replace_pin_fails_when_key_changes_after_watch(fake_redis, monkeypatch):
+    """Another agent writes between WATCH and EXEC: the transaction must abort."""
+    await fake_redis.set("study:s1", "eu-west1")
+    other = fakeredis.aioredis.FakeRedis(
+        connection_pool=fake_redis.connection_pool, decode_responses=True
+    )
+    real_pipeline = fake_redis.pipeline
+
+    def racing_pipeline(*args, **kwargs):
+        pipe = real_pipeline(*args, **kwargs)
+        real_watch = pipe.watch
+
+        async def watch(*keys):
+            await real_watch(*keys)
+            await other.set("study:s1", "asia-northeast1")
+
+        pipe.watch = watch
+        return pipe
+
+    monkeypatch.setattr(fake_redis, "pipeline", racing_pipeline)
+    assert not await main_module._replace_pin(fake_redis, "study:s1", "eu-west1", "us-east1")
+    assert await other.get("study:s1") == "asia-northeast1"
+
+
+async def test_concurrent_repin_follows_other_agents_choice(client, fake_redis, monkeypatch):
+    """If another agent re-pinned the study first, use its node instead of overwriting it."""
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await _seed(fake_redis, us_queue=0, eu_queue=0, eu_healthy=False)
+    await fake_redis.set(
+        "node:asia-northeast1",
+        json.dumps({**_HEALTHY_NODE, "node_id": "asia-northeast1", "queue_size": 20}),
+    )
+    await fake_redis.set("study:s1", "eu-west1")
+
+    async def other_agent_wins(redis, key, old, new):
+        await redis.set(key, "asia-northeast1")
+        return False
+
+    monkeypatch.setattr(main_module, "_replace_pin", other_agent_wins)
+    data = await _best(client, "s1")
+    assert data["node_id"] == "asia-northeast1"
+    assert await fake_redis.get("study:s1") == "asia-northeast1"
+
+
+async def test_pin_gives_up_with_503_when_it_never_settles(client, fake_redis, monkeypatch):
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await _seed(fake_redis, us_queue=0, eu_queue=0, eu_healthy=False)
+    await fake_redis.set("study:s1", "eu-west1")
+
+    async def always_lose(redis, key, old, new):
+        return False
+
+    monkeypatch.setattr(main_module, "_replace_pin", always_lose)
+    resp = await client.get("/get-best-node", params={"agent_id": "test-agent", "study_id": "s1"})
+    assert resp.status_code == 503
