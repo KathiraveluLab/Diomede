@@ -9,7 +9,7 @@ import respx
 from httpx import AsyncClient, ConnectError, HTTPStatusError, Response
 
 import src.edge.forwarder as forwarder_module
-from src.edge.forwarder import CLOUD_NODES, route_instance
+from src.edge.forwarder import CLOUD_NODES, route_study
 from src.edge.orthanc_source import OrthancSource
 from src.edge.transport import DicomSource
 
@@ -30,9 +30,8 @@ _BEST_NODE_RESP = {
     "rtt_ms": 45.0,
 }
 
-_INSTANCES_ONE = ["abc123"]
-_INSTANCES_MULTIPLE = ["abc123", "def456"]
-_INSTANCES_EMPTY: list[str] = []
+_STUDY = "study-1"
+_US_ONLY = {"us-east1": {"base": "http://orthanc-us:8042", "auth": ("orthanc", "orthanc")}}
 
 
 @pytest.fixture(autouse=True)
@@ -45,20 +44,22 @@ class _StubSource(DicomSource):
 
     def __init__(
         self,
-        instance_ids: list[str] | None = None,
+        studies: dict[str, list[str]] | None = None,
         dcm_bytes: bytes = _DCM_BYTES,
         fetch_raises: Exception | None = None,
         ack_raises: Exception | None = None,
+        fetch_raises_for: set[str] | None = None,
     ) -> None:
-        self.instance_ids = instance_ids or []
+        self.studies = studies or {}
         self.dcm_bytes = dcm_bytes
         self.fetch_raises = fetch_raises
         self.ack_raises = ack_raises
+        self.fetch_raises_for = fetch_raises_for or set()
         self.fetched: list[str] = []
         self.acknowledged: list[str] = []
 
-    async def poll_new(self, client: AsyncClient) -> list[str]:
-        return self.instance_ids
+    async def poll_new(self, client: AsyncClient) -> dict[str, list[str]]:
+        return self.studies
 
     @asynccontextmanager
     async def open_stream(
@@ -66,6 +67,8 @@ class _StubSource(DicomSource):
     ) -> AsyncIterator[AsyncIterator[bytes]]:
         if self.fetch_raises:
             raise self.fetch_raises
+        if instance_id in self.fetch_raises_for:
+            raise ConnectError("edge read failed")
         self.fetched.append(instance_id)
 
         async def _body() -> AsyncIterator[bytes]:
@@ -79,40 +82,90 @@ class _StubSource(DicomSource):
         self.acknowledged.append(instance_id)
 
 
-@respx.mock
-@pytest.mark.asyncio
-async def test_poll_new_returns_new_instance_ids():
-    respx.get(f"{_EDGE_BASE}/instances").mock(return_value=Response(200, json=_INSTANCES_ONE))
-    source = OrthancSource(base=_EDGE_BASE)
-    async with AsyncClient() as client:
-        ids = await source.poll_new(client)
-    assert ids == ["abc123"]
+def _series(study_id: str, *instance_ids: str) -> dict:
+    return {
+        "ID": f"series-{instance_ids[0]}",
+        "ParentStudy": study_id,
+        "Instances": list(instance_ids),
+    }
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_poll_new_returns_multiple_instance_ids():
-    respx.get(f"{_EDGE_BASE}/instances").mock(return_value=Response(200, json=_INSTANCES_MULTIPLE))
-    source = OrthancSource(base=_EDGE_BASE)
+async def test_poll_new_groups_instances_by_study_in_one_request():
+    route = respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(
+            200,
+            json=[_series("s1", "abc123"), _series("s1", "def456"), _series("s2", "ghi789")],
+        )
+    )
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=False)
     async with AsyncClient() as client:
-        ids = await source.poll_new(client)
-    assert ids == ["abc123", "def456"]
+        studies = await source.poll_new(client)
+    assert studies == {"s1": ["abc123", "def456"], "s2": ["ghi789"]}
+    assert route.call_count == 1
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_poll_new_returns_empty_list_when_no_instances():
-    respx.get(f"{_EDGE_BASE}/instances").mock(return_value=Response(200, json=_INSTANCES_EMPTY))
-    source = OrthancSource(base=_EDGE_BASE)
+async def test_poll_new_returns_empty_dict_when_buffer_empty():
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(return_value=Response(200, json=[]))
+    studies_route = respx.get(f"{_EDGE_BASE}/studies?expand")
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=True)
     async with AsyncClient() as client:
-        ids = await source.poll_new(client)
-    assert ids == []
+        studies = await source.poll_new(client)
+    assert studies == {}
+    assert not studies_route.called
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_skips_series_without_instances():
+    empty = {"ID": "series-x", "ParentStudy": "s9", "Instances": []}
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(200, json=[empty, _series("s1", "abc123")])
+    )
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=False)
+    async with AsyncClient() as client:
+        studies = await source.poll_new(client)
+    assert studies == {"s1": ["abc123"]}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_waits_for_stable_study_when_enabled():
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(200, json=[_series("s1", "abc123"), _series("s2", "def456")])
+    )
+    respx.get(f"{_EDGE_BASE}/studies?expand").mock(
+        return_value=Response(
+            200, json=[{"ID": "s1", "IsStable": True}, {"ID": "s2", "IsStable": False}]
+        )
+    )
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=True)
+    async with AsyncClient() as client:
+        studies = await source.poll_new(client)
+    assert studies == {"s1": ["abc123"]}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_ignores_stability_when_disabled():
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(200, json=[_series("s2", "def456")])
+    )
+    studies_route = respx.get(f"{_EDGE_BASE}/studies?expand")
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=False)
+    async with AsyncClient() as client:
+        studies = await source.poll_new(client)
+    assert studies == {"s2": ["def456"]}
+    assert not studies_route.called
 
 
 @respx.mock
 @pytest.mark.asyncio
 async def test_poll_new_raises_on_http_error():
-    respx.get(f"{_EDGE_BASE}/instances").mock(return_value=Response(500))
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(return_value=Response(500))
     source = OrthancSource(base=_EDGE_BASE)
     async with AsyncClient() as client:
         with pytest.raises(HTTPStatusError):
@@ -165,7 +218,7 @@ async def test_acknowledge_raises_on_http_error():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_route_instance_happy_path(monkeypatch):
+async def test_route_study_happy_path(monkeypatch):
     monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
     monkeypatch.setattr(
         forwarder_module,
@@ -185,7 +238,7 @@ async def test_route_instance_happy_path(monkeypatch):
 
     source = _StubSource(dcm_bytes=_DCM_BYTES)
     async with AsyncClient() as client:
-        await route_instance(client, source, "abc123")
+        await route_study(client, source, _STUDY, ["abc123"])
 
     assert source.fetched == ["abc123"]
     assert source.acknowledged == ["abc123"]
@@ -195,7 +248,7 @@ async def test_route_instance_happy_path(monkeypatch):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_route_instance_sets_dicom_content_type(monkeypatch):
+async def test_route_study_sets_dicom_content_type(monkeypatch):
     monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
     monkeypatch.setattr(
         forwarder_module,
@@ -208,14 +261,14 @@ async def test_route_instance_sets_dicom_content_type(monkeypatch):
     )
 
     async with AsyncClient() as client:
-        await route_instance(client, _StubSource(), "abc123")
+        await route_study(client, _StubSource(), _STUDY, ["abc123"])
 
     assert post_route.calls[0].request.headers["content-type"] == "application/dicom"
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_route_instance_stream_failure_skips_forward(monkeypatch):
+async def test_route_study_stream_failure_skips_forward(monkeypatch):
     """A failed edge read (stream open) → no cloud POST and no acknowledge."""
     monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
     monkeypatch.setattr(
@@ -228,7 +281,7 @@ async def test_route_instance_stream_failure_skips_forward(monkeypatch):
 
     source = _StubSource(fetch_raises=ConnectError("timeout"))
     async with AsyncClient() as client:
-        await route_instance(client, source, "abc123")
+        await route_study(client, source, _STUDY, ["abc123"])
 
     assert not post_route.called
     assert source.acknowledged == []
@@ -236,7 +289,7 @@ async def test_route_instance_stream_failure_skips_forward(monkeypatch):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_route_instance_orchestrator_failure_aborts_early(monkeypatch):
+async def test_route_study_orchestrator_failure_aborts_early(monkeypatch):
     """Orchestrator failure → cloud POST never called, no acknowledge."""
     monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
     monkeypatch.setattr(
@@ -249,7 +302,7 @@ async def test_route_instance_orchestrator_failure_aborts_early(monkeypatch):
 
     source = _StubSource()
     async with AsyncClient() as client:
-        await route_instance(client, source, "abc123")
+        await route_study(client, source, _STUDY, ["abc123"])
 
     assert not post_route.called
     assert source.acknowledged == []
@@ -257,7 +310,7 @@ async def test_route_instance_orchestrator_failure_aborts_early(monkeypatch):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_route_instance_unknown_node_id_aborts_early(monkeypatch):
+async def test_route_study_unknown_node_id_aborts_early(monkeypatch):
     """Orchestrator returns a node_id not in CLOUD_NODES → no POST, no acknowledge."""
     monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
     monkeypatch.setattr(forwarder_module, "CLOUD_NODES", {})
@@ -267,7 +320,7 @@ async def test_route_instance_unknown_node_id_aborts_early(monkeypatch):
 
     source = _StubSource()
     async with AsyncClient() as client:
-        await route_instance(client, source, "abc123")
+        await route_study(client, source, _STUDY, ["abc123"])
 
     assert not post_route.called
     assert source.acknowledged == []
@@ -275,7 +328,7 @@ async def test_route_instance_unknown_node_id_aborts_early(monkeypatch):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_route_instance_cloud_post_failure_skips_acknowledge(monkeypatch):
+async def test_route_study_cloud_post_failure_skips_acknowledge(monkeypatch):
     """Cloud POST failure → acknowledge (delete) must NOT be called to avoid data loss."""
     monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
     monkeypatch.setattr(
@@ -288,14 +341,14 @@ async def test_route_instance_cloud_post_failure_skips_acknowledge(monkeypatch):
 
     source = _StubSource()
     async with AsyncClient() as client:
-        await route_instance(client, source, "abc123")
+        await route_study(client, source, _STUDY, ["abc123"])
 
     assert source.acknowledged == []
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_route_instance_acknowledge_failure_does_not_raise(monkeypatch):
+async def test_route_study_acknowledge_failure_does_not_raise(monkeypatch):
     """Acknowledge failure is logged as a warning — the function must not propagate."""
     monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
     monkeypatch.setattr(
@@ -310,12 +363,12 @@ async def test_route_instance_acknowledge_failure_does_not_raise(monkeypatch):
 
     source = _StubSource(ack_raises=ConnectError("timeout"))
     async with AsyncClient() as client:
-        await route_instance(client, source, "abc123")
+        await route_study(client, source, _STUDY, ["abc123"])
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_route_instance_retries_failed_acknowledge_without_reforwarding(monkeypatch):
+async def test_route_study_retries_failed_acknowledge_without_reforwarding(monkeypatch):
     """After a failed acknowledge, the next poll only retries the delete, not the upload."""
     monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
     monkeypatch.setattr(
@@ -330,14 +383,14 @@ async def test_route_instance_retries_failed_acknowledge_without_reforwarding(mo
 
     source = _StubSource(ack_raises=ConnectError("timeout"))
     async with AsyncClient() as client:
-        await route_instance(client, source, "abc123")
+        await route_study(client, source, _STUDY, ["abc123"])
         assert "abc123" in forwarder_module._pending_ack
 
-        await route_instance(client, source, "abc123")
+        await route_study(client, source, _STUDY, ["abc123"])
         assert "abc123" in forwarder_module._pending_ack
 
         source.ack_raises = None
-        await route_instance(client, source, "abc123")
+        await route_study(client, source, _STUDY, ["abc123"])
 
     assert orch_route.call_count == 1
     assert post_route.call_count == 1
@@ -348,7 +401,7 @@ async def test_route_instance_retries_failed_acknowledge_without_reforwarding(mo
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_route_instance_successful_acknowledge_is_not_tracked(monkeypatch):
+async def test_route_study_successful_acknowledge_is_not_tracked(monkeypatch):
     monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
     monkeypatch.setattr(
         forwarder_module,
@@ -361,9 +414,97 @@ async def test_route_instance_successful_acknowledge_is_not_tracked(monkeypatch)
     )
 
     async with AsyncClient() as client:
-        await route_instance(client, _StubSource(), "abc123")
+        await route_study(client, _StubSource(), _STUDY, ["abc123"])
 
     assert forwarder_module._pending_ack == set()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_route_study_one_orchestrator_call_for_whole_study(monkeypatch):
+    """Every instance of a study goes to the node from a single orchestrator call."""
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    orch_route = respx.get(_ORCH_URL).mock(return_value=Response(200, json=_BEST_NODE_RESP))
+    post_route = respx.post("http://orthanc-us:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    instance_ids = ["i1", "i2", "i3"]
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, instance_ids)
+
+    assert orch_route.call_count == 1
+    assert orch_route.calls[0].request.url.params["study_id"] == _STUDY
+    assert post_route.call_count == 3
+    assert source.acknowledged == instance_ids
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_route_study_partial_failure_leaves_rest_on_edge(monkeypatch):
+    """A failed forward stops the study; unsent instances stay on the edge for the next poll."""
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    orch_route = respx.get(_ORCH_URL).mock(return_value=Response(200, json=_BEST_NODE_RESP))
+    post_route = respx.post("http://orthanc-us:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource(fetch_raises_for={"i2"})
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1", "i2", "i3"])
+        assert source.acknowledged == ["i1"]
+        assert post_route.call_count == 1
+
+        # Next poll: i1 is gone from the edge, i2 and i3 are routed with the same study_id.
+        source.fetch_raises_for = set()
+        await route_study(client, source, _STUDY, ["i2", "i3"])
+
+    assert source.acknowledged == ["i1", "i2", "i3"]
+    assert post_route.call_count == 3
+    assert orch_route.call_count == 2
+    assert all(c.request.url.params["study_id"] == _STUDY for c in orch_route.calls)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_route_study_skips_orchestrator_when_only_pending_acks(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    orch_route = respx.get(_ORCH_URL).mock(return_value=Response(200, json=_BEST_NODE_RESP))
+    forwarder_module._pending_ack.add("abc123")
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["abc123"])
+
+    assert not orch_route.called
+    assert source.acknowledged == ["abc123"]
+    assert forwarder_module._pending_ack == set()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_forward_loop_routes_each_study_once(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 3600)
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    orch_route = respx.get(_ORCH_URL).mock(return_value=Response(200, json=_BEST_NODE_RESP))
+    respx.post("http://orthanc-us:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource(studies={"s1": ["a", "b"], "s2": ["c"]})
+    task = asyncio.create_task(forwarder_module.forward_loop(source))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert sorted(c.request.url.params["study_id"] for c in orch_route.calls) == ["s1", "s2"]
+    assert source.acknowledged == ["a", "b", "c"]
 
 
 @pytest.mark.asyncio
@@ -373,7 +514,7 @@ async def test_forward_loop_drops_pending_ack_for_instances_no_longer_buffered(m
     monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 0)
     forwarder_module._pending_ack.add("gone")
 
-    task = asyncio.create_task(forwarder_module.forward_loop(_StubSource(instance_ids=[])))
+    task = asyncio.create_task(forwarder_module.forward_loop(_StubSource(studies={})))
     await asyncio.sleep(0.05)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
