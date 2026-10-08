@@ -142,3 +142,10 @@ def test_forwarded_file_is_intact():
         timeout=30,
     )
     resp.raise_for_status()
+
+
+def test_edge_rejects_new_instances_when_storage_is_full():
+    """A full edge must refuse new instances, not recycle ones that were never forwarded."""
+    resp = httpx.get(f"{EDGE_URL}/system", auth=_EDGE_AUTH, verify=False, timeout=10)
+    resp.raise_for_status()
+    assert resp.json()["MaximumStorageMode"] == "Reject"
