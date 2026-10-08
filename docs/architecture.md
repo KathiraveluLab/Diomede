@@ -61,14 +61,17 @@ for alternative implementations (round-robin, latency-only, ML-based, etc.) with
 
 ```
 score = W_queue × (1 / (queue_size + 1))
-      + W_disk  × (disk_free_mb / disk_total_mb)
+      + W_disk  × (disk_free_mb / disk_total_mb)   # 1.0 when the node has no quota
       + W_rtt   × (1 / (rtt_ms / rtt_ref_ms + 1))
 ```
 
 Each term is an inverse-cost signal normalized to `(0, 1]`: a shorter queue, more
 free disk, and lower RTT all raise the score, and the highest-scoring node wins.
-Default weights `W_queue=0.5`, `W_disk=0.15`, `W_rtt=0.35` (configurable via
-environment variables) and reference `rtt_ref_ms=100`. If a node has never reported
+Default weights `W_queue=0.5`, `W_disk=0.15`, `W_rtt=0.35`, overridable with the
+`W_QUEUE`, `W_DISK` and `W_RTT` environment variables (finite, non-negative numbers;
+the orchestrator fails at startup on invalid values), and reference `rtt_ref_ms=100`.
+A node with `MaximumStorageSize = 0` has no storage quota, so the daemon reports its
+free and total disk as unknown (`null`) and the disk term counts as full headroom. If a node has never reported
 an RTT, the scorer falls back to a neutral default so decisions degrade gracefully
 to queue depth and disk space rather than failing.
 
@@ -84,7 +87,7 @@ Every routing decision requires a synchronous call to `GET /get-best-node`, whic
 
 **Automatic container restart.** The orchestrator container runs with `restart: unless-stopped`, so Docker restarts it automatically on process crashes. Node health data repopulates within one Telemetry Daemon poll cycle (10 s), bounding the recovery window to roughly 10–30 s in practice.
 
-**Last-known-node fallback.** The Forwarder caches the last successful routing response in memory (`_last_best_node` in `forwarder.py`). If the Orchestrator is temporarily unreachable, the Forwarder reuses the previous best node rather than dropping the instance. Forwarding continues at reduced optimality since routing decisions are stale but still valid till the Orchestrator recovers and the next successful response refreshes the cache.
+**Buffered retry at the edge.** If the Orchestrator is unreachable or returns an error, the Forwarder does not guess a destination. It leaves the instance in the Edge Orthanc buffer and asks again on the next poll (every `FORWARDER_POLL_INTERVAL_S`), so nothing is dropped; delivery is only delayed until the Orchestrator recovers.
 
 **Planned enhancements:**
 

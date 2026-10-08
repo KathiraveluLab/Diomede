@@ -265,3 +265,62 @@ async def test_unknown_agent_falls_back_to_default_scoring(client, fake_redis, m
     data = resp.json()
     assert data["node_id"] == "us-east1"
     assert data["rtt_ms"] is None
+
+
+# Scoring weights from environment
+def test_weights_read_from_env(monkeypatch):
+    monkeypatch.setenv("W_QUEUE", "0.1")
+    monkeypatch.setenv("W_DISK", "0.2")
+    monkeypatch.setenv("W_RTT", "0.7")
+    scorer = WeightedScorer()
+    assert (scorer.w_queue, scorer.w_disk, scorer.w_rtt) == (0.1, 0.2, 0.7)
+
+
+def test_weights_default_when_env_unset(monkeypatch):
+    for name in ("W_QUEUE", "W_DISK", "W_RTT"):
+        monkeypatch.delenv(name, raising=False)
+    scorer = WeightedScorer()
+    assert (scorer.w_queue, scorer.w_disk, scorer.w_rtt) == (0.5, 0.15, 0.35)
+
+
+def test_explicit_weights_override_env(monkeypatch):
+    monkeypatch.setenv("W_QUEUE", "0.9")
+    assert WeightedScorer(w_queue=0.3).w_queue == 0.3
+
+
+@pytest.mark.parametrize("value", ["abc", "-0.1", "nan", "inf", "-inf"])
+def test_invalid_weight_env_rejected(monkeypatch, value):
+    monkeypatch.setenv("W_DISK", value)
+    with pytest.raises(ValueError, match="W_DISK"):
+        WeightedScorer()
+
+
+def test_env_weights_change_the_winner(monkeypatch):
+    """With only the disk term weighted, the node with more free disk wins."""
+    monkeypatch.setenv("W_QUEUE", "0")
+    monkeypatch.setenv("W_DISK", "1")
+    monkeypatch.setenv("W_RTT", "0")
+    scorer = WeightedScorer()
+    busy_but_empty = {**_NODE, "queue_size": 50, "disk_free_mb": 9000.0}
+    idle_but_full = {**_NODE, "queue_size": 0, "disk_free_mb": 1000.0}
+    assert scorer.score(busy_but_empty) > scorer.score(idle_but_full)
+
+
+async def test_startup_fails_on_invalid_weight(monkeypatch):
+    """A bad weight stops the orchestrator at startup instead of failing every request."""
+    import src.orchestrator.scorer as scorer_module
+
+    monkeypatch.setattr(scorer_module, "_SCORER_INSTANCE", None)
+    monkeypatch.setenv("W_QUEUE", "abc")
+    with pytest.raises(ValueError, match="W_QUEUE"):
+        async with main_module.lifespan(app):
+            pass
+
+
+# Unlimited storage (no quota)
+def test_unknown_disk_scores_as_full_headroom():
+    scorer = WeightedScorer()
+    unlimited = {**_NODE, "disk_free_mb": None, "disk_total_mb": None}
+    full_quota = {**_NODE, "disk_free_mb": 10_000.0, "disk_total_mb": 10_000}
+    assert scorer.score(unlimited) == pytest.approx(scorer.score(full_quota))
+    assert scorer.score(unlimited) > scorer.score({**_NODE, "disk_free_mb": 0.0})
