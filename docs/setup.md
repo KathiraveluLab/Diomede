@@ -112,6 +112,10 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
   endpoint) and the Forwarder (sent as `X-API-Key`). Both services fail fast at
   startup if it is missing.
 
+- **`W_QUEUE`, `W_DISK`, `W_RTT`** (optional, defaults `0.5`, `0.15`, `0.35`) —
+  scoring weights for the Orchestrator. Must be finite, non-negative numbers; the
+  Orchestrator refuses to start otherwise.
+
 `.env` is gitignored and must never be committed.
 
 ## Step 5 — Generate TLS certificates
