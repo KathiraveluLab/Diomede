@@ -70,69 +70,105 @@ async def _acknowledge(client: httpx.AsyncClient, source: DicomSource, instance_
         _pending_ack.discard(instance_id)
 
 
-async def route_instance(
+async def route_study(
     client: httpx.AsyncClient,
     source: DicomSource,
-    instance_id: str,
+    study_id: str,
+    instance_ids: list[str],
 ) -> None:
-    """Forward to the best node and delete the local copy."""
+    """Forward every instance of one study to a single node and delete the local copies.
 
-    if instance_id in _pending_ack:
-        await _acknowledge(client, source, instance_id)
+    The orchestrator pins the study to one node, so instances left on the edge after a
+    failure follow the same node on the next poll (or a new one if it became unhealthy).
+    """
+
+    # Already forwarded: only retry the delete, never upload twice.
+    to_forward: list[str] = []
+    for instance_id in instance_ids:
+        if instance_id in _pending_ack:
+            await _acknowledge(client, source, instance_id)
+        else:
+            to_forward.append(instance_id)
+    if not to_forward:
         return
 
-    # 1. Ask the Orchestrator for the best destination (before downloading anything).
+    # 1. Ask the Orchestrator for the study's destination (before downloading anything).
     try:
         best_resp = await client.get(
-            ORCH_URL, params={"agent_id": AGENT_ID}, headers=_orch_headers(), timeout=5
+            ORCH_URL,
+            params={"agent_id": AGENT_ID, "study_id": study_id},
+            headers=_orch_headers(),
+            timeout=5,
         )
         best_resp.raise_for_status()
         best = best_resp.json()
     except Exception as exc:
-        log.error("instance=%s orchestrator query failed: %s", instance_id, exc)
+        log.error("study=%s orchestrator query failed: %s", study_id, exc)
         return
 
     node_id = best.get("node_id")
     if not node_id:
-        log.error("instance=%s orchestrator response missing 'node_id'", instance_id)
+        log.error("study=%s orchestrator response missing 'node_id'", study_id)
         return
 
     node_cfg = CLOUD_NODES.get(node_id)
     if not node_cfg:
-        log.error("instance=%s unknown node_id '%s' from orchestrator", instance_id, node_id)
+        log.error("study=%s unknown node_id '%s' from orchestrator", study_id, node_id)
         return
 
-    # 2. Stream the DICOM straight from the edge buffer to the cloud node so the file
-    #    is never fully buffered in memory (safe for arbitrarily large instances).
-    try:
-        async with source.open_stream(client, instance_id) as body:
-            post_resp = await client.post(
-                f"{node_cfg['base']}/instances",
-                content=body,
-                headers={"Content-Type": "application/dicom"},
-                auth=node_cfg["auth"],
-                timeout=120,
+    if best.get("rerouted"):
+        log.warning(
+            "study=%s re-pinned to %s; its earlier node became unavailable", study_id, node_id
+        )
+
+    for i, instance_id in enumerate(to_forward):
+        # 2. Stream the DICOM straight from the edge buffer to the cloud node so the file
+        #    is never fully buffered in memory (safe for arbitrarily large instances).
+        try:
+            async with source.open_stream(client, instance_id) as body:
+                post_resp = await client.post(
+                    f"{node_cfg['base']}/instances",
+                    content=body,
+                    headers={"Content-Type": "application/dicom"},
+                    auth=node_cfg["auth"],
+                    timeout=120,
+                )
+                post_resp.raise_for_status()
+        except Exception as exc:
+            # Leave this and the remaining instances on the edge for the next poll.
+            log.error(
+                "study=%s instance=%s forward to %s failed: %s (%d instances left on edge)",
+                study_id,
+                instance_id,
+                node_id,
+                exc,
+                len(to_forward) - i,
             )
-            post_resp.raise_for_status()
-    except Exception as exc:
-        log.error("instance=%s forward to %s failed: %s", instance_id, node_id, exc)
-        return
+            return
 
-    log.info("instance=%s routed -> %s (score=%.4f)", instance_id, node_id, best.get("score", 0))
+        log.info(
+            "study=%s instance=%s routed -> %s (score=%.4f)",
+            study_id,
+            instance_id,
+            node_id,
+            best.get("score") or 0,
+        )
 
-    # 3. Acknowledge (delete local copy) only after a confirmed successful forward.
-    await _acknowledge(client, source, instance_id)
+        # 3. Acknowledge (delete local copy) only after a confirmed successful forward.
+        await _acknowledge(client, source, instance_id)
 
 
 async def forward_loop(source: DicomSource) -> None:
-    """Poll the DicomSource every POLL_INTERVAL_S seconds and route new instances."""
+    """Poll the DicomSource every POLL_INTERVAL_S seconds and route new studies."""
     while True:
         try:
             async with httpx.AsyncClient(verify=_VERIFY) as client:
-                instance_ids = await source.poll_new(client)
-                _pending_ack.intersection_update(instance_ids)
-                for instance_id in instance_ids:
-                    await route_instance(client, source, instance_id)
+                studies = await source.poll_new(client)
+                _pending_ack.intersection_update(
+                    instance_id for ids in studies.values() for instance_id in ids
+                )
+                for study_id, instance_ids in studies.items():
+                    await route_study(client, source, study_id, instance_ids)
         except Exception as exc:
             log.warning("forward_loop error: %s", exc)
         await asyncio.sleep(POLL_INTERVAL_S)
