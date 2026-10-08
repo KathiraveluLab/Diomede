@@ -118,6 +118,8 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
 - **`FORWARDER_WAIT_FOR_STABLE_STUDY`** (optional, default `false`) — set to `true`
   to route a study only after Edge Orthanc marks it stable (no new instance for
   Orthanc's `StableAge`, 60 s by default).
+- **`RTT_TTL_S`** (optional, default `10800`) — how long an edge agent's RTT
+  measurements are kept without a new heartbeat. Keep it above `PROBE_INTERVAL_S`.
 
 `.env` is gitignored and must never be committed.
 
