@@ -11,7 +11,7 @@ from httpx import ASGITransport, AsyncClient
 
 import src.orchestrator.main as main_module
 import src.orchestrator.weighted_scorer  # noqa: F401 — triggers self-registration
-from src.orchestrator.main import NodeResponse, _rtt_cache, app
+from src.orchestrator.main import NodeResponse, app
 from src.orchestrator.scorer import get_scorer
 from src.orchestrator.weighted_scorer import WeightedScorer
 
@@ -116,7 +116,7 @@ async def test_all_unhealthy_returns_503(client, fake_redis):
 
 
 async def test_returns_best_healthy_node(client, fake_redis):
-    _rtt_cache["test-agent"] = {"us-east1": 42.0}
+    await fake_redis.set("rtt:test-agent", json.dumps({"us-east1": 42.0}))
     best = {**_HEALTHY_NODE, "queue_size": 0}
     worse = {**_HEALTHY_NODE, "node_id": "eu-west1", "ae_title": "Orthanc_EU", "queue_size": 20}
     await fake_redis.set("node:us-east1", json.dumps(best))
@@ -224,21 +224,19 @@ async def test_heartbeat_returns_204(client):
     assert resp.status_code == 204
 
 
-async def test_heartbeat_updates_rtt_cache(client, monkeypatch):
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
+async def test_heartbeat_stores_rtt_in_redis(client, fake_redis):
     await client.post("/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 42.0}})
-    assert main_module._rtt_cache["test-agent"] == {"us-east1": 42.0}
+    assert json.loads(await fake_redis.get("rtt:test-agent")) == {"us-east1": 42.0}
 
 
-async def test_heartbeat_overwrites_existing_rtt(client, monkeypatch):
-    monkeypatch.setattr(main_module, "_rtt_cache", {"test-agent": {"us-east1": 100.0}})
+async def test_heartbeat_overwrites_existing_rtt(client, fake_redis):
+    await fake_redis.set("rtt:test-agent", json.dumps({"us-east1": 100.0}))
     await client.post("/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 25.0}})
-    assert main_module._rtt_cache["test-agent"] == {"us-east1": 25.0}
+    assert json.loads(await fake_redis.get("rtt:test-agent")) == {"us-east1": 25.0}
 
 
 async def test_heartbeat_affects_scoring(client, fake_redis, monkeypatch):
     """Node with lower RTT in cache should be preferred over one with higher RTT."""
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     node_us = {**_HEALTHY_NODE, "node_id": "us-east1", "queue_size": 0}
     node_eu = {**_HEALTHY_NODE, "node_id": "eu-west1", "ae_title": "Orthanc_EU", "queue_size": 0}
     await fake_redis.set("node:us-east1", json.dumps(node_us))
@@ -257,7 +255,7 @@ async def test_heartbeat_affects_scoring(client, fake_redis, monkeypatch):
 
 async def test_unknown_agent_falls_back_to_default_scoring(client, fake_redis, monkeypatch):
     """An agent with no heartbeat yet is still routed, even if other agents have RTT data."""
-    monkeypatch.setattr(main_module, "_rtt_cache", {"other-agent": {"us-east1": 10.0}})
+    await fake_redis.set("rtt:other-agent", json.dumps({"us-east1": 10.0}))
     await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
 
     resp = await client.get("/get-best-node", params={"agent_id": "new-agent"})
@@ -288,7 +286,6 @@ async def _best(client, study_id: str | None = None):
 
 
 async def test_without_study_id_does_not_pin(client, fake_redis, monkeypatch):
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     await _seed(fake_redis, us_queue=0, eu_queue=20)
     data = await _best(client)
     assert data["node_id"] == "us-east1"
@@ -298,7 +295,6 @@ async def test_without_study_id_does_not_pin(client, fake_redis, monkeypatch):
 
 
 async def test_first_study_request_pins_best_node(client, fake_redis, monkeypatch):
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     await _seed(fake_redis, us_queue=0, eu_queue=20)
     data = await _best(client, "s1")
     assert data["node_id"] == "us-east1"
@@ -311,7 +307,6 @@ async def test_first_study_request_pins_best_node(client, fake_redis, monkeypatc
 async def test_study_stays_on_pinned_node_when_another_scores_higher(
     client, fake_redis, monkeypatch
 ):
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     await _seed(fake_redis, us_queue=0, eu_queue=20)
     await _best(client, "s1")
 
@@ -323,7 +318,6 @@ async def test_study_stays_on_pinned_node_when_another_scores_higher(
 
 
 async def test_pinned_hit_refreshes_ttl(client, fake_redis, monkeypatch):
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     await _seed(fake_redis, us_queue=0, eu_queue=20)
     await fake_redis.set("study:s1", "us-east1", ex=5)
     await _best(client, "s1")
@@ -331,7 +325,6 @@ async def test_pinned_hit_refreshes_ttl(client, fake_redis, monkeypatch):
 
 
 async def test_study_repinned_when_pinned_node_unhealthy(client, fake_redis, monkeypatch):
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     await _seed(fake_redis, us_queue=20, eu_queue=0, eu_healthy=False)
     await fake_redis.set("study:s1", "eu-west1")
     data = await _best(client, "s1")
@@ -341,7 +334,6 @@ async def test_study_repinned_when_pinned_node_unhealthy(client, fake_redis, mon
 
 
 async def test_study_repinned_when_pinned_node_telemetry_expired(client, fake_redis, monkeypatch):
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
     await fake_redis.set("study:s1", "eu-west1")  # no node:eu-west1 key at all
     data = await _best(client, "s1")
@@ -351,7 +343,6 @@ async def test_study_repinned_when_pinned_node_telemetry_expired(client, fake_re
 
 async def test_study_nx_race_second_writer_gets_first_writers_node(client, fake_redis, monkeypatch):
     """Another agent pins the study between our GET and SET NX: we must follow its choice."""
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     await _seed(fake_redis, us_queue=0, eu_queue=20)
 
     real_get = fake_redis.get
@@ -419,7 +410,6 @@ async def test_replace_pin_fails_when_key_changes_after_watch(fake_redis, monkey
 
 async def test_concurrent_repin_follows_other_agents_choice(client, fake_redis, monkeypatch):
     """If another agent re-pinned the study first, use its node instead of overwriting it."""
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     await _seed(fake_redis, us_queue=0, eu_queue=0, eu_healthy=False)
     await fake_redis.set(
         "node:asia-northeast1",
@@ -438,7 +428,6 @@ async def test_concurrent_repin_follows_other_agents_choice(client, fake_redis, 
 
 
 async def test_pin_gives_up_with_503_when_it_never_settles(client, fake_redis, monkeypatch):
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     await _seed(fake_redis, us_queue=0, eu_queue=0, eu_healthy=False)
     await fake_redis.set("study:s1", "eu-west1")
 
@@ -447,4 +436,39 @@ async def test_pin_gives_up_with_503_when_it_never_settles(client, fake_redis, m
 
     monkeypatch.setattr(main_module, "_replace_pin", always_lose)
     resp = await client.get("/get-best-node", params={"agent_id": "test-agent", "study_id": "s1"})
+    assert resp.status_code == 503
+
+
+# RTT stored in Redis
+async def test_heartbeat_rtt_expires(client, fake_redis):
+    """An agent that stops sending heartbeats does not keep its old RTTs forever."""
+    await client.post("/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 42.0}})
+    assert 0 < await fake_redis.ttl("rtt:test-agent") <= main_module.RTT_TTL_S
+
+
+async def test_rtt_shared_between_orchestrator_instances(client, fake_redis):
+    """RTT lives in Redis, so a restarted or second orchestrator sees the same data."""
+    await client.post(
+        "/heartbeat",
+        json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 500.0, "eu-west1": 10.0}},
+    )
+    await _seed(fake_redis, us_queue=0, eu_queue=0)
+    assert await fake_redis.get("rtt:test-agent") is not None
+    assert (await _best(client))["node_id"] == "eu-west1"
+
+
+async def test_heartbeat_returns_503_when_redis_unreachable(monkeypatch):
+    server = fakeredis.FakeServer()
+    server.connected = False
+    monkeypatch.setattr(
+        main_module, "_redis", fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-API-Key": _TEST_API_KEY},
+    ) as c:
+        resp = await c.post(
+            "/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 45.0}}
+        )
     assert resp.status_code == 503

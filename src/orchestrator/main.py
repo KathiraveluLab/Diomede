@@ -44,7 +44,9 @@ STUDY_AFFINITY_TTL_S = int(os.getenv("STUDY_AFFINITY_TTL_S", "3600"))
 # Attempts to settle a study's pin when other agents keep changing it concurrently.
 _PIN_ATTEMPTS = 3
 
-_rtt_cache: dict[str, dict[str, float]] = {}
+# How long an agent's RTT measurements stay valid without a new heartbeat. Must exceed
+# the edge PROBE_INTERVAL_S (default 3600 s) so a healthy agent never loses its RTTs.
+RTT_TTL_S = int(os.getenv("RTT_TTL_S", "10800"))
 
 
 def validate_api_key(api_key_str: str = Security(api_key_header)) -> str:
@@ -163,10 +165,17 @@ async def get_best_node(
     if not healthy:
         raise HTTPException(status_code=503, detail="No healthy nodes available")
 
-    agent_rtt = _rtt_cache.get(agent_id)
-    if agent_rtt is None:
+    assert _redis is not None  # checked by _get_nodes()
+    try:
+        raw_rtt = await _redis.get(f"rtt:{agent_id}")
+    except RedisError as exc:
+        log.warning("Redis unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Telemetry store unavailable") from exc
+    if raw_rtt is None:
         log.warning("No RTT data for agent %s; falling back to default scoring", agent_id)
-        agent_rtt = {}
+        agent_rtt: dict[str, float] = {}
+    else:
+        agent_rtt = json.loads(raw_rtt)
 
     for node in healthy:
         rtt = agent_rtt.get(node["node_id"])
@@ -240,9 +249,15 @@ async def heartbeat(
     payload: HeartbeatPayload,
     api_key: str = Depends(validate_api_key),
 ) -> None:
-    """RTT probe from the Forwarder Daemon and update the cache."""
-    _rtt_cache[payload.agent_id] = payload.rtt_dict
-    log.info(f"rtt cache {_rtt_cache}")
+    """Store the RTT probe from the Forwarder Daemon in Redis, shared by all replicas."""
+    if _redis is None:
+        raise HTTPException(status_code=503, detail="Redis client not initialized")
+    try:
+        await _redis.set(f"rtt:{payload.agent_id}", json.dumps(payload.rtt_dict), ex=RTT_TTL_S)
+    except RedisError as exc:
+        log.warning("Redis unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Telemetry store unavailable") from exc
+    log.info("rtt agent=%s %s", payload.agent_id, payload.rtt_dict)
 
 
 @app.get("/health")

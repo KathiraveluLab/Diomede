@@ -127,9 +127,9 @@ Every routing decision requires a synchronous call to `GET /get-best-node`, whic
 
 **Planned enhancements:**
 
-- *Redis persistence and standalone deployment.* Redis currently runs inside the orchestrator container, so a restart clears all state including the RTT measurements that are gathered only once per hour. Currently routing degrades gracefully because the scorer defaults to 250 ms RTT for all nodes, neutralising the RTT term so decisions fall back to queue depth and disk space rather than failing entirely. One enhancement is to move Redis to a standalone service with AOF (Append-Only File) persistence, which would preserve RTT history across restarts, fully restoring routing quality immediately rather than waiting for the next hourly probe cycle.
+- *Redis persistence and standalone deployment.* RTT measurements and study pins are stored in Redis (`rtt:{agent_id}`, `study:{study_id}`), so they are shared by every Orchestrator process. Both keys expire (`RTT_TTL_S`, `STUDY_AFFINITY_TTL_S`), so an agent that stops sending heartbeats does not leave stale RTTs behind. Redis itself still runs inside the orchestrator container, so restarting the container clears all state including the RTT measurements that are gathered only once per hour. Currently routing degrades gracefully because the scorer defaults to 250 ms RTT for all nodes, neutralising the RTT term so decisions fall back to queue depth and disk space rather than failing entirely. One enhancement is to move Redis to a standalone service with AOF (Append-Only File) persistence, which would preserve RTT history across restarts, fully restoring routing quality immediately rather than waiting for the next hourly probe cycle.
 
-- *Horizontal scaling.* With Redis externalised, the Orchestrator becomes fully stateless and can run as multiple replicas behind a load balancer, eliminating any single process as a SPOF.
+- *Horizontal scaling.* The Orchestrator keeps no routing state in memory any more, so with Redis externalised it is fully stateless and can run as multiple replicas behind a load balancer, eliminating any single process as a SPOF.
 
 ### 6.2 Security
 
