@@ -3,18 +3,23 @@ FastAPI app for the Diomede orchestrator.
 
 Exposes a single endpoint that reads the latest node telemetry from Redis
 (written by the telemetry daemon) and returns the best healthy destination.
+
+When the caller passes a study_id, the first decision for that study is pinned in
+Redis (study:{study_id}) so every later instance of the study goes to the same node.
+The study is only moved if its pinned node becomes unhealthy or drops out of telemetry.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Security, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, field_validator
 from redis.exceptions import RedisError
@@ -32,6 +37,9 @@ load_dotenv()
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 API_KEY = require_env("ORCHESTRATOR_API_KEY")
+
+# How long a study stays pinned to its node after its last routing request.
+STUDY_AFFINITY_TTL_S = int(os.getenv("STUDY_AFFINITY_TTL_S", "3600"))
 
 _rtt_cache: dict[str, dict[str, float]] = {}
 
@@ -60,6 +68,8 @@ class NodeResponse(BaseModel):
 class BestNodeResponse(NodeResponse):
     rtt_ms: float | None = None
     score: float | None = None
+    study_id: str | None = None
+    rerouted: bool = False
 
 
 # {"agent_id": {"us-east1": 10000, "eu-west1": 10000, "af-south1": 10000, "asia-northeast1": 10}}
@@ -135,9 +145,14 @@ async def get_nodes(api_key: str = Depends(validate_api_key)) -> list[NodeRespon
 
 @app.get("/get-best-node")
 async def get_best_node(
-    agent_id: str, api_key: str = Depends(validate_api_key)
+    agent_id: str,
+    study_id: str | None = Query(default=None, max_length=128, pattern=r"^[A-Za-z0-9.\-]+$"),
+    api_key: str = Depends(validate_api_key),
 ) -> BestNodeResponse:
-    """Return the highest-scoring healthy node in Redis."""
+    """Return the highest-scoring healthy node in Redis.
+
+    With study_id, return the node the study is pinned to while it stays healthy.
+    """
     node_list = await _get_nodes()
 
     scorer = get_scorer()
@@ -157,7 +172,44 @@ async def get_best_node(
             node["rtt_ms"] = rtt
             log.info(f"Node rtt_ms: {node['node_id']} = {node['rtt_ms']}")
     best_node = max(healthy, key=scorer.score)
-    return BestNodeResponse.model_validate(best_node)
+    if study_id is None:
+        return BestNodeResponse.model_validate(best_node)
+
+    try:
+        return await _route_study(study_id, best_node, {n["node_id"]: n for n in healthy})
+    except RedisError as exc:
+        log.warning("Redis unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Telemetry store unavailable") from exc
+
+
+async def _route_study(
+    study_id: str, best_node: dict[str, Any], healthy: dict[str, dict[str, Any]]
+) -> BestNodeResponse:
+    """Return the node study_id is pinned to, pinning or re-pinning it to best_node if needed."""
+    assert _redis is not None  # checked by _get_nodes()
+    key = f"study:{study_id}"
+
+    pinned = await _redis.get(key)
+    if pinned is None:
+        # NX: when two agents race on a new study, the first writer wins.
+        if await _redis.set(key, best_node["node_id"], nx=True, ex=STUDY_AFFINITY_TTL_S):
+            log.info("study=%s pinned to %s", study_id, best_node["node_id"])
+            return BestNodeResponse.model_validate({**best_node, "study_id": study_id})
+        pinned = await _redis.get(key)
+
+    if pinned in healthy:
+        await _redis.expire(key, STUDY_AFFINITY_TTL_S)
+        return BestNodeResponse.model_validate({**healthy[pinned], "study_id": study_id})
+
+    # Pinned node is unhealthy or its telemetry expired: move the rest of the study.
+    await _redis.set(key, best_node["node_id"], ex=STUDY_AFFINITY_TTL_S)
+    log.warning(
+        "study=%s re-pinned from unavailable node %s to %s",
+        study_id,
+        pinned,
+        best_node["node_id"],
+    )
+    return BestNodeResponse.model_validate({**best_node, "study_id": study_id, "rerouted": True})
 
 
 @app.post("/heartbeat", status_code=204)

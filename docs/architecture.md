@@ -47,12 +47,40 @@ spoke.
 1. Scanner sends DICOM C-STORE → Edge Orthanc (production path), or simulation
    script POSTs raw DICOM bytes to `POST /instances` on the Edge Orthanc REST
    API (test path, which is identical from the Forwarder's perspective)
-2. Forwarder polls `GET /changes` every 5 s and detects `NewInstance`
-3. Forwarder queries `GET /orchestrator:8000/get-best-node`
-4. Orchestrator scores all healthy Redis entries, returns winner
-5. Forwarder downloads `GET /instances/{id}/file` from Edge Orthanc
-6. Forwarder posts raw DICOM bytes to `POST /target-node:8042/instances`
-7. Forwarder deletes instance from Edge Orthanc (`DELETE /instances/{id}`)
+2. Forwarder polls Edge Orthanc every 5 s (`GET /studies`, then
+   `GET /studies/{id}/instances`) and groups buffered instances by study
+3. Forwarder queries `GET /orchestrator:8000/get-best-node?agent_id=...&study_id=...`
+   once per study
+4. Orchestrator returns the node the study is pinned to, or scores all healthy
+   Redis entries and pins the winner (see 3.2)
+5. For each instance of the study, Forwarder streams `GET /instances/{id}/file`
+   from Edge Orthanc
+6. ... and posts the raw DICOM bytes to `POST /target-node:8042/instances`
+7. Forwarder deletes each forwarded instance from Edge Orthanc (`DELETE /instances/{id}`)
+
+## 3.2 Study Affinity
+
+A CT or MR study can hold hundreds of instances, and node scores change while it
+is being forwarded (telemetry refreshes, disk fills, new RTT values). Routing each
+instance on its own could split one study across several regions, so a radiologist
+would see an incomplete series. Diomede therefore routes per study:
+
+- The Forwarder sends the Orthanc study ID with each routing request. This ID is an
+  opaque hash, not the StudyInstanceUID, so no PHI reaches the Orchestrator or logs.
+- The first request for a study scores the healthy nodes and stores the winner with
+  `SET study:{study_id} <node_id> NX EX STUDY_AFFINITY_TTL_S`. `NX` makes the first
+  writer win, so two edge agents racing on one study get the same node.
+- Later requests return the pinned node while it is healthy, even if another node
+  now scores higher, and refresh the TTL. Expired keys clean themselves up.
+- If the pinned node is unhealthy or its telemetry key has expired, the study is
+  re-pinned to the current best node, a warning is logged, and the response carries
+  `"rerouted": true` so the split is visible to operators.
+- If a forward fails part way through a study, the remaining instances stay in the
+  edge buffer. The next poll asks again and gets the same node (or the re-pinned one),
+  so nothing is lost and nothing is uploaded twice.
+
+Requests without `study_id` keep the old per-instance behaviour, so the Orchestrator
+and the edge agents can be upgraded independently.
 
 ## 4. Scoring Algorithm
 

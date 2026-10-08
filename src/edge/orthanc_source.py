@@ -1,7 +1,8 @@
 """
 edge/orthanc_source.py – DicomSource backed by the Edge Orthanc REST API.
 
-Polls GET /instances for NewInstance events, streams raw DICOM bytes via
+Polls GET /studies and GET /studies/{id}/instances for buffered instances
+grouped by Orthanc study ID, streams raw DICOM bytes via
 GET /instances/{id}/file, and acknowledges by deleting the local copy.
 """
 
@@ -36,17 +37,33 @@ class OrthancSource(DicomSource):
         self._auth = auth
         self._last_seq: int = 0
 
-    async def poll_new(self, client: httpx.AsyncClient) -> list[str]:
-        """Return all instance IDs currently in the Edge Orthanc buffer."""
-        resp = await client.get(
-            f"{self._base}/instances",
-            auth=self._auth,
-            timeout=10,
-        )
+    async def poll_new(self, client: httpx.AsyncClient) -> dict[str, list[str]]:
+        """Return all instance IDs in the Edge Orthanc buffer, keyed by Orthanc study ID.
+
+        The Orthanc study ID is an opaque hash, not the StudyInstanceUID, so it is
+        safe to log and to pass to the orchestrator.
+        """
+        resp = await client.get(f"{self._base}/studies", auth=self._auth, timeout=10)
         resp.raise_for_status()
-        log.info("New instances: %s", resp.json())
-        list_response: list[str] = resp.json()
-        return list_response
+        study_ids: list[str] = resp.json()
+
+        studies: dict[str, list[str]] = {}
+        for study_id in study_ids:
+            resp = await client.get(
+                f"{self._base}/studies/{study_id}/instances", auth=self._auth, timeout=10
+            )
+            if resp.status_code == 404:
+                continue  # study deleted between the two requests
+            resp.raise_for_status()
+            instance_ids = [instance["ID"] for instance in resp.json()]
+            if instance_ids:
+                studies[study_id] = instance_ids
+        log.info(
+            "New instances: %d in %d studies",
+            sum(len(ids) for ids in studies.values()),
+            len(studies),
+        )
+        return studies
 
     @asynccontextmanager
     async def open_stream(

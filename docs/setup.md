@@ -112,6 +112,10 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
   endpoint) and the Forwarder (sent as `X-API-Key`). Both services fail fast at
   startup if it is missing.
 
+- **`STUDY_AFFINITY_TTL_S`** (optional, default `3600`) — how long the
+  Orchestrator keeps a study pinned to its node after the last routing request
+  for that study (see *Study affinity* in `docs/architecture.md`).
+
 `.env` is gitignored and must never be committed.
 
 ## Step 5 — Generate TLS certificates
@@ -190,6 +194,10 @@ verification of the self-signed cert):
 # Best node for routing
 curl -k -H "X-API-Key: your-api-key-here" \
   "https://localhost:8000/get-best-node?agent_id=agent-001"
+
+# Best node for one study: the first call pins the study, later calls return the
+# same node while it stays healthy ("rerouted": true if the study had to move)
+curl -k -H "X-API-Key: your-api-key-here"   "https://localhost:8000/get-best-node?agent_id=agent-001&study_id=<orthanc-study-id>"
 
 # All registered nodes and their current telemetry
 curl -k -H "X-API-Key: your-api-key-here" "https://localhost:8000/nodes"
