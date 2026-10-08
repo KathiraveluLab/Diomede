@@ -5,6 +5,8 @@ Adding a new strategy follows the same pattern: subclass NodeScorer in a new
 module, then append _REGISTRY["<name>"] = <Class> at the bottom.
 """
 
+import math
+import os
 from typing import Any
 
 from src.utils.logging_config import get_logger
@@ -24,12 +26,15 @@ class WeightedScorer(NodeScorer):
 
     def __init__(
         self,
-        w_queue: float = 0.5,
-        w_disk: float = 0.15,
-        w_rtt: float = 0.35,
+        w_queue: float | None = None,
+        w_disk: float | None = None,
+        w_rtt: float | None = None,
         rtt_ref_ms: float = 100.0,
     ) -> None:
         """
+        Weights not passed in are read from W_QUEUE, W_DISK and W_RTT, falling back to
+        0.5, 0.15 and 0.35.
+
         Args:
             w_queue: Weight for queue-depth signal. Should dominate since a long queue
                      means the node is already overloaded.
@@ -39,9 +44,9 @@ class WeightedScorer(NodeScorer):
                      directly affects transfer speed.
             rtt_ref_ms: Reference RTT value for normalization.
         """
-        self.w_queue = w_queue
-        self.w_disk = w_disk
-        self.w_rtt = w_rtt
+        self.w_queue = w_queue if w_queue is not None else _env_weight("W_QUEUE", 0.5)
+        self.w_disk = w_disk if w_disk is not None else _env_weight("W_DISK", 0.15)
+        self.w_rtt = w_rtt if w_rtt is not None else _env_weight("W_RTT", 0.35)
         self.rtt_ref_ms = rtt_ref_ms
         log.info(
             "WeightedScorer initialized with weights:\n"
@@ -57,10 +62,14 @@ class WeightedScorer(NodeScorer):
         q_size = node.get("queue_size")
         q_score = 1.0 / (float(q_size if q_size is not None else 0) + 1)
         raw_free = node.get("disk_free_mb")
-        disk_free = float(raw_free if raw_free is not None else 0.0)
         raw_total = node.get("disk_total_mb")
-        disk_total = max(int(raw_total if raw_total is not None else 10_000), 1)
-        disk_score = disk_free / disk_total
+        if raw_free is None or raw_total is None:
+            # No storage quota (Orthanc MaximumStorageSize = 0): nothing limits the node.
+            disk_free, disk_total, disk_score = None, None, 1.0
+        else:
+            disk_free = float(raw_free)
+            disk_total = max(int(raw_total), 1)
+            disk_score = disk_free / disk_total
         raw_rtt = node.get("rtt_ms")
         rtt_ms = max(float(raw_rtt if raw_rtt is not None else 250.0), 1.0)
         rtt_score = 1.0 / (rtt_ms / self.rtt_ref_ms + 1)
@@ -77,6 +86,19 @@ class WeightedScorer(NodeScorer):
         log.info(f"TOTAL SCORE: {node.get('node_id', 'unknown')} = {total_score:.4f}")
 
         return total_score
+
+
+def _env_weight(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    try:
+        weight = float(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be a number, got {raw!r}") from None
+    if not math.isfinite(weight) or weight < 0:
+        raise ValueError(f"{name} must be a finite, non-negative number, got {raw!r}")
+    return weight
 
 
 _REGISTRY["weighted"] = WeightedScorer

@@ -104,10 +104,17 @@ async def poll_node(
 
         disk_used_mb = stats.get("TotalDiskSizeMB")
         max_storage_mb = node_quota_map.get(node_id, 0) or 0
-        disk_free_mb = max(0.0, float(max_storage_mb - disk_used_mb))
-
-        # if free disk space is less than 2%, set node to unhealthy
-        is_disk_full = (disk_free_mb / max_storage_mb < 0.02) if max_storage_mb > 0 else False
+        disk_free_mb: float | None
+        disk_total_mb: int | None
+        if max_storage_mb > 0:
+            free_mb = max(0.0, float(max_storage_mb - disk_used_mb))
+            disk_free_mb, disk_total_mb = free_mb, max_storage_mb
+            # if free disk space is less than 2%, set node to unhealthy
+            is_disk_full = free_mb / max_storage_mb < 0.02
+        else:
+            # MaximumStorageSize = 0 means no quota: free space is unknown, not zero.
+            disk_free_mb = disk_total_mb = None
+            is_disk_full = False
 
         payload = {
             "node_id": node_id,
@@ -115,17 +122,17 @@ async def poll_node(
             "base_url": base,
             "queue_size": queue_size,
             "disk_free_mb": disk_free_mb,
-            "disk_total_mb": max_storage_mb,
+            "disk_total_mb": disk_total_mb,
             "instance_count": stats.get("CountInstances", 0),
             "healthy": not is_disk_full,
             "ts": datetime.now(tz=UTC).isoformat(),
         }
 
         log.info(
-            "node=%-15s healthy  queue=%d  disk_free=%.0f MB  instances=%d",
+            "node=%-15s healthy  queue=%d  disk_free=%s MB  instances=%d",
             node_id,
             queue_size,
-            disk_free_mb,
+            "unlimited" if disk_free_mb is None else f"{disk_free_mb:.0f}",
             payload["instance_count"],
         )
 
