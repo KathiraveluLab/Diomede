@@ -90,6 +90,7 @@ REDIS_URL = require_env("REDIS_URL")
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _redis
+    get_scorer()  # Validate scorer configuration and weights at startup
     _redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     yield
     if _redis:

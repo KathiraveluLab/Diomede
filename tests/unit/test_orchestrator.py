@@ -53,6 +53,46 @@ def test_score_missing_keys_returns_float():
     assert isinstance(score, float) and score > 0
 
 
+def test_scorer_custom_weights(monkeypatch):
+    monkeypatch.setenv("W_QUEUE", "0.7")
+    monkeypatch.setenv("W_DISK", "0.2")
+    monkeypatch.setenv("W_RTT", "0.1")
+    scorer = WeightedScorer()
+    assert scorer.w_queue == 0.7
+    assert scorer.w_disk == 0.2
+    assert scorer.w_rtt == 0.1
+
+
+@pytest.mark.parametrize(
+    ("env_var", "val"),
+    [
+        ("W_QUEUE", "-1.0"),
+        ("W_QUEUE", "nan"),
+        ("W_QUEUE", "inf"),
+        ("W_QUEUE", "-inf"),
+        ("W_QUEUE", "abc"),
+        ("W_DISK", "-0.1"),
+        ("W_DISK", "nan"),
+        ("W_RTT", "inf"),
+    ],
+)
+def test_scorer_invalid_weight_raises(monkeypatch, env_var, val):
+    monkeypatch.setenv(env_var, val)
+    with pytest.raises(ValueError):
+        WeightedScorer()
+
+
+def test_scorer_direct_invalid_weights():
+    with pytest.raises(ValueError, match="w_queue"):
+        WeightedScorer(w_queue=-0.5)
+    with pytest.raises(ValueError, match="w_queue"):
+        WeightedScorer(w_queue=float("nan"))
+    with pytest.raises(ValueError, match="w_disk"):
+        WeightedScorer(w_disk=float("inf"))
+    with pytest.raises(ValueError, match="w_rtt"):
+        WeightedScorer(w_rtt=-1.0)
+
+
 # Scorer registry
 def test_get_scorer_default_is_weighted(monkeypatch):
     monkeypatch.delenv("SCORER", raising=False)
