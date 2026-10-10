@@ -82,15 +82,15 @@ The Telemetry Daemon writes each node's health to Redis with a **30-second TTL**
 
 Every routing decision requires a synchronous call to `GET /get-best-node`, which makes the Orchestrator a potential single point of failure (SPOF). Two mitigations are currently in place:
 
-**Automatic container restart.** The orchestrator container runs with `restart: unless-stopped`, so Docker restarts it automatically on process crashes. Node health data repopulates within one Telemetry Daemon poll cycle (10 s), bounding the recovery window to roughly 10–30 s in practice.
+**Automatic container restart.** The orchestrator, Redis and the Telemetry Daemon each run in their own container with `restart: unless-stopped`, so Docker restarts whichever process crashes. A restarted daemon writes fresh telemetry well within the 30 s TTL, so routing carries on, and restarting the orchestrator no longer touches Redis.
 
 **Last-known-node fallback.** The Forwarder caches the last successful routing response in memory (`_last_best_node` in `forwarder.py`). If the Orchestrator is temporarily unreachable, the Forwarder reuses the previous best node rather than dropping the instance. Forwarding continues at reduced optimality since routing decisions are stale but still valid till the Orchestrator recovers and the next successful response refreshes the cache.
 
 **Planned enhancements:**
 
-- *Redis persistence and standalone deployment.* Redis currently runs inside the orchestrator container, so a restart clears all state including the RTT measurements that are gathered only once per hour. Currently routing degrades gracefully because the scorer defaults to 250 ms RTT for all nodes, neutralising the RTT term so decisions fall back to queue depth and disk space rather than failing entirely. One enhancement is to move Redis to a standalone service with AOF (Append-Only File) persistence, which would preserve RTT history across restarts, fully restoring routing quality immediately rather than waiting for the next hourly probe cycle.
+- *RTT cache in Redis.* Redis now runs as its own service with AOF persistence, but the per-agent RTT cache still lives in the orchestrator process. An orchestrator restart therefore loses the hourly RTT measurements and routing falls back to the 250 ms default until the next probe. Keeping the cache in Redis would preserve it across restarts.
 
-- *Horizontal scaling.* With Redis externalised, the Orchestrator becomes fully stateless and can run as multiple replicas behind a load balancer, eliminating any single process as a SPOF.
+- *Horizontal scaling.* Once the RTT cache is in Redis, the Orchestrator becomes fully stateless and can run as multiple replicas behind a load balancer. The Telemetry Daemon already runs as a single separate service, so adding orchestrator replicas does not duplicate node polling.
 
 ### 6.2 Security
 

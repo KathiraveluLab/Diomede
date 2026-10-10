@@ -8,6 +8,7 @@ volumes:
   orthanc-asia-data:
   orthanc-af-data:
   orthanc-edge-data:
+  redis-data:
 
 
 services:
@@ -171,7 +172,47 @@ services:
       timeout: 5s
       retries: 3
 
-  # Orchestrator: FastAPI service with Telemetry Daemon
+  # Orchestrator: Redis, Telemetry Daemon and FastAPI, each in its own container
+  redis:
+    image: redis:7.4-alpine
+    container_name: redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - diomede-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  telemetry-daemon:
+    build:
+      context: .
+      dockerfile: ./config/orchestrator/Dockerfile
+    container_name: telemetry-daemon
+    entrypoint: ["python3", "-m", "src.orchestrator.daemon"]
+    init: true
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./certs/ca.pem:/certs/ca.pem:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      orthanc-us:
+        condition: service_healthy
+      orthanc-eu:
+        condition: service_healthy
+      orthanc-asia:
+        condition: service_healthy
+      orthanc-af:
+        condition: service_healthy
+    networks:
+      - diomede-net
+
   orchestrator:
     build:
       context: .
@@ -191,17 +232,12 @@ services:
       - ./certs/ca.pem:/certs/ca.pem:ro
 
     depends_on:
-      orthanc-us:
-        condition: service_healthy
-      orthanc-eu:
-        condition: service_healthy
-      orthanc-asia:
-        condition: service_healthy
-      orthanc-af:
+      redis:
         condition: service_healthy
 
     networks:
       - diomede-net
+    restart: unless-stopped
     healthcheck:
       test:
         - "CMD"

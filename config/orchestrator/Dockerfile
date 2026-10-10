@@ -1,11 +1,7 @@
 # Based on the Python 3.11 slim image, and installs the necessary dependencies for the Orchestrator to function.
 FROM python:3.11-slim
 
-# Install redis-tools for redis-cli
-# hadolint ignore=DL3008
-RUN apt-get update && apt-get install -y --no-install-recommends redis-server redis-tools && rm -rf /var/lib/apt/lists/*
-
-# FastAPI, Redis, and Telemetry Daemon all run in this container
+# The same image also runs the Telemetry Daemon as a separate service; Redis has its own container
 WORKDIR /app
 
 COPY src/orchestrator/ src/orchestrator/
@@ -23,8 +19,8 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 COPY config/orchestrator/start.sh .
 RUN chmod +x start.sh
 
-# 6379 for Redis, 8000 for FastAPI
+# 8000 for FastAPI
 EXPOSE 8000
 
-# Launch the Orchestrator processes.
+# Launch the Orchestrator API.
 ENTRYPOINT ["./start.sh"]
