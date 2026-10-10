@@ -21,21 +21,23 @@ Follow the steps in order — each one builds on the previous. By the end you ca
 | `orthanc-eu` | Cloud PACS node (GCP eu-west1) | 8043 · 4243 |
 | `orthanc-asia` | Cloud PACS node (GCP asia-northeast1) | 8044 · 4244 |
 | `orthanc-af` | Cloud PACS node (GCP af-south1) | 8045 · 4245 |
-| `orchestrator` | Redis + Telemetry Daemon + FastAPI (co-located) | 8000 |
+| `orchestrator` | FastAPI Orchestrator | 8000 |
+| `redis` | Redis node registry (AOF persistence) | internal only |
+| `telemetry-daemon` | Telemetry Daemon | internal only |
 | `agent-001` | Edge Orthanc + Forwarder Daemon (co-located) | 8046 · 4246 |
 
-The **orchestrator container** runs three co-located processes, mirroring the
-production VM where all three always live on the same host:
+The orchestrator side runs as three containers on the same host, so Docker can
+restart each process on its own:
 
-- `redis-server` — node registry; keys have a **30 s TTL** (an expired key means a
-  dead node), bound to `127.0.0.1` inside the container only.
-- `daemon.py` — async Telemetry Daemon; polls all four cloud Orthanc nodes **every
-  10 s** and writes JSON heartbeats to Redis over `localhost`.
-- `main.py` (via `uvicorn`) — FastAPI Orchestrator; reads Redis over `localhost`
+- `redis` — node registry; keys have a **30 s TTL** (an expired key means a
+  dead node). AOF persistence on the `redis-data` volume, reachable only on the
+  internal `diomede-net` network (no port published to the host).
+- `telemetry-daemon` — `daemon.py`, the async Telemetry Daemon; polls all four
+  cloud Orthanc nodes **every 10 s** and writes JSON heartbeats to Redis.
+- `orchestrator` — `main.py` (via `uvicorn`), the FastAPI Orchestrator; reads Redis
   and serves `GET /get-best-node`, `POST /heartbeat`, `GET /nodes` over HTTPS.
 
-The **edge agent** is a single container running two co-located processes,
-following the same pattern:
+The **edge agent** is a single container running two co-located processes:
 
 - **Edge Orthanc** — standard Orthanc PACS; legacy scanners (or the simulator
   scripts) send DICOM C-STORE here on port 4246.
@@ -171,7 +173,7 @@ startup races.
 ## Step 7 — Verify it's running
 
 ```bash
-docker compose ps          # all 6 containers should be Up (healthy)
+docker compose ps          # all 8 containers should be Up (healthy or running)
 ```
 
 Check that the Telemetry Daemon has populated Redis (one JSON heartbeat per node):
@@ -179,7 +181,7 @@ Check that the Telemetry Daemon has populated Redis (one JSON heartbeat per node
 ```bash
 for node in us-east1 eu-west1 asia-northeast1 af-south1; do
   echo "=========== $node ==========="
-  docker compose exec orchestrator redis-cli GET node:$node | python3 -m json.tool
+  docker compose exec redis redis-cli GET node:$node | python3 -m json.tool
 done
 ```
 
@@ -343,7 +345,7 @@ detection work internally.
 
 ## Troubleshooting
 
-Start with `docker compose ps` to list all 6 containers and their state. The
+Start with `docker compose ps` to list all 8 containers and their state. The
 `STATUS` column shows `Up (health: starting)`, `Up (healthy)`, `Up (unhealthy)`,
 or `Exited`:
 
