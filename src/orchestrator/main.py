@@ -8,13 +8,17 @@ Exposes a single endpoint that reads the latest node telemetry from Redis
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Security, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, field_validator
 from redis.exceptions import RedisError
@@ -71,8 +75,8 @@ class HeartbeatPayload(BaseModel):
     @classmethod
     def rtt_must_be_positive(cls, v: dict[str, float]) -> dict[str, float]:
         for node_id, rtt in v.items():
-            if rtt <= 0:
-                raise ValueError(f"rtt_ms for {node_id!r} must be positive, got {rtt}")
+            if not math.isfinite(rtt) or rtt <= 0:
+                raise ValueError(f"rtt_ms for {node_id!r} must be a positive number, got {rtt}")
         return v
 
     @field_validator("rtt_dict")
@@ -98,6 +102,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(title="Diomede Orchestrator", lifespan=lifespan)
 _redis: aioredis.Redis[str] | None = None
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """FastAPI's default 422, minus input values JSON can't represent (NaN, Infinity)."""
+    errors = jsonable_encoder(exc.errors())
+    for error in errors:
+        try:
+            json.dumps(error.get("input"), allow_nan=False)
+        except ValueError:
+            del error["input"]
+    return JSONResponse(status_code=422, content={"detail": errors})
 
 
 async def _get_nodes() -> list[dict[str, Any]]:
