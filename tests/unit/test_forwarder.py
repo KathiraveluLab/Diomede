@@ -9,6 +9,7 @@ import respx
 from httpx import AsyncClient, ConnectError, HTTPStatusError, Response
 
 import src.edge.forwarder as forwarder_module
+import src.edge.orthanc_source as orthanc_source_module
 from src.edge.forwarder import CLOUD_NODES, route_instance
 from src.edge.orthanc_source import OrthancSource
 from src.edge.transport import DicomSource
@@ -117,6 +118,89 @@ async def test_poll_new_raises_on_http_error():
     async with AsyncClient() as client:
         with pytest.raises(HTTPStatusError):
             await source.poll_new(client)
+
+
+@pytest.fixture
+def edge_logs(monkeypatch, caplog):
+    monkeypatch.setattr(orthanc_source_module.log, "propagate", True)
+    return caplog
+
+
+def _mock_edge_storage(mode: str = "Reject", quota_mb: int = 10_000, used_mb: float = 0):
+    respx.get(f"{_EDGE_BASE}/instances").mock(return_value=Response(200, json=_INSTANCES_ONE))
+    respx.get(f"{_EDGE_BASE}/system").mock(
+        return_value=Response(
+            200, json={"MaximumStorageSize": quota_mb, "MaximumStorageMode": mode}
+        )
+    )
+    return respx.get(f"{_EDGE_BASE}/statistics").mock(
+        return_value=Response(200, json={"TotalDiskSizeMB": used_mb})
+    )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_warns_once_when_edge_recycles(edge_logs):
+    _mock_edge_storage(mode="Recycle")
+    source = OrthancSource(base=_EDGE_BASE)
+    async with AsyncClient() as client:
+        await source.poll_new(client)
+        await source.poll_new(client)
+
+    warnings = [r for r in edge_logs.records if "MaximumStorageMode" in r.getMessage()]
+    assert len(warnings) == 1
+    assert warnings[0].levelname == "WARNING"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_does_not_warn_when_edge_rejects(edge_logs):
+    _mock_edge_storage(mode="Reject")
+    async with AsyncClient() as client:
+        await OrthancSource(base=_EDGE_BASE).poll_new(client)
+
+    assert "MaximumStorageMode" not in edge_logs.text
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_logs_only_when_storage_level_changes(edge_logs):
+    stats = _mock_edge_storage(quota_mb=10_000)
+    stats.side_effect = [
+        Response(200, json={"TotalDiskSizeMB": used}) for used in (8500, 8600, 9600, 9900, 1000)
+    ]
+    source = OrthancSource(base=_EDGE_BASE)
+    async with AsyncClient() as client:
+        for _ in range(5):
+            await source.poll_new(client)
+
+    logged = [
+        (r.levelname, r.getMessage()) for r in edge_logs.records if "storage" in r.getMessage()
+    ]
+    assert [level for level, _ in logged] == ["WARNING", "ERROR", "INFO"]
+    assert "85%" in logged[0][1]
+    assert "96%" in logged[1][1]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_skips_storage_check_without_quota():
+    stats = _mock_edge_storage(quota_mb=0)
+    async with AsyncClient() as client:
+        await OrthancSource(base=_EDGE_BASE).poll_new(client)
+
+    assert not stats.called
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_storage_check_failure_does_not_break_polling():
+    respx.get(f"{_EDGE_BASE}/instances").mock(return_value=Response(200, json=_INSTANCES_ONE))
+    respx.get(f"{_EDGE_BASE}/system").mock(return_value=Response(500))
+    async with AsyncClient() as client:
+        ids = await OrthancSource(base=_EDGE_BASE).poll_new(client)
+
+    assert ids == _INSTANCES_ONE
 
 
 @respx.mock

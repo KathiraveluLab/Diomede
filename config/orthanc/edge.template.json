@@ -19,6 +19,7 @@
     "DicomTlsRemoteCertificateRequired": true,
     "HttpCompressionEnabled": true,
     "MaximumStorageSize": 10000,
+    "MaximumStorageMode": "Reject",
     "IngestTranscodingEnabled": false,
     "StorageCompression": true,
     "StorageDirectory": "/var/lib/orthanc/db",
