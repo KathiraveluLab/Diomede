@@ -236,6 +236,20 @@ async def test_heartbeat_overwrites_existing_rtt(client, monkeypatch):
     assert main_module._rtt_cache["test-agent"] == {"us-east1": 25.0}
 
 
+@pytest.mark.parametrize("rtt", ["NaN", "Infinity", "-Infinity"])
+async def test_heartbeat_rejects_non_finite_rtt(client, monkeypatch, rtt):
+    """NaN slips past `rtt <= 0`, and FastAPI cannot echo NaN/Infinity back in its 422 body."""
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    resp = await client.post(
+        "/heartbeat",
+        content=f'{{"agent_id": "test-agent", "rtt_dict": {{"us-east1": {rtt}}}}}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 422
+    assert "rtt_ms" in resp.json()["detail"][0]["msg"]
+    assert main_module._rtt_cache == {}
+
+
 async def test_heartbeat_affects_scoring(client, fake_redis, monkeypatch):
     """Node with lower RTT in cache should be preferred over one with higher RTT."""
     monkeypatch.setattr(main_module, "_rtt_cache", {})
