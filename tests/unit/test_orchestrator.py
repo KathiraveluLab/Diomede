@@ -265,3 +265,186 @@ async def test_unknown_agent_falls_back_to_default_scoring(client, fake_redis, m
     data = resp.json()
     assert data["node_id"] == "us-east1"
     assert data["rtt_ms"] is None
+
+
+# Study affinity (/get-best-node?study_id=...)
+_EU_NODE = {**_HEALTHY_NODE, "node_id": "eu-west1", "ae_title": "Orthanc_EU"}
+
+
+async def _seed(fake_redis, us_queue: int, eu_queue: int, eu_healthy: bool = True) -> None:
+    await fake_redis.set("node:us-east1", json.dumps({**_HEALTHY_NODE, "queue_size": us_queue}))
+    await fake_redis.set(
+        "node:eu-west1", json.dumps({**_EU_NODE, "queue_size": eu_queue, "healthy": eu_healthy})
+    )
+
+
+async def _best(client, study_id: str | None = None):
+    params = {"agent_id": "test-agent"}
+    if study_id is not None:
+        params["study_id"] = study_id
+    resp = await client.get("/get-best-node", params=params)
+    assert resp.status_code == 200
+    return resp.json()
+
+
+async def test_without_study_id_does_not_pin(client, fake_redis, monkeypatch):
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await _seed(fake_redis, us_queue=0, eu_queue=20)
+    data = await _best(client)
+    assert data["node_id"] == "us-east1"
+    assert data["study_id"] is None
+    assert data["rerouted"] is False
+    assert await fake_redis.keys("study:*") == []
+
+
+async def test_first_study_request_pins_best_node(client, fake_redis, monkeypatch):
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await _seed(fake_redis, us_queue=0, eu_queue=20)
+    data = await _best(client, "s1")
+    assert data["node_id"] == "us-east1"
+    assert data["study_id"] == "s1"
+    assert data["rerouted"] is False
+    assert await fake_redis.get("study:s1") == "us-east1"
+    assert 0 < await fake_redis.ttl("study:s1") <= main_module.STUDY_AFFINITY_TTL_S
+
+
+async def test_study_stays_on_pinned_node_when_another_scores_higher(
+    client, fake_redis, monkeypatch
+):
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await _seed(fake_redis, us_queue=0, eu_queue=20)
+    await _best(client, "s1")
+
+    await _seed(fake_redis, us_queue=20, eu_queue=0)
+    assert (await _best(client))["node_id"] == "eu-west1"
+    data = await _best(client, "s1")
+    assert data["node_id"] == "us-east1"
+    assert data["rerouted"] is False
+
+
+async def test_pinned_hit_refreshes_ttl(client, fake_redis, monkeypatch):
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await _seed(fake_redis, us_queue=0, eu_queue=20)
+    await fake_redis.set("study:s1", "us-east1", ex=5)
+    await _best(client, "s1")
+    assert await fake_redis.ttl("study:s1") > 5
+
+
+async def test_study_repinned_when_pinned_node_unhealthy(client, fake_redis, monkeypatch):
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await _seed(fake_redis, us_queue=20, eu_queue=0, eu_healthy=False)
+    await fake_redis.set("study:s1", "eu-west1")
+    data = await _best(client, "s1")
+    assert data["node_id"] == "us-east1"
+    assert data["rerouted"] is True
+    assert await fake_redis.get("study:s1") == "us-east1"
+
+
+async def test_study_repinned_when_pinned_node_telemetry_expired(client, fake_redis, monkeypatch):
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
+    await fake_redis.set("study:s1", "eu-west1")  # no node:eu-west1 key at all
+    data = await _best(client, "s1")
+    assert data["node_id"] == "us-east1"
+    assert data["rerouted"] is True
+
+
+async def test_study_nx_race_second_writer_gets_first_writers_node(client, fake_redis, monkeypatch):
+    """Another agent pins the study between our GET and SET NX: we must follow its choice."""
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await _seed(fake_redis, us_queue=0, eu_queue=20)
+
+    real_get = fake_redis.get
+    raced = False
+
+    async def racing_get(key):
+        nonlocal raced
+        if key == "study:s1" and not raced:
+            raced = True
+            await fake_redis.set(key, "eu-west1")  # the other agent wins the race
+            return None
+        return await real_get(key)
+
+    monkeypatch.setattr(fake_redis, "get", racing_get)
+    data = await _best(client, "s1")
+    assert data["node_id"] == "eu-west1"
+    assert data["rerouted"] is False
+
+
+@pytest.mark.parametrize("study_id", ["", "bad id", "a/b", "x" * 129])
+async def test_invalid_study_id_rejected(client, fake_redis, study_id):
+    await fake_redis.set("node:us-east1", json.dumps(_HEALTHY_NODE))
+    resp = await client.get(
+        "/get-best-node", params={"agent_id": "test-agent", "study_id": study_id}
+    )
+    assert resp.status_code == 422
+
+
+# Atomic re-pin (compare-and-set)
+async def test_replace_pin_succeeds_when_key_unchanged(fake_redis):
+    await fake_redis.set("study:s1", "eu-west1")
+    assert await main_module._replace_pin(fake_redis, "study:s1", "eu-west1", "us-east1")
+    assert await fake_redis.get("study:s1") == "us-east1"
+
+
+async def test_replace_pin_fails_when_another_agent_already_moved_it(fake_redis):
+    await fake_redis.set("study:s1", "asia-northeast1")
+    assert not await main_module._replace_pin(fake_redis, "study:s1", "eu-west1", "us-east1")
+    assert await fake_redis.get("study:s1") == "asia-northeast1"
+
+
+async def test_replace_pin_fails_when_key_changes_after_watch(fake_redis, monkeypatch):
+    """Another agent writes between WATCH and EXEC: the transaction must abort."""
+    await fake_redis.set("study:s1", "eu-west1")
+    other = fakeredis.aioredis.FakeRedis(
+        connection_pool=fake_redis.connection_pool, decode_responses=True
+    )
+    real_pipeline = fake_redis.pipeline
+
+    def racing_pipeline(*args, **kwargs):
+        pipe = real_pipeline(*args, **kwargs)
+        real_watch = pipe.watch
+
+        async def watch(*keys):
+            await real_watch(*keys)
+            await other.set("study:s1", "asia-northeast1")
+
+        pipe.watch = watch
+        return pipe
+
+    monkeypatch.setattr(fake_redis, "pipeline", racing_pipeline)
+    assert not await main_module._replace_pin(fake_redis, "study:s1", "eu-west1", "us-east1")
+    assert await other.get("study:s1") == "asia-northeast1"
+
+
+async def test_concurrent_repin_follows_other_agents_choice(client, fake_redis, monkeypatch):
+    """If another agent re-pinned the study first, use its node instead of overwriting it."""
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await _seed(fake_redis, us_queue=0, eu_queue=0, eu_healthy=False)
+    await fake_redis.set(
+        "node:asia-northeast1",
+        json.dumps({**_HEALTHY_NODE, "node_id": "asia-northeast1", "queue_size": 20}),
+    )
+    await fake_redis.set("study:s1", "eu-west1")
+
+    async def other_agent_wins(redis, key, old, new):
+        await redis.set(key, "asia-northeast1")
+        return False
+
+    monkeypatch.setattr(main_module, "_replace_pin", other_agent_wins)
+    data = await _best(client, "s1")
+    assert data["node_id"] == "asia-northeast1"
+    assert await fake_redis.get("study:s1") == "asia-northeast1"
+
+
+async def test_pin_gives_up_with_503_when_it_never_settles(client, fake_redis, monkeypatch):
+    monkeypatch.setattr(main_module, "_rtt_cache", {})
+    await _seed(fake_redis, us_queue=0, eu_queue=0, eu_healthy=False)
+    await fake_redis.set("study:s1", "eu-west1")
+
+    async def always_lose(redis, key, old, new):
+        return False
+
+    monkeypatch.setattr(main_module, "_replace_pin", always_lose)
+    resp = await client.get("/get-best-node", params={"agent_id": "test-agent", "study_id": "s1"})
+    assert resp.status_code == 503

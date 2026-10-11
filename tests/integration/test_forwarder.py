@@ -10,15 +10,20 @@ Requires the full Docker Compose stack to be running:
 """
 
 import io
+import os
 import time
 
 import httpx
 import pytest
+from dotenv import load_dotenv
 from pydicom import FileDataset
+from pydicom import uid as dcm_uid
 
-from src.simulator.generate_dicom import _RTT_SOP_UID, make_ct_8x8
+from src.simulator.generate_dicom import _RTT_SOP_UID, make_ct_8x8, make_sized
 from tests.integration.conftest import _delete_instance
-from tests.integration.settings import CLOUD_URLS, EDGE_URL, ORTHANC_AUTH
+from tests.integration.settings import CLOUD_URLS, EDGE_URL, ORCH_URL, ORTHANC_AUTH
+
+load_dotenv()
 
 pytestmark = pytest.mark.integration
 
@@ -142,3 +147,59 @@ def test_forwarded_file_is_intact():
         timeout=30,
     )
     resp.raise_for_status()
+
+
+_STUDY_SIZE = 20
+_AGENT_ID = os.environ.get("EDGE_AGENT1", "agent-001")
+_ORCH_HEADERS = {"X-API-Key": os.environ.get("ORCHESTRATOR_API_KEY", "")}
+
+
+def _nodes_holding(sop_uids: list[str]) -> dict[str, set[str]]:
+    """Map each cloud node to the subset of sop_uids it holds."""
+    found: dict[str, set[str]] = {}
+    for node_id, base_url in _CLOUD_URLS.items():
+        held = {uid for uid in sop_uids if _find_instance(base_url, uid, _EDGE_AUTH, verify=False)}
+        if held:
+            found[node_id] = held
+    return found
+
+
+def test_study_lands_on_a_single_node_when_scores_change():
+    """Every instance of one study ends on one node, even if another node becomes the best."""
+    study_uid = str(dcm_uid.generate_uid())
+    datasets = [make_sized(1, study_uid=study_uid) for _ in range(_STUDY_SIZE)]
+    sop_uids = [str(ds.SOPInstanceUID) for ds in datasets]
+    half = _STUDY_SIZE // 2
+
+    try:
+        for ds in datasets[:half]:
+            _post_to_edge(ds)
+        pinned = _wait_for_instance_in_cloud(sop_uids[0])
+        assert pinned is not None, "First half of the study was never forwarded"
+
+        # Make every other node look far better for this agent, then send the rest.
+        rtt = {node_id: 1.0 for node_id in _CLOUD_URLS}
+        rtt[pinned] = 5000.0
+        httpx.post(
+            f"{ORCH_URL}/heartbeat",
+            json={"agent_id": _AGENT_ID, "rtt_dict": rtt},
+            headers=_ORCH_HEADERS,
+            verify=False,
+            timeout=10,
+        ).raise_for_status()
+        for ds in datasets[half:]:
+            _post_to_edge(ds)
+
+        deadline = time.monotonic() + _FORWARD_TIMEOUT_S * 2
+        holding = _nodes_holding(sop_uids)
+        while sum(len(v) for v in holding.values()) < _STUDY_SIZE:
+            assert time.monotonic() < deadline, f"Study not fully forwarded: {holding}"
+            time.sleep(_POLL_INTERVAL_S)
+            holding = _nodes_holding(sop_uids)
+
+        assert set(holding) == {pinned}, f"Study split across nodes: {holding}"
+    finally:
+        for uid in sop_uids:
+            _delete_instance(EDGE_URL, uid, _EDGE_AUTH, False)
+            for base_url in _CLOUD_URLS.values():
+                _delete_instance(base_url, uid, _EDGE_AUTH, False)

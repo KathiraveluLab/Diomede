@@ -24,8 +24,12 @@ class DicomSource(ABC):
     """
 
     @abstractmethod
-    async def poll_new(self, client: httpx.AsyncClient) -> list[str]:
-        """Return the IDs of new instances ready to be routed."""
+    async def poll_new(self, client: httpx.AsyncClient) -> dict[str, list[str]]:
+        """Return the IDs of new instances ready to be routed, grouped by study.
+
+        Keys are opaque study IDs (never DICOM UIDs or other PHI); the forwarder
+        sends every instance of one study to the same node.
+        """
         ...
 
     @abstractmethod
