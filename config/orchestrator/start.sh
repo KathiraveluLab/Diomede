@@ -5,7 +5,10 @@ set -e
 echo "[start.sh] Starting Orchestrator..."
 
 echo "[start.sh] Starting Redis server..."
-redis-server --daemonize yes
+# AOF in /data (a named volume in docker-compose.yml) keeps RTTs and study pins
+# across orchestrator restarts. uvicorn is PID 1, so Redis stops with the container.
+mkdir -p /data
+redis-server --daemonize yes --appendonly yes --dir /data
 
 echo "[start.sh] Waiting for Redis to be ready..."
 until redis-cli ping 2>/dev/null | grep -q PONG; do sleep 0.1; done

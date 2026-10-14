@@ -146,3 +146,31 @@ def test_unknown_agent_id_uses_default_scoring():
     node = resp.json()
     assert node["healthy"] is True
     assert node["rtt_ms"] is None
+
+
+def test_rtt_survives_orchestrator_restart():
+    """RTTs are persisted by Redis AOF, so a restarted orchestrator still uses them."""
+    agent_id = "agent-persist-test"
+    rtt = {"us-east1": 11.0, "eu-west1": 22.0, "asia-northeast1": 33.0, "af-south1": 44.0}
+    httpx.post(
+        f"{ORCH_URL}/heartbeat",
+        json={"agent_id": agent_id, "rtt_dict": rtt},
+        headers=_AUTH_HEADERS,
+        verify=_SSL_CTX,
+        timeout=10,
+    ).raise_for_status()
+
+    subprocess.run(["docker", "restart", "orchestrator"], check=True, capture_output=True)
+
+    # Wait for uvicorn to come back and the daemon to repopulate node telemetry.
+    deadline = time.monotonic() + 60
+    node = None
+    while time.monotonic() < deadline:
+        try:
+            node = _get_best_node(agent_id)
+            break
+        except httpx.HTTPError:
+            time.sleep(2)
+
+    assert node is not None, "Orchestrator did not recover within 60 s after restart"
+    assert node["rtt_ms"] == rtt[node["node_id"]]
