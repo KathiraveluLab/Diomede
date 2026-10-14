@@ -233,6 +233,13 @@ python -m src.simulator.send_dicom_rest --base-url https://127.0.0.1:8042
 # → REST send success → https://127.0.0.1:8042 (HTTP 200)
 ```
 
+Invalid DICOM files are rejected by the REST simulator before any upload is
+attempted. The client parses the bytes as a standard DICOM file and exits with
+`ERROR: input is not a valid DICOM file` when the input is malformed. A server
+error is still reported separately when a syntactically valid file is rejected
+by Orthanc. This keeps invalid test input from entering the routing workflow and
+makes failures reproducible without relying on an Orthanc response.
+
 **8c. End-to-end through the edge agent** — the real routing path. Send a study to
 the edge, then confirm it landed on a cloud node and was deleted from the edge:
 
@@ -242,6 +249,34 @@ python -m src.simulator.send_dicom_rest --base-url https://localhost:8046   # se
 curl -k -u orthanc:your-password https://localhost:8042/instances           # arrived on a cloud node
 curl -k -u orthanc:your-password https://localhost:8046/instances           # [] — edge copy deleted
 ```
+
+The same end-to-end routing workflow can be tested entirely with generated
+synthetic data. The default simulator dataset is an 8×8 secondary-capture image
+with fixed identifiers; use `--file-size` for larger generated instances and
+`--random-pixels` when testing non-zero pixel payloads:
+
+```bash
+python -m src.simulator.send_dicom_rest \
+  --base-url https://localhost:8046 \
+  --file-size 64 \
+  --batch-size 3 \
+  --interval 1
+```
+
+Run the unit tests to validate DICOM generation and the local malformed-file
+check without Docker or patient data:
+
+```bash
+python -m pytest tests/unit/test_generate_dicom.py \
+  tests/unit/test_send_dicom_rest.py -v -m unit
+```
+
+Synthetic files use `TEST^SIMULATOR` and `SIM001`; these are test values, not
+patient records. Do not replace them with real identifiers. In logs and API
+responses, expose only opaque Orthanc instance/study IDs and routing telemetry
+such as node IDs, scores, queue depth, disk space, and RTT. Never expose
+PatientName, PatientID, dates of birth, accession numbers, raw DICOM UIDs, or
+other tag values.
 
 **8d. Real DICOM file** — the simulator scripts only generate synthetic 8×8 images,
 so to send a real study use the verifier. It uploads the file to the edge, waits

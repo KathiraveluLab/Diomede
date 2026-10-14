@@ -1,16 +1,24 @@
 """Unit tests for src/simulator/send_dicom_rest.py"""
 
+import io
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 
-from src.simulator.send_dicom_rest import _parse_args, send, send_batch
+from src.simulator.generate_dicom import make_ct_8x8
+from src.simulator.send_dicom_rest import _parse_args, _validate_dicom_bytes, send, send_batch
 
 pytestmark = pytest.mark.unit
 
-# 128-byte preamble + DICM magic — minimal valid DICOM framing
-_DICOM_BYTES = b"\x00" * 128 + b"DICM" + b"\x00" * 4
+
+def _dicom_bytes() -> bytes:
+    buffer = io.BytesIO()
+    make_ct_8x8().save_as(buffer)
+    return buffer.getvalue()
+
+
+_DICOM_BYTES = _dicom_bytes()
 
 
 def _mock_response(status_code: int, json_body: dict | None = None) -> MagicMock:
@@ -137,6 +145,23 @@ class TestSend:
         content = mock_post.call_args.kwargs["content"]
         # DICOM files start with 128-byte preamble followed by "DICM" magic
         assert content[128:132] == b"DICM"
+
+    @patch("src.simulator.send_dicom_rest.httpx.post")
+    def test_invalid_dicom_exits_before_upload(self, mock_post):
+        with pytest.raises(SystemExit) as exc_info:
+            send("https://localhost:8042", "orthanc", "pass", b"not a dicom file", MagicMock())
+
+        assert exc_info.value.code == 1
+        mock_post.assert_not_called()
+
+
+class TestValidateDicomBytes:
+    def test_accepts_synthetic_dicom(self):
+        _validate_dicom_bytes(_DICOM_BYTES)
+
+    def test_rejects_invalid_bytes(self):
+        with pytest.raises(ValueError, match="valid DICOM"):
+            _validate_dicom_bytes(b"not a dicom file")
 
 
 class TestSendBatch:

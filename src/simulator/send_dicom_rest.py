@@ -18,6 +18,8 @@ import time
 
 import httpx
 from dotenv import load_dotenv
+from pydicom import dcmread
+from pydicom.errors import InvalidDicomError
 
 from src.simulator.generate_dicom import make_ct_8x8, make_sized
 from src.utils.logging_config import get_logger
@@ -30,6 +32,14 @@ log = get_logger(__name__, "SIMULATOR")
 _DEFAULT_CA_CERT = "certs/ca.pem"
 
 
+def _validate_dicom_bytes(dicom_bytes: bytes) -> None:
+    """Reject malformed DICOM before sending it to Orthanc."""
+    try:
+        dcmread(io.BytesIO(dicom_bytes), force=False, stop_before_pixels=True)
+    except (EOFError, InvalidDicomError, OSError, ValueError) as exc:
+        raise ValueError("input is not a valid DICOM file") from exc
+
+
 def send(
     base_url: str,
     user: str,
@@ -37,6 +47,12 @@ def send(
     dicom_bytes: bytes,
     ssl_ctx: ssl.SSLContext,
 ) -> None:
+
+    try:
+        _validate_dicom_bytes(dicom_bytes)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     t0 = time.monotonic()
     try:
