@@ -86,6 +86,15 @@ would see an incomplete series. Diomede therefore routes per study:
 - `/get-best-node` also takes an optional `exclude` parameter, which can be repeated.
   Excluded nodes are left out of scoring, so a study pinned to one of them is re-pinned
   as above and the response says `rerouted`.
+- Telemetry can report a node as healthy while it refuses uploads; an Orthanc in
+  read-only mode, for example, answers `/statistics` but returns `405` on
+  `POST /instances`. When the cloud node refuses an upload or can't be reached, the
+  Forwarder asks again with `exclude` set to every node that has failed for this study
+  so far, and the rest of the study goes to the new node in the same poll. Each node
+  is tried at most once per study per poll. Files the node rejects for good (400, 413,
+  415, 422) are skipped instead of moving the study. A timeout after the file was sent,
+  or a 502/504 from a proxy in front of the node, does not trigger failover either,
+  because the node may already have stored the file.
 
 Requests without `study_id` keep the old per-instance behaviour, so the Orchestrator
 and the edge agents can be upgraded independently.

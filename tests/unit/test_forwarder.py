@@ -4,9 +4,10 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 import pytest
 import respx
-from httpx import AsyncClient, ConnectError, HTTPStatusError, Response
+from httpx import AsyncClient, ConnectError, HTTPStatusError, ReadTimeout, Response
 
 import src.edge.forwarder as forwarder_module
 import src.edge.orthanc_source as orthanc_source_module
@@ -633,6 +634,178 @@ async def test_node_wide_client_error_still_stops_the_study(monkeypatch):
 
     assert source.fetched == ["i1", "i1"]
     assert post_route.call_count == 2
+    assert source.acknowledged == []
+
+
+_US_EU = {
+    **_US_ONLY,
+    "eu-west1": {"base": "http://orthanc-eu:8042", "auth": ("orthanc", "orthanc")},
+}
+
+
+def _orchestrator_skipping_excluded(request):
+    excluded = request.url.params.get_list("exclude")
+    for node_id in ("us-east1", "eu-west1"):
+        if node_id not in excluded:
+            return Response(200, json={"node_id": node_id, "score": 0.5})
+    return Response(503, json={"detail": "No healthy nodes available"})
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_upload_refused_by_node_moves_study_to_next_node(monkeypatch):
+    """A node that answers telemetry but refuses uploads must not keep the study forever."""
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    orch_route = respx.get(_ORCH_URL).mock(side_effect=_orchestrator_skipping_excluded)
+    us_post = respx.post("http://orthanc-us:8042/instances").mock(return_value=Response(405))
+    eu_post = respx.post("http://orthanc-eu:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1", "i2"])
+
+    assert source.acknowledged == ["i1", "i2"]
+    assert us_post.call_count == 1
+    assert eu_post.call_count == 2
+    assert orch_route.calls[1].request.url.params.get_list("exclude") == ["us-east1"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_edge_read_failure_does_not_fail_over(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    orch_route = respx.get(_ORCH_URL).mock(side_effect=_orchestrator_skipping_excluded)
+
+    edge_read = httpx.Request("GET", "http://edge-orthanc:8042/instances/i1/file")
+    source = _StubSource(
+        fetch_raises=HTTPStatusError("404", request=edge_read, response=Response(404))
+    )
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1", "i2"])
+
+    assert orch_route.call_count == 1
+    assert source.acknowledged == []
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_failover_stops_when_no_node_is_left(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    orch_route = respx.get(_ORCH_URL).mock(side_effect=_orchestrator_skipping_excluded)
+    us_post = respx.post("http://orthanc-us:8042/instances").mock(return_value=Response(503))
+    eu_post = respx.post("http://orthanc-eu:8042/instances").mock(return_value=Response(503))
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1", "i2"])
+
+    assert us_post.call_count == 1
+    assert eu_post.call_count == 1
+    assert orch_route.call_count == 3
+    assert source.acknowledged == []
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_no_failover_when_the_upload_may_have_landed(monkeypatch):
+    """A reply that times out after sending may mean the node stored it; retry it there later."""
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    orch_route = respx.get(_ORCH_URL).mock(side_effect=_orchestrator_skipping_excluded)
+    respx.post("http://orthanc-us:8042/instances").mock(side_effect=ReadTimeout("no reply"))
+    eu_post = respx.post("http://orthanc-eu:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1"])
+
+    assert orch_route.call_count == 1
+    assert not eu_post.called
+    assert source.acknowledged == []
+
+
+@respx.mock
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [502, 504])
+async def test_no_failover_on_gateway_errors(monkeypatch, status):
+    """A proxy in front of the node can time out while the node is still storing the file."""
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    orch_route = respx.get(_ORCH_URL).mock(side_effect=_orchestrator_skipping_excluded)
+    respx.post("http://orthanc-us:8042/instances").mock(return_value=Response(status))
+    eu_post = respx.post("http://orthanc-eu:8042/instances").mock(return_value=Response(200))
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1"])
+
+    assert orch_route.call_count == 1
+    assert not eu_post.called
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_unreachable_node_fails_over(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    respx.get(_ORCH_URL).mock(side_effect=_orchestrator_skipping_excluded)
+    respx.post("http://orthanc-us:8042/instances").mock(side_effect=ConnectError("refused"))
+    respx.post("http://orthanc-eu:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1"])
+
+    assert source.acknowledged == ["i1"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_failover_part_way_through_a_study_keeps_earlier_uploads(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    respx.get(_ORCH_URL).mock(side_effect=_orchestrator_skipping_excluded)
+    us_post = respx.post("http://orthanc-us:8042/instances").mock(
+        side_effect=[Response(200, json={"ID": "new-id"}), Response(405)]
+    )
+    eu_post = respx.post("http://orthanc-eu:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1", "i2", "i3"])
+
+    assert source.acknowledged == ["i1", "i2", "i3"]
+    assert us_post.call_count == 2
+    assert eu_post.call_count == 2
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_failover_gives_up_if_orchestrator_ignores_exclude(monkeypatch):
+    """An older orchestrator that ignores exclude must not send the forwarder into a loop."""
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    answers = [Response(200, json=_BEST_NODE_RESP)] * 5
+    orch_route = respx.get(_ORCH_URL).mock(side_effect=answers)
+    us_post = respx.post("http://orthanc-us:8042/instances").mock(return_value=Response(503))
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1", "i2"])
+
+    assert us_post.call_count == 1
+    assert orch_route.call_count == 2
     assert source.acknowledged == []
 
 
