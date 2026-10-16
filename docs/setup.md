@@ -120,6 +120,8 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
 - **`FORWARDER_WAIT_FOR_STABLE_STUDY`** (optional, default `false`) — set to `true`
   to route a study only after Edge Orthanc marks it stable (no new instance for
   Orthanc's `StableAge`, 60 s by default).
+- **`RTT_TTL_S`** (optional, default `10800`) — how long an edge agent's RTT
+  measurements are kept without a new heartbeat. Keep it above `PROBE_INTERVAL_S`.
 - **`W_QUEUE`, `W_DISK`, `W_RTT`** (optional, defaults `0.5`, `0.15`, `0.35`) —
   scoring weights for the Orchestrator. Must be finite, non-negative numbers; the
   Orchestrator refuses to start otherwise.
