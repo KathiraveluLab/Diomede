@@ -55,6 +55,11 @@ CLOUD_NODES: dict[str, _NodeCfg] = {
 
 _pending_ack: set[str] = set()
 
+# Upload statuses that mean the node will never accept this particular file, unlike 401/404/429.
+_REJECTED_STATUSES = {400, 413, 415, 422}
+_REJECTED_RETRY_S = 3600
+_rejected: dict[str, float] = {}
+
 
 def _orch_headers() -> dict[str, str]:
     return {"X-API-Key": ORCH_API_KEY}
@@ -87,7 +92,7 @@ async def route_study(
     for instance_id in instance_ids:
         if instance_id in _pending_ack:
             await _acknowledge(client, source, instance_id)
-        else:
+        elif _rejected.get(instance_id, 0.0) <= time.monotonic():
             to_forward.append(instance_id)
     if not to_forward:
         return
@@ -135,6 +140,19 @@ async def route_study(
                 )
                 post_resp.raise_for_status()
         except Exception as exc:
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            if status in _REJECTED_STATUSES:
+                _rejected[instance_id] = time.monotonic() + _REJECTED_RETRY_S
+                log.error(
+                    "study=%s instance=%s rejected by %s (HTTP %d); kept on the edge, retrying "
+                    "in %ds, forwarding the rest of the study",
+                    study_id,
+                    instance_id,
+                    node_id,
+                    status,
+                    _REJECTED_RETRY_S,
+                )
+                continue
             # Leave this and the remaining instances on the edge for the next poll.
             log.error(
                 "study=%s instance=%s forward to %s failed: %s (%d instances left on edge)",
@@ -164,9 +182,10 @@ async def forward_loop(source: DicomSource) -> None:
         try:
             async with httpx.AsyncClient(verify=_VERIFY) as client:
                 studies = await source.poll_new(client)
-                _pending_ack.intersection_update(
-                    instance_id for ids in studies.values() for instance_id in ids
-                )
+                buffered = {instance_id for ids in studies.values() for instance_id in ids}
+                _pending_ack.intersection_update(buffered)
+                for instance_id in _rejected.keys() - buffered:
+                    del _rejected[instance_id]
                 for study_id, instance_ids in studies.items():
                     await route_study(client, source, study_id, instance_ids)
         except Exception as exc:
