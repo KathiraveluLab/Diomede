@@ -83,6 +83,9 @@ would see an incomplete series. Diomede therefore routes per study:
 - If a forward fails part way through a study, the remaining instances stay in the
   edge buffer. The next poll asks again and gets the same node (or the re-pinned one),
   so nothing is lost and nothing is uploaded twice.
+- `/get-best-node` also takes an optional `exclude` parameter, which can be repeated.
+  Excluded nodes are left out of scoring, so a study pinned to one of them is re-pinned
+  as above and the response says `rerouted`.
 
 Requests without `study_id` keep the old per-instance behaviour, so the Orchestrator
 and the edge agents can be upgraded independently.
