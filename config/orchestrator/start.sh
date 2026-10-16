@@ -1,5 +1,6 @@
 #!/bin/bash
 # start.sh – Orchestrator container entrypoint
+# Redis and the Telemetry Daemon run as their own services (see docker-compose.yml).
 set -e
 
 echo "[start.sh] Starting Orchestrator..."

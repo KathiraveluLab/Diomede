@@ -9,6 +9,7 @@ import respx
 from httpx import AsyncClient, ConnectError, HTTPStatusError, Response
 
 import src.edge.forwarder as forwarder_module
+import src.edge.orthanc_source as orthanc_source_module
 from src.edge.forwarder import CLOUD_NODES, route_study
 from src.edge.orthanc_source import OrthancSource
 from src.edge.transport import DicomSource
@@ -37,6 +38,7 @@ _US_ONLY = {"us-east1": {"base": "http://orthanc-us:8042", "auth": ("orthanc", "
 @pytest.fixture(autouse=True)
 def _reset_pending_ack(monkeypatch):
     monkeypatch.setattr(forwarder_module, "_pending_ack", set())
+    monkeypatch.setattr(forwarder_module, "_rejected", {})
 
 
 class _StubSource(DicomSource):
@@ -170,6 +172,93 @@ async def test_poll_new_raises_on_http_error():
     async with AsyncClient() as client:
         with pytest.raises(HTTPStatusError):
             await source.poll_new(client)
+
+
+@pytest.fixture
+def edge_logs(monkeypatch, caplog):
+    monkeypatch.setattr(orthanc_source_module.log, "propagate", True)
+    return caplog
+
+
+def _mock_edge_storage(mode: str = "Reject", quota_mb: int = 10_000, used_mb: float = 0):
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(200, json=[_series("s1", "abc123")])
+    )
+    respx.get(f"{_EDGE_BASE}/system").mock(
+        return_value=Response(
+            200, json={"MaximumStorageSize": quota_mb, "MaximumStorageMode": mode}
+        )
+    )
+    return respx.get(f"{_EDGE_BASE}/statistics").mock(
+        return_value=Response(200, json={"TotalDiskSizeMB": used_mb})
+    )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_warns_once_when_edge_recycles(edge_logs):
+    _mock_edge_storage(mode="Recycle")
+    source = OrthancSource(base=_EDGE_BASE)
+    async with AsyncClient() as client:
+        await source.poll_new(client)
+        await source.poll_new(client)
+
+    warnings = [r for r in edge_logs.records if "MaximumStorageMode" in r.getMessage()]
+    assert len(warnings) == 1
+    assert warnings[0].levelname == "WARNING"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_does_not_warn_when_edge_rejects(edge_logs):
+    _mock_edge_storage(mode="Reject")
+    async with AsyncClient() as client:
+        await OrthancSource(base=_EDGE_BASE).poll_new(client)
+
+    assert "MaximumStorageMode" not in edge_logs.text
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_logs_only_when_storage_level_changes(edge_logs):
+    stats = _mock_edge_storage(quota_mb=10_000)
+    stats.side_effect = [
+        Response(200, json={"TotalDiskSizeMB": used}) for used in (8500, 8600, 9600, 9900, 1000)
+    ]
+    source = OrthancSource(base=_EDGE_BASE)
+    async with AsyncClient() as client:
+        for _ in range(5):
+            await source.poll_new(client)
+
+    logged = [
+        (r.levelname, r.getMessage()) for r in edge_logs.records if "storage" in r.getMessage()
+    ]
+    assert [level for level, _ in logged] == ["WARNING", "ERROR", "INFO"]
+    assert "85%" in logged[0][1]
+    assert "96%" in logged[1][1]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_skips_storage_check_without_quota():
+    stats = _mock_edge_storage(quota_mb=0)
+    async with AsyncClient() as client:
+        await OrthancSource(base=_EDGE_BASE).poll_new(client)
+
+    assert not stats.called
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_storage_check_failure_does_not_break_polling():
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(200, json=[_series("s1", "abc123")])
+    )
+    respx.get(f"{_EDGE_BASE}/system").mock(return_value=Response(500))
+    async with AsyncClient() as client:
+        studies = await OrthancSource(base=_EDGE_BASE).poll_new(client)
+
+    assert studies == {"s1": ["abc123"]}
 
 
 @respx.mock
@@ -466,6 +555,100 @@ async def test_route_study_partial_failure_leaves_rest_on_edge(monkeypatch):
     assert post_route.call_count == 3
     assert orch_route.call_count == 2
     assert all(c.request.url.params["study_id"] == _STUDY for c in orch_route.calls)
+
+
+class _IdAsBytesSource(_StubSource):
+    """Sends each instance's ID as its file, so a test can tell uploads apart."""
+
+    @asynccontextmanager
+    async def open_stream(
+        self, client: AsyncClient, instance_id: str
+    ) -> AsyncIterator[AsyncIterator[bytes]]:
+        self.fetched.append(instance_id)
+
+        async def _body() -> AsyncIterator[bytes]:
+            yield instance_id.encode()
+
+        yield _body()
+
+
+def _reject_bad(request):
+    if request.content == b"bad":
+        return Response(400, json={"Message": "Bad file format"})
+    return Response(200, json={"ID": "new-id"})
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_route_study_skips_a_rejected_instance_and_forwards_the_rest(monkeypatch):
+    """One file the node can never accept must not hold back the rest of its study."""
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    orch_route = respx.get(_ORCH_URL).mock(return_value=Response(200, json=_BEST_NODE_RESP))
+    post_route = respx.post("http://orthanc-us:8042/instances").mock(side_effect=_reject_bad)
+
+    source = _IdAsBytesSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["bad", "i2", "i3"])
+        assert source.acknowledged == ["i2", "i3"]
+
+        # Next poll: only the rejected instance is still on the edge, and it is not retried yet.
+        await route_study(client, source, _STUDY, ["bad"])
+
+    assert source.fetched == ["bad", "i2", "i3"]
+    assert post_route.call_count == 3
+    assert orch_route.call_count == 1
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_rejected_instance_is_retried_after_the_wait(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    monkeypatch.setattr(forwarder_module, "_REJECTED_RETRY_S", 0)
+    respx.get(_ORCH_URL).mock(return_value=Response(200, json=_BEST_NODE_RESP))
+    respx.post("http://orthanc-us:8042/instances").mock(side_effect=_reject_bad)
+
+    source = _IdAsBytesSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["bad"])
+        await route_study(client, source, _STUDY, ["bad"])
+
+    assert source.fetched == ["bad", "bad"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_node_wide_client_error_still_stops_the_study(monkeypatch):
+    """A 401 means the node or its credentials are wrong, not the file, so nothing is skipped."""
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    respx.get(_ORCH_URL).mock(return_value=Response(200, json=_BEST_NODE_RESP))
+    post_route = respx.post("http://orthanc-us:8042/instances").mock(return_value=Response(401))
+
+    source = _IdAsBytesSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1", "i2"])
+        await route_study(client, source, _STUDY, ["i1", "i2"])
+
+    assert source.fetched == ["i1", "i1"]
+    assert post_route.call_count == 2
+    assert source.acknowledged == []
+
+
+@pytest.mark.asyncio
+async def test_forward_loop_forgets_rejected_instances_no_longer_buffered(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 0)
+    forwarder_module._rejected["gone"] = 0.0
+
+    task = asyncio.create_task(forwarder_module.forward_loop(_StubSource(studies={})))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert forwarder_module._rejected == {}
 
 
 @respx.mock

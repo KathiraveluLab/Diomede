@@ -203,3 +203,10 @@ def test_study_lands_on_a_single_node_when_scores_change():
             _delete_instance(EDGE_URL, uid, _EDGE_AUTH, False)
             for base_url in _CLOUD_URLS.values():
                 _delete_instance(base_url, uid, _EDGE_AUTH, False)
+
+
+def test_edge_rejects_new_instances_when_storage_is_full():
+    """A full edge must refuse new instances, not recycle ones that were never forwarded."""
+    resp = httpx.get(f"{EDGE_URL}/system", auth=_EDGE_AUTH, verify=False, timeout=10)
+    resp.raise_for_status()
+    assert resp.json()["MaximumStorageMode"] == "Reject"

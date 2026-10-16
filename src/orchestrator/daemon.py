@@ -26,6 +26,7 @@ REDIS_URL = require_env("REDIS_URL")
 POLL_INTERVAL_S = int(require_env("DAEMON_POLL_INTERVAL_S"))
 REDIS_TTL_S = int(require_env("REDIS_TTL_S"))
 HTTP_TIMEOUT_S = float(require_env("HTTP_TIMEOUT_S"))
+POLL_DEADLINE_S = 3 * HTTP_TIMEOUT_S
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
 
 
@@ -82,32 +83,40 @@ async def poll_node(
     assert isinstance(auth, tuple)
 
     try:
-        stats_resp = await client.get(f"{base}/statistics", auth=auth, timeout=HTTP_TIMEOUT_S)
-        stats_resp.raise_for_status()
-        stats = stats_resp.json()
+        async with asyncio.timeout(POLL_DEADLINE_S):
+            stats_resp = await client.get(f"{base}/statistics", auth=auth, timeout=HTTP_TIMEOUT_S)
+            stats_resp.raise_for_status()
+            stats = stats_resp.json()
 
-        if node_id not in node_quota_map:
-            system_resp = await client.get(f"{base}/system", auth=auth, timeout=HTTP_TIMEOUT_S)
-            system_resp.raise_for_status()
-            system = system_resp.json()
-            log.debug("System info for %s: %s", node_id, system)
-            node_quota_map[node_id] = system.get("MaximumStorageSize")
+            if node_id not in node_quota_map:
+                system_resp = await client.get(f"{base}/system", auth=auth, timeout=HTTP_TIMEOUT_S)
+                system_resp.raise_for_status()
+                system = system_resp.json()
+                log.debug("System info for %s: %s", node_id, system)
+                node_quota_map[node_id] = system.get("MaximumStorageSize")
 
-        log.debug("Statistics for %s: %s", node_id, stats)
+            log.debug("Statistics for %s: %s", node_id, stats)
 
-        # /jobs?expand returns full job objects; plain /jobs returns only IDs.
-        jobs_resp = await client.get(f"{base}/jobs?expand", auth=auth, timeout=HTTP_TIMEOUT_S)
-        jobs_resp.raise_for_status()
-        jobs = jobs_resp.json()
+            # /jobs?expand returns full job objects; plain /jobs returns only IDs.
+            jobs_resp = await client.get(f"{base}/jobs?expand", auth=auth, timeout=HTTP_TIMEOUT_S)
+            jobs_resp.raise_for_status()
+            jobs = jobs_resp.json()
 
         queue_size = len([j for j in jobs if j.get("State") in ("Pending", "Running")])
 
         disk_used_mb = stats.get("TotalDiskSizeMB")
         max_storage_mb = node_quota_map.get(node_id, 0) or 0
-        disk_free_mb = max(0.0, float(max_storage_mb - disk_used_mb))
-
-        # if free disk space is less than 2%, set node to unhealthy
-        is_disk_full = (disk_free_mb / max_storage_mb < 0.02) if max_storage_mb > 0 else False
+        disk_free_mb: float | None
+        disk_total_mb: int | None
+        if max_storage_mb > 0:
+            free_mb = max(0.0, float(max_storage_mb - disk_used_mb))
+            disk_free_mb, disk_total_mb = free_mb, max_storage_mb
+            # if free disk space is less than 2%, set node to unhealthy
+            is_disk_full = free_mb / max_storage_mb < 0.02
+        else:
+            # MaximumStorageSize = 0 means no quota: free space is unknown, not zero.
+            disk_free_mb = disk_total_mb = None
+            is_disk_full = False
 
         payload = {
             "node_id": node_id,
@@ -115,22 +124,22 @@ async def poll_node(
             "base_url": base,
             "queue_size": queue_size,
             "disk_free_mb": disk_free_mb,
-            "disk_total_mb": max_storage_mb,
+            "disk_total_mb": disk_total_mb,
             "instance_count": stats.get("CountInstances", 0),
             "healthy": not is_disk_full,
             "ts": datetime.now(tz=UTC).isoformat(),
         }
 
         log.info(
-            "node=%-15s healthy  queue=%d  disk_free=%.0f MB  instances=%d",
+            "node=%-15s healthy  queue=%d  disk_free=%s MB  instances=%d",
             node_id,
             queue_size,
-            disk_free_mb,
+            "unlimited" if disk_free_mb is None else f"{disk_free_mb:.0f}",
             payload["instance_count"],
         )
 
     except Exception as exc:
-        log.warning("node=%-15s unreachable: %s", node_id, exc)
+        log.warning("node=%-15s unreachable: %r", node_id, exc)
         payload = {
             "node_id": node_id,
             "ae_title": cfg["ae_title"],
@@ -153,8 +162,20 @@ def _warn_default_creds() -> None:
         )
 
 
+def _warn_short_ttl() -> None:
+    if POLL_INTERVAL_S + POLL_DEADLINE_S >= REDIS_TTL_S:
+        log.warning(
+            "REDIS_TTL_S=%ds is not longer than a worst-case poll cycle (%ds interval + %.0fs "
+            "deadline); node telemetry can expire between polls.",
+            REDIS_TTL_S,
+            POLL_INTERVAL_S,
+            POLL_DEADLINE_S,
+        )
+
+
 async def run() -> None:
     _warn_default_creds()
+    _warn_short_ttl()
 
     redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     verify: str | bool = CA_CERT if CA_CERT else True

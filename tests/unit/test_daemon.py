@@ -1,6 +1,8 @@
 """Unit tests for src/orchestrator/daemon.py"""
 
+import asyncio
 import json
+import time
 
 import fakeredis.aioredis
 import httpx
@@ -8,6 +10,7 @@ import pytest
 import respx
 from httpx import Response
 
+import src.orchestrator.daemon as daemon_module
 from src.orchestrator.daemon import NODES, REDIS_TTL_S, poll_node
 from src.utils.logging_config import get_logger
 
@@ -127,6 +130,49 @@ async def test_jobs_endpoint_failure_writes_unhealthy_payload():
     assert json.loads(await redis.get("node:us-east1"))["healthy"] is False
 
 
+@respx.mock
+@pytest.mark.asyncio
+async def test_slow_node_is_cut_off_and_marked_unhealthy(monkeypatch):
+    """A node that keeps a response trickling in must not hold the poll past its deadline."""
+    monkeypatch.setattr(daemon_module, "POLL_DEADLINE_S", 0.1, raising=False)
+
+    async def _slow(request):
+        await asyncio.sleep(5)
+        return Response(200, json=STATS_OK)
+
+    respx.get(f"{BASE}/statistics").mock(side_effect=_slow)
+
+    redis = await _redis()
+    start = time.monotonic()
+    async with httpx.AsyncClient() as client:
+        await poll_node(client, redis, "us-east1", _cfg())
+
+    assert time.monotonic() - start < 1
+    assert json.loads(await redis.get("node:us-east1"))["healthy"] is False
+
+
+def test_warns_when_ttl_shorter_than_poll_cycle(monkeypatch, caplog):
+    monkeypatch.setattr(daemon_module.log, "propagate", True)
+    monkeypatch.setattr(daemon_module, "POLL_INTERVAL_S", 10)
+    monkeypatch.setattr(daemon_module, "POLL_DEADLINE_S", 21.0)
+    monkeypatch.setattr(daemon_module, "REDIS_TTL_S", 30)
+
+    daemon_module._warn_short_ttl()
+
+    assert "REDIS_TTL_S" in caplog.text
+
+
+def test_no_ttl_warning_with_default_settings(monkeypatch, caplog):
+    monkeypatch.setattr(daemon_module.log, "propagate", True)
+    monkeypatch.setattr(daemon_module, "POLL_INTERVAL_S", 10)
+    monkeypatch.setattr(daemon_module, "POLL_DEADLINE_S", 15.0)
+    monkeypatch.setattr(daemon_module, "REDIS_TTL_S", 30)
+
+    daemon_module._warn_short_ttl()
+
+    assert "REDIS_TTL_S" not in caplog.text
+
+
 # Redis TTL
 
 
@@ -159,6 +205,25 @@ async def test_unhealthy_payload_also_gets_ttl():
 
 
 # NODES config
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_unlimited_storage_reports_unknown_free_disk(monkeypatch):
+    """MaximumStorageSize = 0 means no quota: free disk is unknown, not 0 MB."""
+    monkeypatch.setattr("src.orchestrator.daemon.node_quota_map", {})
+    respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=STATS_OK))
+    respx.get(f"{BASE}/system").mock(return_value=Response(200, json={"MaximumStorageSize": 0}))
+    respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=[]))
+
+    redis = await _redis()
+    async with httpx.AsyncClient() as client:
+        await poll_node(client, redis, "us-east1", _cfg())
+
+    payload = json.loads(await redis.get("node:us-east1"))
+    assert payload["healthy"] is True
+    assert payload["disk_free_mb"] is None
+    assert payload["disk_total_mb"] is None
 
 
 def test_all_four_regions_present():
