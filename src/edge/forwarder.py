@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import httpx
 from dotenv import load_dotenv
@@ -98,35 +98,15 @@ async def route_study(
         return
 
     # 1. Ask the Orchestrator for the study's destination (before downloading anything).
-    try:
-        best_resp = await client.get(
-            ORCH_URL,
-            params={"agent_id": AGENT_ID, "study_id": study_id},
-            headers=_orch_headers(),
-            timeout=5,
-        )
-        best_resp.raise_for_status()
-        best = best_resp.json()
-    except Exception as exc:
-        log.error("study=%s orchestrator query failed: %s", study_id, exc)
+    dest = await _destination(client, study_id, exclude=[])
+    if dest is None:
         return
+    node_id, node_cfg, best = dest
+    failed_nodes: list[str] = []
 
-    node_id = best.get("node_id")
-    if not node_id:
-        log.error("study=%s orchestrator response missing 'node_id'", study_id)
-        return
-
-    node_cfg = CLOUD_NODES.get(node_id)
-    if not node_cfg:
-        log.error("study=%s unknown node_id '%s' from orchestrator", study_id, node_id)
-        return
-
-    if best.get("rerouted"):
-        log.warning(
-            "study=%s re-pinned to %s; its earlier node became unavailable", study_id, node_id
-        )
-
-    for i, instance_id in enumerate(to_forward):
+    i = 0
+    while i < len(to_forward):
+        instance_id = to_forward[i]
         # 2. Stream the DICOM straight from the edge buffer to the cloud node so the file
         #    is never fully buffered in memory (safe for arbitrarily large instances).
         try:
@@ -152,7 +132,20 @@ async def route_study(
                     status,
                     _REJECTED_RETRY_S,
                 )
+                i += 1
                 continue
+            if _node_failed(exc, node_cfg["base"]):
+                failed_nodes.append(node_id)
+                log.warning(
+                    "study=%s upload to %s failed (%s); asking for another node",
+                    study_id,
+                    node_id,
+                    exc,
+                )
+                dest = await _destination(client, study_id, exclude=failed_nodes)
+                if dest is not None and dest[0] not in failed_nodes:
+                    node_id, node_cfg, best = dest
+                    continue
             # Leave this and the remaining instances on the edge for the next poll.
             log.error(
                 "study=%s instance=%s forward to %s failed: %s (%d instances left on edge)",
@@ -174,6 +167,58 @@ async def route_study(
 
         # 3. Acknowledge (delete local copy) only after a confirmed successful forward.
         await _acknowledge(client, source, instance_id)
+        i += 1
+
+
+async def _destination(
+    client: httpx.AsyncClient, study_id: str, exclude: list[str]
+) -> tuple[str, _NodeCfg, dict[str, Any]] | None:
+    """Ask the orchestrator where the study goes, skipping nodes in exclude."""
+    try:
+        best_resp = await client.get(
+            ORCH_URL,
+            params={"agent_id": AGENT_ID, "study_id": study_id, "exclude": exclude},
+            headers=_orch_headers(),
+            timeout=5,
+        )
+        best_resp.raise_for_status()
+        best: dict[str, Any] = best_resp.json()
+    except Exception as exc:
+        log.error("study=%s orchestrator query failed: %s", study_id, exc)
+        return None
+
+    node_id = best.get("node_id")
+    if not node_id:
+        log.error("study=%s orchestrator response missing 'node_id'", study_id)
+        return None
+
+    node_cfg = CLOUD_NODES.get(node_id)
+    if not node_cfg:
+        log.error("study=%s unknown node_id '%s' from orchestrator", study_id, node_id)
+        return None
+
+    if best.get("rerouted"):
+        log.warning(
+            "study=%s re-pinned to %s; its earlier node became unavailable", study_id, node_id
+        )
+    return node_id, node_cfg, best
+
+
+def _node_failed(exc: Exception, node_base: str) -> bool:
+    """True when the cloud node refused the upload or could not be reached.
+
+    Timeouts after sending, and 502/504 from a proxy in front of the node, are left out:
+    the node may have stored the file, and sending it elsewhere would leave a copy on both.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        if exc.response.status_code in (502, 504):
+            return False
+    elif not isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+        return False
+    try:
+        return exc.request.url.netloc == httpx.URL(node_base).netloc
+    except RuntimeError:
+        return False
 
 
 async def forward_loop(source: DicomSource) -> None:
