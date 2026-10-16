@@ -8,7 +8,6 @@ volumes:
   orthanc-asia-data:
   orthanc-af-data:
   orthanc-edge-data:
-  orchestrator-redis-data:
   redis-data:
 
 
@@ -231,8 +230,6 @@ services:
       - ./certs/orchestrator/server.crt:/certs/server.crt:ro
       - ./certs/orchestrator/server.key:/certs/server.key:ro
       - ./certs/ca.pem:/certs/ca.pem:ro
-      # Redis AOF: RTTs and study pins survive container restart and down/up.
-      - orchestrator-redis-data:/data
 
     depends_on:
       redis:

@@ -170,7 +170,7 @@ def test_unknown_agent_id_uses_default_scoring():
 
 
 def test_rtt_survives_orchestrator_restart():
-    """RTTs are persisted by Redis AOF, so a restarted orchestrator still uses them."""
+    """RTTs live in the Redis service, so a restarted orchestrator still uses them."""
     agent_id = "agent-persist-test"
     rtt = {"us-east1": 11.0, "eu-west1": 22.0, "asia-northeast1": 33.0, "af-south1": 44.0}
     httpx.post(
@@ -183,7 +183,7 @@ def test_rtt_survives_orchestrator_restart():
 
     subprocess.run(["docker", "restart", "orchestrator"], check=True, capture_output=True)
 
-    # Wait for uvicorn to come back and the daemon to repopulate node telemetry.
+    # Wait for uvicorn to come back.
     deadline = time.monotonic() + 60
     node = None
     while time.monotonic() < deadline:

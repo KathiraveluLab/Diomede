@@ -122,20 +122,17 @@ The Telemetry Daemon writes each node's health to Redis with a **30-second TTL**
 
 ### 6.1 Orchestrator Resilience
 
-Every routing decision requires a synchronous call to `GET /get-best-node`, which makes the Orchestrator a potential single point of failure (SPOF). Two mitigations are currently in place:
+Every routing decision requires a synchronous call to `GET /get-best-node`, which makes the Orchestrator a potential single point of failure (SPOF). These mitigations are currently in place:
 
 **Automatic container restart.** The orchestrator, Redis and the Telemetry Daemon each run in their own container with `restart: unless-stopped`, so Docker restarts whichever process crashes. A restarted daemon writes fresh telemetry well within the 30 s TTL, so routing carries on, and restarting the orchestrator no longer touches Redis.
 
 **Buffered retry at the edge.** If the Orchestrator is unreachable or returns an error, the Forwarder does not guess a destination. It leaves the instance in the Edge Orthanc buffer and asks again on the next poll (every `FORWARDER_POLL_INTERVAL_S`), so nothing is dropped; delivery is only delayed until the Orchestrator recovers.
 
+**Routing state in Redis.** RTT measurements and study pins are stored in Redis (`rtt:{agent_id}`, `study:{study_id}`), not in the orchestrator process, so restarting the orchestrator keeps them and every orchestrator process sees the same data. Both keys expire (`RTT_TTL_S`, `STUDY_AFFINITY_TTL_S`), so an agent that stops sending heartbeats does not leave stale RTTs behind. If an agent's RTTs are missing, the scorer falls back to a 250 ms default for all nodes, so decisions rely on queue depth and disk space until the next probe.
+
 **Planned enhancements:**
 
-- *Redis persistence and standalone deployment.* RTT measurements and study pins are stored in Redis (`rtt:{agent_id}`, `study:{study_id}`), so they are shared by every Orchestrator process. Both keys expire (`RTT_TTL_S`, `STUDY_AFFINITY_TTL_S`), so an agent that stops sending heartbeats does not leave stale RTTs behind. Redis runs inside the orchestrator container with AOF (Append-Only File) persistence on the `orchestrator-redis-data` volume, so RTTs and study pins survive `docker restart orchestrator` and `docker compose down`/`up`; at most the last second of writes is lost (`appendfsync everysec`). `docker compose down -v` deletes the volume and starts empty. If the RTTs are missing, routing degrades gracefully because the scorer defaults to 250 ms RTT for all nodes, neutralising the RTT term so decisions fall back to queue depth and disk space. The remaining enhancement is to move Redis to a standalone service, so the Orchestrator can be restarted or scaled without touching the telemetry store.
-
-- *Horizontal scaling.* The Orchestrator keeps no routing state in memory any more, so with Redis externalised it is fully stateless and can run as multiple replicas behind a load balancer, eliminating any single process as a SPOF.
-- *RTT cache in Redis.* Redis now runs as its own service with AOF persistence, but the per-agent RTT cache still lives in the orchestrator process. An orchestrator restart therefore loses the hourly RTT measurements and routing falls back to the 250 ms default until the next probe. Keeping the cache in Redis would preserve it across restarts.
-
-- *Horizontal scaling.* Once the RTT cache is in Redis, the Orchestrator becomes fully stateless and can run as multiple replicas behind a load balancer. The Telemetry Daemon already runs as a single separate service, so adding orchestrator replicas does not duplicate node polling.
+- *Horizontal scaling.* The Orchestrator keeps no routing state in memory, so it can run as multiple replicas behind a load balancer. The Telemetry Daemon already runs as a single separate service, so adding orchestrator replicas does not duplicate node polling.
 
 ### 6.2 Security
 

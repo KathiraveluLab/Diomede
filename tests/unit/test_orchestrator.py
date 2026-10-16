@@ -236,9 +236,8 @@ async def test_heartbeat_overwrites_existing_rtt(client, fake_redis):
 
 
 @pytest.mark.parametrize("rtt", ["NaN", "Infinity", "-Infinity"])
-async def test_heartbeat_rejects_non_finite_rtt(client, monkeypatch, rtt):
+async def test_heartbeat_rejects_non_finite_rtt(client, fake_redis, rtt):
     """NaN slips past `rtt <= 0`, and FastAPI cannot echo NaN/Infinity back in its 422 body."""
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     resp = await client.post(
         "/heartbeat",
         content=f'{{"agent_id": "test-agent", "rtt_dict": {{"us-east1": {rtt}}}}}',
@@ -246,7 +245,7 @@ async def test_heartbeat_rejects_non_finite_rtt(client, monkeypatch, rtt):
     )
     assert resp.status_code == 422
     assert "rtt_ms" in resp.json()["detail"][0]["msg"]
-    assert main_module._rtt_cache == {}
+    assert await fake_redis.get("rtt:test-agent") is None
 
 
 async def test_heartbeat_affects_scoring(client, fake_redis, monkeypatch):
