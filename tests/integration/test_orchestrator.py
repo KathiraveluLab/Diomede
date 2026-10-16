@@ -63,6 +63,27 @@ def _start_container(name: str) -> None:
     subprocess.run(["docker", "start", name], check=True, capture_output=True)
 
 
+def _kill_daemon(container: str) -> None:
+    script = (
+        "import os, signal\n"
+        "for p in filter(str.isdigit, os.listdir('/proc')):\n"
+        "    cmd = open(f'/proc/{p}/cmdline', 'rb').read()\n"
+        "    if int(p) != os.getpid() and b'src.orchestrator.daemon' in cmd:\n"
+        "        os.kill(int(p), signal.SIGKILL)\n"
+    )
+    subprocess.run(["docker", "exec", container, "python3", "-c", script], capture_output=True)
+
+
+def _restart_count(container: str) -> int:
+    out = subprocess.run(
+        ["docker", "inspect", "-f", "{{.RestartCount}}", container],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return int(out.stdout)
+
+
 def test_nodes_returns_non_empty_list():
     nodes = _get_nodes()
     assert isinstance(nodes, list)
@@ -146,3 +167,15 @@ def test_unknown_agent_id_uses_default_scoring():
     node = resp.json()
     assert node["healthy"] is True
     assert node["rtt_ms"] is None
+
+
+def test_routing_survives_telemetry_daemon_crash():
+    """A crashed telemetry daemon is restarted before node telemetry expires in Redis."""
+    restarts = _restart_count("telemetry-daemon")
+    _kill_daemon("telemetry-daemon")
+
+    deadline = time.monotonic() + int(os.environ.get("REDIS_TTL_S", "30")) + 15
+    while time.monotonic() < deadline:
+        assert _get_best_node()["healthy"] is True
+        time.sleep(5)
+    assert _restart_count("telemetry-daemon") > restarts
