@@ -16,7 +16,7 @@ import math
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Annotated, Any
 
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
@@ -169,16 +169,19 @@ async def get_nodes(api_key: str = Depends(validate_api_key)) -> list[NodeRespon
 async def get_best_node(
     agent_id: str,
     study_id: str | None = Query(default=None, max_length=128, pattern=r"^[A-Za-z0-9.\-]+$"),
+    exclude: Annotated[list[str] | None, Query()] = None,
     api_key: str = Depends(validate_api_key),
 ) -> BestNodeResponse:
     """Return the highest-scoring healthy node in Redis.
 
     With study_id, return the node the study is pinned to while it stays healthy.
+    Nodes in exclude are skipped, so a study pinned to one of them is moved.
     """
     node_list = await _get_nodes()
 
     scorer = get_scorer()
-    healthy = [n for n in node_list if n.get("healthy") is True]
+    skip = set(exclude or [])
+    healthy = [n for n in node_list if n.get("healthy") is True and n["node_id"] not in skip]
     if not healthy:
         raise HTTPException(status_code=503, detail="No healthy nodes available")
 
