@@ -195,6 +195,8 @@ def test_rtt_survives_orchestrator_restart():
 
     assert node is not None, "Orchestrator did not recover within 60 s after restart"
     assert node["rtt_ms"] == rtt[node["node_id"]]
+
+
 def test_routing_survives_telemetry_daemon_crash():
     """A crashed telemetry daemon is restarted before node telemetry expires in Redis."""
     restarts = _restart_count("telemetry-daemon")

@@ -354,8 +354,7 @@ async def test_study_repinned_when_pinned_node_telemetry_expired(client, fake_re
     assert data["rerouted"] is True
 
 
-async def test_excluded_node_is_never_returned(client, fake_redis, monkeypatch):
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
+async def test_excluded_node_is_never_returned(client, fake_redis):
     await _seed(fake_redis, us_queue=0, eu_queue=20)
     resp = await client.get(
         "/get-best-node", params={"agent_id": "test-agent", "exclude": "us-east1"}
@@ -364,9 +363,8 @@ async def test_excluded_node_is_never_returned(client, fake_redis, monkeypatch):
     assert resp.json()["node_id"] == "eu-west1"
 
 
-async def test_study_pinned_to_excluded_node_is_repinned(client, fake_redis, monkeypatch):
+async def test_study_pinned_to_excluded_node_is_repinned(client, fake_redis):
     """An excluded node loses the study even while its telemetry says it is healthy."""
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
     await _seed(fake_redis, us_queue=0, eu_queue=20)
     await fake_redis.set("study:s1", "us-east1")
     resp = await client.get(
@@ -379,8 +377,7 @@ async def test_study_pinned_to_excluded_node_is_repinned(client, fake_redis, mon
     assert await fake_redis.get("study:s1") == "eu-west1"
 
 
-async def test_excluding_every_node_returns_503(client, fake_redis, monkeypatch):
-    monkeypatch.setattr(main_module, "_rtt_cache", {})
+async def test_excluding_every_node_returns_503(client, fake_redis):
     await _seed(fake_redis, us_queue=0, eu_queue=20)
     resp = await client.get(
         "/get-best-node",
@@ -520,6 +517,8 @@ async def test_heartbeat_returns_503_when_redis_unreachable(monkeypatch):
             "/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 45.0}}
         )
     assert resp.status_code == 503
+
+
 # Scoring weights from environment
 def test_weights_read_from_env(monkeypatch):
     monkeypatch.setenv("W_QUEUE", "0.1")
