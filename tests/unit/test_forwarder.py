@@ -40,6 +40,7 @@ _US_ONLY = {"us-east1": {"base": "http://orthanc-us:8042", "auth": ("orthanc", "
 def _reset_pending_ack(monkeypatch):
     monkeypatch.setattr(forwarder_module, "_pending_ack", set())
     monkeypatch.setattr(forwarder_module, "_rejected", {})
+    monkeypatch.setattr(forwarder_module, "_node_slots", {})
 
 
 class _StubSource(DicomSource):
@@ -934,3 +935,149 @@ async def test_latency_probe_skips_failed_node_and_continues(monkeypatch):
     body = json.loads(hb_route.calls[0].request.content)
     assert "agent_id" in body
     assert set(body["rtt_dict"].keys()) == set(node_ids[1:])
+
+
+def _orchestrator_by_study(request):
+    node_id = "us-east1" if request.url.params["study_id"].startswith("slow") else "eu-west1"
+    return Response(200, json={"node_id": node_id, "score": 0.5})
+
+
+def _hanging_node(started: list[str]):
+    async def _hang(request):
+        started.append(request.url.host)
+        await asyncio.Event().wait()
+
+    return _hang
+
+
+async def _run_one_poll(source: DicomSource) -> None:
+    task = asyncio.create_task(forwarder_module.forward_loop(source))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_hung_node_does_not_hold_up_studies_for_other_nodes(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 3600)
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    respx.get(_ORCH_URL).mock(side_effect=_orchestrator_by_study)
+
+    respx.post("http://orthanc-us:8042/instances").mock(side_effect=_hanging_node([]))
+    respx.post("http://orthanc-eu:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource(studies={"slow-1": ["a"], "fast-1": ["b"], "fast-2": ["c"]})
+    await _run_one_poll(source)
+
+    assert source.acknowledged == ["b", "c"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_uploads_to_a_hung_node_are_capped_without_blocking_other_nodes(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 3600)
+    monkeypatch.setattr(forwarder_module, "MAX_UPLOADS_PER_NODE", 2)
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    respx.get(_ORCH_URL).mock(side_effect=_orchestrator_by_study)
+    started: list[str] = []
+    respx.post("http://orthanc-us:8042/instances").mock(side_effect=_hanging_node(started))
+    respx.post("http://orthanc-eu:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    studies = {"slow-1": ["a"], "slow-2": ["b"], "slow-3": ["c"], "fast-1": ["d"]}
+    source = _StubSource(studies=studies)
+    await _run_one_poll(source)
+
+    assert len(started) == 2
+    assert source.acknowledged == ["d"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_study_still_uploading_is_not_started_again(monkeypatch):
+    """A second poll would see the in-flight instance again and upload it twice."""
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 0)
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    respx.get(_ORCH_URL).mock(side_effect=_orchestrator_by_study)
+
+    started: list[str] = []
+    respx.post("http://orthanc-us:8042/instances").mock(side_effect=_hanging_node(started))
+
+    await _run_one_poll(_StubSource(studies={"slow-1": ["a"]}))
+
+    assert len(started) == 1
+
+
+@pytest.mark.asyncio
+async def test_error_in_one_study_does_not_stop_the_others(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 3600)
+    routed: list[str] = []
+
+    async def _route(client, source, study_id, instance_ids):
+        if study_id == "bad":
+            raise RuntimeError("boom")
+        routed.append(study_id)
+
+    monkeypatch.setattr(forwarder_module, "route_study", _route)
+
+    await _run_one_poll(_StubSource(studies={"bad": ["a"], "good": ["b"]}))
+
+    assert routed == ["good"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_study_arriving_during_a_hung_upload_is_not_held_back(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 0)
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    respx.get(_ORCH_URL).mock(side_effect=_orchestrator_by_study)
+    respx.post("http://orthanc-us:8042/instances").mock(side_effect=_hanging_node([]))
+    respx.post("http://orthanc-eu:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource(studies={"slow-1": ["a"]})
+    task = asyncio.create_task(forwarder_module.forward_loop(source))
+    await asyncio.sleep(0.02)
+    source.studies = {"slow-1": ["a"], "fast-1": ["b"]}
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # The stub never drops acknowledged instances, so later polls route "b" again.
+    assert set(source.acknowledged) == {"b"}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_study_is_retried_on_a_later_poll_after_a_failure(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 0)
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    respx.get(_ORCH_URL).mock(
+        side_effect=[Response(503)] + [Response(200, json=_BEST_NODE_RESP)] * 50
+    )
+    respx.post("http://orthanc-us:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource(studies={"s1": ["a"]})
+    await _run_one_poll(source)
+
+    assert "a" in source.acknowledged

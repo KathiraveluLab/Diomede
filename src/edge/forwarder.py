@@ -23,6 +23,9 @@ ORCH_API_KEY = require_env("ORCHESTRATOR_API_KEY")
 AGENT_ID = require_env("AGENT_ID")
 POLL_INTERVAL_S = int(require_env("FORWARDER_POLL_INTERVAL_S"))
 PROBE_INTERVAL_S = int(require_env("PROBE_INTERVAL_S"))
+MAX_UPLOADS_PER_NODE = int(os.getenv("FORWARDER_MAX_UPLOADS_PER_NODE", "4"))
+if MAX_UPLOADS_PER_NODE < 1:
+    raise ValueError("FORWARDER_MAX_UPLOADS_PER_NODE must be at least 1")
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
 
 _VERIFY = CA_CERT if CA_CERT else True
@@ -59,6 +62,9 @@ _pending_ack: set[str] = set()
 _REJECTED_STATUSES = {400, 413, 415, 422}
 _REJECTED_RETRY_S = 3600
 _rejected: dict[str, float] = {}
+
+# Limited per node, so a node that stops answering only ties up its own uploads.
+_node_slots: dict[str, asyncio.Semaphore] = {}
 
 
 def _orch_headers() -> dict[str, str]:
@@ -109,8 +115,9 @@ async def route_study(
         instance_id = to_forward[i]
         # 2. Stream the DICOM straight from the edge buffer to the cloud node so the file
         #    is never fully buffered in memory (safe for arbitrarily large instances).
+        slots = _node_slots.setdefault(node_id, asyncio.Semaphore(MAX_UPLOADS_PER_NODE))
         try:
-            async with source.open_stream(client, instance_id) as body:
+            async with slots, source.open_stream(client, instance_id) as body:
                 post_resp = await client.post(
                     f"{node_cfg['base']}/instances",
                     content=body,
@@ -222,20 +229,37 @@ def _node_failed(exc: Exception, node_base: str) -> bool:
 
 
 async def forward_loop(source: DicomSource) -> None:
-    """Poll the DicomSource every POLL_INTERVAL_S seconds and route new studies."""
-    while True:
+    """Poll the DicomSource every POLL_INTERVAL_S seconds and route new studies.
+
+    Studies are routed side by side, so a slow node only holds up its own studies.
+    A study that is still uploading is skipped by later polls, so no instance is
+    sent twice.
+    """
+    in_flight: set[str] = set()
+
+    async def _route(client: httpx.AsyncClient, study_id: str, instance_ids: list[str]) -> None:
         try:
-            async with httpx.AsyncClient(verify=_VERIFY) as client:
+            await route_study(client, source, study_id, instance_ids)
+        except Exception as exc:
+            log.warning("study=%s routing error: %s", study_id, exc)
+        finally:
+            in_flight.discard(study_id)
+
+    async with httpx.AsyncClient(verify=_VERIFY) as client, asyncio.TaskGroup() as tasks:
+        while True:
+            try:
                 studies = await source.poll_new(client)
                 buffered = {instance_id for ids in studies.values() for instance_id in ids}
                 _pending_ack.intersection_update(buffered)
                 for instance_id in _rejected.keys() - buffered:
                     del _rejected[instance_id]
                 for study_id, instance_ids in studies.items():
-                    await route_study(client, source, study_id, instance_ids)
-        except Exception as exc:
-            log.warning("forward_loop error: %s", exc)
-        await asyncio.sleep(POLL_INTERVAL_S)
+                    if study_id not in in_flight:
+                        in_flight.add(study_id)
+                        tasks.create_task(_route(client, study_id, instance_ids))
+            except Exception as exc:
+                log.warning("forward_loop error: %s", exc)
+            await asyncio.sleep(POLL_INTERVAL_S)
 
 
 async def latency_probe_loop() -> None:

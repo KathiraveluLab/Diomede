@@ -51,7 +51,10 @@ spoke.
    buffered instances by their parent study. With `FORWARDER_WAIT_FOR_STABLE_STUDY=true`
    it also calls `GET /studies?expand` and only routes studies Orthanc marks stable
 3. Forwarder queries `GET /orchestrator:8000/get-best-node?agent_id=...&study_id=...`
-   once per study
+   once per study. Studies are routed side by side, with at most
+   `FORWARDER_MAX_UPLOADS_PER_NODE` uploads (default 4) to each cloud node at a time,
+   so a node that stops answering only holds up its own studies. A study that is
+   still uploading is skipped by later polls, so no instance is sent twice
 4. Orchestrator returns the node the study is pinned to, or scores all healthy
    Redis entries and pins the winner (see 3.2)
 5. For each instance of the study, Forwarder streams `GET /instances/{id}/file`
