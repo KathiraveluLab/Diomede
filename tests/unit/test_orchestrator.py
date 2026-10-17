@@ -520,6 +520,8 @@ async def test_heartbeat_returns_503_when_redis_unreachable(monkeypatch):
             "/heartbeat", json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 45.0}}
         )
     assert resp.status_code == 503
+
+
 # Scoring weights from environment
 def test_weights_read_from_env(monkeypatch):
     monkeypatch.setenv("W_QUEUE", "0.1")
