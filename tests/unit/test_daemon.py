@@ -3,6 +3,7 @@
 import asyncio
 import json
 import time
+from unittest.mock import AsyncMock, MagicMock
 
 import fakeredis.aioredis
 import httpx
@@ -235,3 +236,85 @@ def test_ae_titles_match_orthanc_config():
     assert NODES["eu-west1"]["ae_title"] == "Orthanc_EU"
     assert NODES["asia-northeast1"]["ae_title"] == "Orthanc_ASIA"
     assert NODES["af-south1"]["ae_title"] == "Orthanc_AF"
+
+
+# Redis write failures
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_redis_write_failure_is_logged_not_raised(monkeypatch, caplog):
+    monkeypatch.setattr(daemon_module.log, "propagate", True)
+    respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=STATS_OK))
+    respx.get(f"{BASE}/system").mock(return_value=Response(200, json=SYSTEM_OK))
+    respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=JOBS_MIXED))
+
+    redis = await _redis()
+    monkeypatch.setattr(redis, "setex", AsyncMock(side_effect=ConnectionError("redis down")))
+    async with httpx.AsyncClient() as client:
+        await poll_node(client, redis, "us-east1", _cfg())
+
+    assert "Failed to write node:us-east1" in caplog.text
+
+
+# Default credential warning
+
+
+def test_warns_when_default_node_password_is_used(monkeypatch, caplog):
+    monkeypatch.setattr(daemon_module.log, "propagate", True)
+    monkeypatch.setenv("NODE_US_PASS", "orthanc")
+
+    daemon_module._warn_default_creds()
+
+    assert "insecure default" in caplog.text
+
+
+def test_no_credential_warning_when_password_is_changed(monkeypatch, caplog):
+    monkeypatch.setattr(daemon_module.log, "propagate", True)
+    monkeypatch.setenv("NODE_US_PASS", "a-strong-password")
+
+    daemon_module._warn_default_creds()
+
+    assert "insecure default" not in caplog.text
+
+
+# run() loop
+
+
+def _stop_run_after_first_cycle(monkeypatch):
+    """Stub Redis, node polling and the startup checks so run() stops after one poll cycle."""
+    fake_redis = AsyncMock()
+    poll = AsyncMock()
+    warn_creds = MagicMock()
+    warn_ttl = MagicMock()
+    monkeypatch.setattr(daemon_module.aioredis, "from_url", lambda *a, **kw: fake_redis)
+    monkeypatch.setattr(daemon_module, "poll_node", poll)
+    monkeypatch.setattr(daemon_module, "_warn_default_creds", warn_creds)
+    monkeypatch.setattr(daemon_module, "_warn_short_ttl", warn_ttl)
+    monkeypatch.setattr(
+        daemon_module.asyncio, "sleep", AsyncMock(side_effect=asyncio.CancelledError)
+    )
+    return fake_redis, poll, warn_creds, warn_ttl
+
+
+@pytest.mark.asyncio
+async def test_run_polls_every_node_then_closes_redis(monkeypatch):
+    fake_redis, poll, _, _ = _stop_run_after_first_cycle(monkeypatch)
+
+    with pytest.raises(asyncio.CancelledError):
+        await daemon_module.run()
+
+    assert poll.await_count == len(NODES)
+    assert {call.args[2] for call in poll.await_args_list} == set(NODES)
+    fake_redis.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_checks_startup_warnings(monkeypatch):
+    _, _, warn_creds, warn_ttl = _stop_run_after_first_cycle(monkeypatch)
+
+    with pytest.raises(asyncio.CancelledError):
+        await daemon_module.run()
+
+    warn_creds.assert_called_once()
+    warn_ttl.assert_called_once()
