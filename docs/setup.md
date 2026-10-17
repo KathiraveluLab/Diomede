@@ -120,6 +120,10 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
 - **`FORWARDER_WAIT_FOR_STABLE_STUDY`** (optional, default `false`) — set to `true`
   to route a study only after Edge Orthanc marks it stable (no new instance for
   Orthanc's `StableAge`, 60 s by default).
+- **`FORWARDER_MAX_UPLOADS_PER_NODE`** (optional, default `4`) — how many files the
+  Forwarder uploads to one cloud node at the same time. Studies are routed side by
+  side, while the instances of one study still go one after another. Must be at
+  least 1; the Forwarder refuses to start otherwise.
 - **`RTT_TTL_S`** (optional, default `10800`) — how long an edge agent's RTT
   measurements are kept without a new heartbeat. Keep it above `PROBE_INTERVAL_S`.
 - **`W_QUEUE`, `W_DISK`, `W_RTT`** (optional, defaults `0.5`, `0.15`, `0.35`) —
