@@ -56,6 +56,11 @@ CLOUD_NODES: dict[str, _NodeCfg] = {
 }
 
 
+# A node whose latency probe fails is reported at the probe timeout, so it ranks as slow instead of
+# looking average to the orchestrator, which uses a default RTT for nodes without a measurement.
+_PROBE_TIMEOUT_S = 10
+_UNREACHABLE_RTT_MS = _PROBE_TIMEOUT_S * 1000.0
+
 _pending_ack: set[str] = set()
 
 # Upload statuses that mean the node will never accept this particular file, unlike 401/404/429.
@@ -263,7 +268,10 @@ async def forward_loop(source: DicomSource) -> None:
 
 
 async def latency_probe_loop() -> None:
-    """GET /system on each cloud node once per hour, report RTT to /heartbeat."""
+    """GET /system on each cloud node once per hour, report RTT to /heartbeat.
+
+    A node that cannot be probed is reported at the probe timeout.
+    """
     while True:
         rtt_dict: dict[str, float] = {}
         async with httpx.AsyncClient(verify=_VERIFY) as client:
@@ -272,13 +280,19 @@ async def latency_probe_loop() -> None:
                 auth = cfg["auth"]
                 try:
                     t0 = time.monotonic()
-                    resp = await client.get(f"{base}/system", auth=auth, timeout=10)
+                    resp = await client.get(f"{base}/system", auth=auth, timeout=_PROBE_TIMEOUT_S)
                     rtt_ms = (time.monotonic() - t0) * 1000
                     resp.raise_for_status()
                     rtt_dict[node_id] = round(rtt_ms, 1)
                     log.info("node=%-15s rtt=%.1f ms", node_id, rtt_ms)
                 except Exception as exc:
-                    log.warning("node=%-15s probe failed: %s", node_id, exc)
+                    rtt_dict[node_id] = _UNREACHABLE_RTT_MS
+                    log.warning(
+                        "node=%-15s probe failed: %s; reporting rtt=%.0f ms",
+                        node_id,
+                        exc,
+                        _UNREACHABLE_RTT_MS,
+                    )
 
             if rtt_dict:
                 try:

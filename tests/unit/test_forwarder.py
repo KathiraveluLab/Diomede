@@ -908,8 +908,8 @@ async def test_latency_probe_reports_rtt_for_all_nodes(monkeypatch):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_latency_probe_skips_failed_node_and_continues(monkeypatch):
-    """One node unreachable → probe loop continues and reports the other nodes."""
+async def test_latency_probe_reports_failed_node_as_slow(monkeypatch):
+    """One node unreachable → probe loop continues and reports it at the probe timeout."""
     monkeypatch.setattr(forwarder_module, "_VERIFY", True)
     monkeypatch.setattr(forwarder_module, "ORCH_HEARTBEAT_URL", _ORCH_HB_URL)
     monkeypatch.setattr(forwarder_module, "PROBE_INTERVAL_S", 0)
@@ -934,7 +934,9 @@ async def test_latency_probe_skips_failed_node_and_continues(monkeypatch):
 
     body = json.loads(hb_route.calls[0].request.content)
     assert "agent_id" in body
-    assert set(body["rtt_dict"].keys()) == set(node_ids[1:])
+    assert set(body["rtt_dict"].keys()) == set(node_ids)
+    assert body["rtt_dict"][node_ids[0]] == forwarder_module._UNREACHABLE_RTT_MS
+    assert all(body["rtt_dict"][nid] < forwarder_module._UNREACHABLE_RTT_MS for nid in node_ids[1:])
 
 
 def _orchestrator_by_study(request):

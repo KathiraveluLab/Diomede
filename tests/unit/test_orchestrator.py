@@ -266,6 +266,33 @@ async def test_heartbeat_affects_scoring(client, fake_redis, monkeypatch):
     assert resp.json()["node_id"] == "eu-west1"
 
 
+async def test_node_reported_at_unreachable_rtt_loses_to_measured_node(client, fake_redis):
+    """A node the edge could not probe (reported at 10000 ms) ranks below a measured node.
+
+    The default RTT for a node without a measurement is 250 ms, so a node left out of
+    the heartbeat would beat one measured at 300 ms.
+    """
+    await _seed(fake_redis, us_queue=0, eu_queue=0)
+
+    resp = await client.post(
+        "/heartbeat",
+        json={"agent_id": "test-agent", "rtt_dict": {"us-east1": 10000.0, "eu-west1": 300.0}},
+    )
+    assert resp.status_code == 204
+
+    assert (await _best(client))["node_id"] == "eu-west1"
+
+
+async def test_node_missing_from_heartbeat_beats_node_measured_slower_than_default(
+    client, fake_redis
+):
+    """Documents why a failed probe must be reported: a node without an RTT scores as 250 ms."""
+    await _seed(fake_redis, us_queue=0, eu_queue=0)
+    await fake_redis.set("rtt:test-agent", json.dumps({"eu-west1": 300.0}))
+
+    assert (await _best(client))["node_id"] == "us-east1"
+
+
 async def test_unknown_agent_falls_back_to_default_scoring(client, fake_redis, monkeypatch):
     """An agent with no heartbeat yet is still routed, even if other agents have RTT data."""
     await fake_redis.set("rtt:other-agent", json.dumps({"us-east1": 10.0}))
