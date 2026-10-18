@@ -34,12 +34,8 @@ CLOUD_AUTH = (
     os.getenv("ORTHANC_PASSWORD", "orthanc"),
 )
 CLOUD_URLS: dict[str, str] = {
-    os.getenv("REGION1_NAME", "us-east1"): os.getenv(
-        "NODE_US_HTTPS_URL", "https://localhost:8042"
-    ),
-    os.getenv("REGION2_NAME", "eu-west1"): os.getenv(
-        "NODE_EU_HTTPS_URL", "https://localhost:8043"
-    ),
+    os.getenv("REGION1_NAME", "us-east1"): os.getenv("NODE_US_HTTPS_URL", "https://localhost:8042"),
+    os.getenv("REGION2_NAME", "eu-west1"): os.getenv("NODE_EU_HTTPS_URL", "https://localhost:8043"),
     os.getenv("REGION3_NAME", "asia-northeast1"): os.getenv(
         "NODE_ASIA_HTTPS_URL", "https://localhost:8044"
     ),
@@ -94,9 +90,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def upload_instance(
-    client: httpx.Client, edge_url: str, instance_bytes: bytes
-) -> str | None:
+def upload_instance(client: httpx.Client, edge_url: str, instance_bytes: bytes) -> str | None:
     try:
         resp = client.post(
             f"{edge_url}/instances",
@@ -152,11 +146,7 @@ def run_benchmark() -> int:
                 sent_ids.append(inst_id)
 
             # Trigger mid-transfer outage at 50% completion if requested
-            if (
-                args.simulate_outage
-                and not outage_triggered
-                and idx >= args.burst_count // 2
-            ):
+            if args.simulate_outage and not outage_triggered and idx >= args.burst_count // 2:
                 outage_triggered = True
                 log.warning(
                     "SIMULATING OUTAGE: Stopping container '%s' for %.1f seconds...",

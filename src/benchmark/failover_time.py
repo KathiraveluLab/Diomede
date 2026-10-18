@@ -41,8 +41,7 @@ DOCKER_NETWORK = os.getenv("DOCKER_NETWORK", "diomede-net")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Benchmark failover detection and recovery times across regions "
-            "and failure modes."
+            "Benchmark failover detection and recovery times across regions and failure modes."
         )
     )
     parser.add_argument(
@@ -206,8 +205,7 @@ def main() -> int:
     # Print summary table
     print("\n" + "=" * 76)
     print(
-        f"{'Region':<18} | {'Mode':<18} | "
-        f"{'Failover (Mean±Std)':<18} | {'Recovery (Mean±Std)':<18}"
+        f"{'Region':<18} | {'Mode':<18} | {'Failover (Mean±Std)':<18} | {'Recovery (Mean±Std)':<18}"
     )
     print("-" * 76)
 
