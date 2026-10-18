@@ -14,7 +14,6 @@ import json
 import os
 import sys
 from datetime import UTC, datetime
-from typing import Any
 
 import httpx
 import redis.asyncio as aioredis
@@ -148,7 +147,8 @@ async def evaluate_correctness(num_trials: int = 35) -> int:
 
             status_str = "MATCH" if is_correct else "MISMATCH"
             print(
-                f"Trial {idx:2d}/{num_trials}: Queues={perm} -> Expected: {expected_winner:<16} Actual: {str(actual_winner):<16} [{status_str}]"
+                f"Trial {idx:2d}/{num_trials}: Queues={perm} -> "
+                f"Expected: {expected_winner:<16} Actual: {str(actual_winner):<16} [{status_str}]"
             )
 
     await redis.close()

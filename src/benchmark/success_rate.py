@@ -14,13 +14,11 @@ import os
 import subprocess
 import sys
 import time
-from typing import Any
 
 import httpx
 from dotenv import load_dotenv
 
 from src.simulator.generate_dicom import make_sized
-from src.utils.env import require_env
 from src.utils.logging_config import get_logger
 
 load_dotenv()
@@ -36,12 +34,18 @@ CLOUD_AUTH = (
     os.getenv("ORTHANC_PASSWORD", "orthanc"),
 )
 CLOUD_URLS: dict[str, str] = {
-    os.getenv("REGION1_NAME", "us-east1"): os.getenv("NODE_US_HTTPS_URL", "https://localhost:8042"),
-    os.getenv("REGION2_NAME", "eu-west1"): os.getenv("NODE_EU_HTTPS_URL", "https://localhost:8043"),
+    os.getenv("REGION1_NAME", "us-east1"): os.getenv(
+        "NODE_US_HTTPS_URL", "https://localhost:8042"
+    ),
+    os.getenv("REGION2_NAME", "eu-west1"): os.getenv(
+        "NODE_EU_HTTPS_URL", "https://localhost:8043"
+    ),
     os.getenv("REGION3_NAME", "asia-northeast1"): os.getenv(
         "NODE_ASIA_HTTPS_URL", "https://localhost:8044"
     ),
-    os.getenv("REGION4_NAME", "af-south1"): os.getenv("NODE_AF_HTTPS_URL", "https://localhost:8045"),
+    os.getenv("REGION4_NAME", "af-south1"): os.getenv(
+        "NODE_AF_HTTPS_URL", "https://localhost:8045"
+    ),
 }
 
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "certs/ca.pem")

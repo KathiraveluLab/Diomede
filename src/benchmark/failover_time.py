@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import statistics
 import subprocess
 import sys
 import time
-from typing import Literal
 
 import httpx
 from dotenv import load_dotenv
@@ -40,7 +40,10 @@ DOCKER_NETWORK = os.getenv("DOCKER_NETWORK", "diomede-net")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Benchmark failover detection and recovery times across regions and failure modes."
+        description=(
+            "Benchmark failover detection and recovery times across regions "
+            "and failure modes."
+        )
     )
     parser.add_argument(
         "--regions",
@@ -194,17 +197,19 @@ def main() -> int:
                         client, region, container, mode, args.poll_interval_s, args.timeout_s
                     )
                     results[mode][region]["failover"].append(fo_time)
-                    results[mode][region]["recovery"].append(rec_time)
                     print(
-                        f"  Trial {trial_idx}/{args.trials}: Failover = {fo_time:5.2f} s | Recovery = {rec_time:5.2f} s"
+                        f"  Trial {trial_idx}/{args.trials}: "
+                        f"Failover = {fo_time:5.2f} s | "
+                        f"Recovery = {rec_time:5.2f} s"
                     )
 
     # Print summary table
     print("\n" + "=" * 76)
-    print(f"{'Region':<18} | {'Mode':<18} | {'Failover (Mean±Std)':<18} | {'Recovery (Mean±Std)':<18}")
+    print(
+        f"{'Region':<18} | {'Mode':<18} | "
+        f"{'Failover (Mean±Std)':<18} | {'Recovery (Mean±Std)':<18}"
+    )
     print("-" * 76)
-
-    import statistics
 
     for mode, reg_dict in results.items():
         for region, metrics in reg_dict.items():
@@ -215,7 +220,9 @@ def main() -> int:
             rec_mean = statistics.mean(rec_vals) if rec_vals else 0
             rec_std = statistics.stdev(rec_vals) if len(rec_vals) > 1 else 0
             print(
-                f"{region:<18} | {mode:<18} | {fo_mean:5.2f} ± {fo_std:4.2f} s       | {rec_mean:5.2f} ± {rec_std:4.2f} s"
+                f"{region:<18} | {mode:<18} | "
+                f"{fo_mean:5.2f} ± {fo_std:4.2f} s       | "
+                f"{rec_mean:5.2f} ± {rec_std:4.2f} s"
             )
 
     print("=" * 76 + "\n")
