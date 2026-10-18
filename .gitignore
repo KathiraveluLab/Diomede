@@ -36,3 +36,15 @@ results/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Design artifacts
+_paper
+_bmad
+
+# AI Agent files
+.claude
+.codex
+.cursor
+.vscode
+.agent
+.gemini
