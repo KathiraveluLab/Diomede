@@ -28,10 +28,6 @@ certs/
 # DICOM test files
 **/*.dcm
 
-# Benchmarking scripts and their output
-src/benchmark/
-results/
-
 # OS
 .DS_Store
 Thumbs.db
