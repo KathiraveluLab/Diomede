@@ -2,6 +2,7 @@
 
 import json
 import os
+import secrets
 
 os.environ.setdefault("ORCHESTRATOR_API_KEY", "test-api-key")
 
@@ -214,6 +215,36 @@ async def test_nodes_returns_503_when_redis_uninitialized(monkeypatch):
     ) as c:
         resp = await c.get("/nodes")
     assert resp.status_code == 503
+
+
+# API key
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"X-API-Key": "wrong-key"},
+        [(b"x-api-key", "tést-key".encode("latin-1"))],  # non-ASCII must be a 401, not a crash
+    ],
+    ids=["missing", "wrong", "non-ascii"],
+)
+async def test_invalid_api_key_is_rejected(headers):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        resp = await c.get("/nodes", headers=headers)
+    assert resp.status_code == 401
+
+
+async def test_api_key_is_compared_in_constant_time(client, monkeypatch):
+    real_compare = secrets.compare_digest
+    calls = []
+
+    def spy(a, b):
+        calls.append((a, b))
+        return real_compare(a, b)
+
+    monkeypatch.setattr(main_module.secrets, "compare_digest", spy)
+
+    assert (await client.get("/nodes")).status_code == 200
+    assert calls == [(_TEST_API_KEY.encode(), _TEST_API_KEY.encode())]
 
 
 # /heartbeat endpoint
