@@ -233,7 +233,7 @@ async def test_invalid_api_key_is_rejected(headers):
     assert resp.status_code == 401
 
 
-async def test_api_key_is_compared_in_constant_time(client, monkeypatch):
+async def test_api_key_goes_through_compare_digest(client, monkeypatch):
     real_compare = secrets.compare_digest
     calls = []
 
