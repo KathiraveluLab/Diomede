@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import secrets
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
@@ -54,7 +55,8 @@ RTT_TTL_S = int(os.getenv("RTT_TTL_S", "10800"))
 
 
 def validate_api_key(api_key_str: str = Security(api_key_header)) -> str:
-    if api_key_str != API_KEY:
+    # Constant-time comparison, on bytes because compare_digest rejects non-ASCII str.
+    if not secrets.compare_digest(api_key_str.encode(), API_KEY.encode()):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API Key",
