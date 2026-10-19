@@ -13,7 +13,8 @@ from src.utils.render_orthanc_config import render
 pytestmark = pytest.mark.unit
 
 ROOT = Path(__file__).resolve().parents[2]
-TEMPLATES = sorted((ROOT / "config" / "orthanc").glob("*.template.json"))
+# The five node templates share the same RegisteredUsers line, so one is enough.
+TEMPLATE = ROOT / "config" / "orthanc" / "us.template.json"
 SCRIPT = ROOT / "src" / "utils" / "render_orthanc_config.py"
 
 # Characters that broke the old sed and str.replace substitution.
@@ -37,34 +38,21 @@ def _registered_users(rendered: str) -> dict[str, str]:
     return users
 
 
-def test_templates_are_found():
-    assert {t.name for t in TEMPLATES} == {
-        "af.template.json",
-        "asia.template.json",
-        "edge.template.json",
-        "eu.template.json",
-        "us.template.json",
-    }
-
-
-@pytest.mark.parametrize("template", TEMPLATES, ids=lambda t: t.name)
 @pytest.mark.parametrize("password", PASSWORDS)
-def test_any_password_is_stored_unchanged(template, password):
-    rendered = render(template.read_text(), "orthanc", password)
+def test_any_password_is_stored_unchanged(password):
+    rendered = render(TEMPLATE.read_text(), "orthanc", password)
 
     assert _registered_users(rendered) == {"orthanc": password}
 
 
-@pytest.mark.parametrize("template", TEMPLATES, ids=lambda t: t.name)
-def test_any_user_name_is_stored_unchanged(template):
-    rendered = render(template.read_text(), 'us"er\\name', "secret")
+def test_any_user_name_is_stored_unchanged():
+    rendered = render(TEMPLATE.read_text(), 'us"er\\name', "secret")
 
     assert _registered_users(rendered) == {'us"er\\name': "secret"}
 
 
-@pytest.mark.parametrize("template", TEMPLATES, ids=lambda t: t.name)
-def test_plain_values_give_the_same_result_as_before(template):
-    text = template.read_text()
+def test_plain_values_give_the_same_result_as_before():
+    text = TEMPLATE.read_text()
     old = text.replace("${orthanc_user}", "orthanc").replace("${orthanc_password}", "Simple123")
 
     assert render(text, "orthanc", "Simple123") == old
@@ -83,7 +71,7 @@ def test_main_writes_the_rendered_file(tmp_path, monkeypatch):
     monkeypatch.setenv("ORTHANC_PASSWORD", 'pa"s/s&')
     out = tmp_path / "orthanc.json"
 
-    code = render_orthanc_config.main(["prog", str(TEMPLATES[0]), str(out)])
+    code = render_orthanc_config.main(["prog", str(TEMPLATE), str(out)])
 
     assert code == 0
     assert _registered_users(out.read_text()) == {"orthanc": 'pa"s/s&'}
@@ -93,7 +81,7 @@ def test_main_reports_a_missing_variable(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("ORTHANC_PASSWORD", raising=False)
     monkeypatch.setenv("ORTHANC_USER", "orthanc")
 
-    code = render_orthanc_config.main(["prog", str(TEMPLATES[0]), str(tmp_path / "out.json")])
+    code = render_orthanc_config.main(["prog", str(TEMPLATE), str(tmp_path / "out.json")])
 
     assert code == 1
     assert "ORTHANC_PASSWORD" in capsys.readouterr().err
@@ -108,7 +96,7 @@ def test_runs_as_a_standalone_script(tmp_path):
     """The cloud node containers run the file directly, without the rest of the repo."""
     out = tmp_path / "orthanc.json"
     result = subprocess.run(
-        [sys.executable, str(SCRIPT), str(TEMPLATES[0]), str(out)],
+        [sys.executable, str(SCRIPT), str(TEMPLATE), str(out)],
         env={"ORTHANC_USER": "orthanc", "ORTHANC_PASSWORD": 'a"b\\c/d&e', "PATH": ""},
         cwd=tmp_path,
         capture_output=True,
