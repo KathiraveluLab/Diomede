@@ -41,6 +41,7 @@ def _reset_pending_ack(monkeypatch):
     monkeypatch.setattr(forwarder_module, "_pending_ack", set())
     monkeypatch.setattr(forwarder_module, "_rejected", {})
     monkeypatch.setattr(forwarder_module, "_node_slots", {})
+    monkeypatch.setattr(forwarder_module, "_probe_failed", set())
 
 
 class _StubSource(DicomSource):
@@ -908,8 +909,8 @@ async def test_latency_probe_reports_rtt_for_all_nodes(monkeypatch):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_latency_probe_reports_failed_node_as_slow(monkeypatch):
-    """One node unreachable → probe loop continues and reports it at the probe timeout."""
+async def test_latency_probe_skips_failed_node_and_continues(monkeypatch):
+    """One node unreachable → the others are still reported and it is excluded from routing."""
     monkeypatch.setattr(forwarder_module, "_VERIFY", True)
     monkeypatch.setattr(forwarder_module, "ORCH_HEARTBEAT_URL", _ORCH_HB_URL)
     monkeypatch.setattr(forwarder_module, "PROBE_INTERVAL_S", 0)
@@ -934,9 +935,77 @@ async def test_latency_probe_reports_failed_node_as_slow(monkeypatch):
 
     body = json.loads(hb_route.calls[0].request.content)
     assert "agent_id" in body
-    assert set(body["rtt_dict"].keys()) == set(node_ids)
-    assert body["rtt_dict"][node_ids[0]] == forwarder_module._UNREACHABLE_RTT_MS
-    assert all(body["rtt_dict"][nid] < forwarder_module._UNREACHABLE_RTT_MS for nid in node_ids[1:])
+    assert set(body["rtt_dict"].keys()) == set(node_ids[1:])
+    assert forwarder_module._probe_failed == {node_ids[0]}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_latency_probe_clears_a_node_that_answers_again(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "ORCH_HEARTBEAT_URL", _ORCH_HB_URL)
+    monkeypatch.setattr(forwarder_module, "PROBE_INTERVAL_S", 0)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    monkeypatch.setattr(forwarder_module, "_probe_failed", {"us-east1"})
+    respx.get("http://orthanc-us:8042/system").mock(return_value=Response(200, json={}))
+    respx.post(_ORCH_HB_URL).mock(return_value=Response(204))
+
+    task = asyncio.create_task(forwarder_module.latency_probe_loop())
+    await asyncio.sleep(0.1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert forwarder_module._probe_failed == set()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_route_study_asks_for_a_node_other_than_the_probe_failed_one(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    monkeypatch.setattr(forwarder_module, "_probe_failed", {"us-east1"})
+    orch_route = respx.get(_ORCH_URL).mock(side_effect=_orchestrator_skipping_excluded)
+    us_post = respx.post("http://orthanc-us:8042/instances").mock(return_value=Response(200))
+    eu_post = respx.post("http://orthanc-eu:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1"])
+
+    assert orch_route.calls[0].request.url.params.get_list("exclude") == ["us-east1"]
+    assert us_post.call_count == 0
+    assert eu_post.call_count == 1
+    assert source.acknowledged == ["i1"]
+    assert forwarder_module._probe_failed == {"us-east1"}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_successful_upload_clears_the_probe_failure(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    monkeypatch.setattr(forwarder_module, "_probe_failed", {"us-east1"})
+    # The orchestrator has no other node, so the forwarder retries without the exclusion.
+    respx.get(_ORCH_URL).mock(
+        side_effect=lambda request: (
+            Response(503)
+            if request.url.params.get_list("exclude")
+            else Response(200, json={"node_id": "us-east1", "score": 0.5})
+        )
+    )
+    respx.post("http://orthanc-us:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1"])
+
+    assert source.acknowledged == ["i1"]
+    assert forwarder_module._probe_failed == set()
 
 
 def _orchestrator_by_study(request):

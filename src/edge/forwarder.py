@@ -56,10 +56,10 @@ CLOUD_NODES: dict[str, _NodeCfg] = {
 }
 
 
-# A node whose latency probe fails is reported at the probe timeout, so it ranks as slow instead of
-# looking average to the orchestrator, which uses a default RTT for nodes without a measurement.
-_PROBE_TIMEOUT_S = 10
-_UNREACHABLE_RTT_MS = _PROBE_TIMEOUT_S * 1000.0
+# Nodes whose last latency probe failed. The orchestrator scores a node with no measurement at a
+# default RTT, so a node left out of the heartbeat could still win; instead it is excluded from
+# routing until a probe succeeds or an upload to it does.
+_probe_failed: set[str] = set()
 
 _pending_ack: set[str] = set()
 
@@ -109,7 +109,10 @@ async def route_study(
         return
 
     # 1. Ask the Orchestrator for the study's destination (before downloading anything).
-    dest = await _destination(client, study_id, exclude=[])
+    dest = await _destination(client, study_id, exclude=sorted(_probe_failed))
+    if dest is None and _probe_failed:
+        # Every node failed its probe: try them anyway rather than stop forwarding.
+        dest = await _destination(client, study_id, exclude=[])
     if dest is None:
         return
     node_id, node_cfg, best = dest
@@ -154,7 +157,9 @@ async def route_study(
                     node_id,
                     exc,
                 )
-                dest = await _destination(client, study_id, exclude=failed_nodes)
+                dest = await _destination(
+                    client, study_id, exclude=sorted(_probe_failed | set(failed_nodes))
+                )
                 if dest is not None and dest[0] not in failed_nodes:
                     node_id, node_cfg, best = dest
                     continue
@@ -169,6 +174,7 @@ async def route_study(
             )
             return
 
+        _probe_failed.discard(node_id)
         log.info(
             "study=%s instance=%s routed -> %s (score=%.4f)",
             study_id,
@@ -270,7 +276,7 @@ async def forward_loop(source: DicomSource) -> None:
 async def latency_probe_loop() -> None:
     """GET /system on each cloud node once per hour, report RTT to /heartbeat.
 
-    A node that cannot be probed is reported at the probe timeout.
+    A node that cannot be probed is left out of the report and excluded from routing.
     """
     while True:
         rtt_dict: dict[str, float] = {}
@@ -280,18 +286,16 @@ async def latency_probe_loop() -> None:
                 auth = cfg["auth"]
                 try:
                     t0 = time.monotonic()
-                    resp = await client.get(f"{base}/system", auth=auth, timeout=_PROBE_TIMEOUT_S)
+                    resp = await client.get(f"{base}/system", auth=auth, timeout=10)
                     rtt_ms = (time.monotonic() - t0) * 1000
                     resp.raise_for_status()
                     rtt_dict[node_id] = round(rtt_ms, 1)
+                    _probe_failed.discard(node_id)
                     log.info("node=%-15s rtt=%.1f ms", node_id, rtt_ms)
                 except Exception as exc:
-                    rtt_dict[node_id] = _UNREACHABLE_RTT_MS
+                    _probe_failed.add(node_id)
                     log.warning(
-                        "node=%-15s probe failed: %s; reporting rtt=%.0f ms",
-                        node_id,
-                        exc,
-                        _UNREACHABLE_RTT_MS,
+                        "node=%-15s probe failed: %s; excluding it from routing", node_id, exc
                     )
 
             if rtt_dict:
