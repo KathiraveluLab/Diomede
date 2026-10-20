@@ -210,3 +210,11 @@ def test_edge_rejects_new_instances_when_storage_is_full():
     resp = httpx.get(f"{EDGE_URL}/system", auth=_EDGE_AUTH, verify=False, timeout=10)
     resp.raise_for_status()
     assert resp.json()["MaximumStorageMode"] == "Reject"
+
+
+@pytest.mark.parametrize("node_id", sorted(CLOUD_URLS))
+def test_cloud_node_rejects_new_instances_when_storage_is_full(node_id):
+    """A full cloud node must refuse uploads so the forwarder fails over, not recycle patients."""
+    resp = httpx.get(f"{CLOUD_URLS[node_id]}/system", auth=ORTHANC_AUTH, verify=False, timeout=10)
+    resp.raise_for_status()
+    assert resp.json()["MaximumStorageMode"] == "Reject"
