@@ -227,6 +227,34 @@ async def test_unlimited_storage_reports_unknown_free_disk(monkeypatch):
     assert payload["disk_total_mb"] is None
 
 
+@respx.mock
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("system", "warned"),
+    [
+        ({"MaximumStorageSize": 10000, "MaximumStorageMode": "Recycle"}, True),
+        ({"MaximumStorageSize": 10000, "MaximumStorageMode": "Reject"}, False),
+        ({"MaximumStorageSize": 0, "MaximumStorageMode": "Recycle"}, False),
+    ],
+)
+async def test_warns_when_a_node_recycles_patients_once_full(monkeypatch, system, warned):
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        daemon_module.log, "warning", lambda msg, *args: warnings.append(msg % args)
+    )
+    monkeypatch.setattr("src.orchestrator.daemon.node_quota_map", {})
+    respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=STATS_OK))
+    respx.get(f"{BASE}/system").mock(return_value=Response(200, json=system))
+    respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=[]))
+
+    redis = await _redis()
+    async with httpx.AsyncClient() as client:
+        await poll_node(client, redis, "us-east1", _cfg())
+        await poll_node(client, redis, "us-east1", _cfg())
+
+    assert sum("deletes its oldest patients" in w for w in warnings) == (1 if warned else 0)
+
+
 def test_all_four_regions_present():
     assert set(NODES.keys()) == {"us-east1", "eu-west1", "asia-northeast1", "af-south1"}
 
