@@ -196,6 +196,7 @@ def main() -> int:
                         client, region, container, mode, args.poll_interval_s, args.timeout_s
                     )
                     results[mode][region]["failover"].append(fo_time)
+                    results[mode][region]["recovery"].append(rec_time)
                     print(
                         f"  Trial {trial_idx}/{args.trials}: "
                         f"Failover = {fo_time:5.2f} s | "
