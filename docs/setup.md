@@ -129,6 +129,14 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
 - **`W_QUEUE`, `W_DISK`, `W_RTT`** (optional, defaults `0.5`, `0.15`, `0.35`) —
   scoring weights for the Orchestrator. Must be finite, non-negative numbers; the
   Orchestrator refuses to start otherwise.
+- **`MIN_FREE_MB`** (optional, default `0`; `.env.example` sets `500`) — a node
+  with a storage quota and less free space than this is reported unhealthy by the
+  Telemetry Daemon, on top of the built-in rule that a node with under 2% of its
+  quota free is unhealthy. `0` turns the extra check off. Must be a finite,
+  non-negative number; the daemon refuses to start otherwise.
+- **`QUOTA_REFRESH_S`** (optional, default `300`) — how often the Telemetry Daemon
+  re-reads each node's `MaximumStorageSize`, so a quota changed on a node takes
+  effect without restarting the daemon.
 
 `.env` is gitignored and must never be committed.
 

@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
+import time
 from datetime import UTC, datetime
 
 import httpx
@@ -28,6 +30,26 @@ REDIS_TTL_S = int(require_env("REDIS_TTL_S"))
 HTTP_TIMEOUT_S = float(require_env("HTTP_TIMEOUT_S"))
 POLL_DEADLINE_S = 3 * HTTP_TIMEOUT_S
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
+
+# A node's storage quota is re-read this often, so a quota changed on the node is noticed.
+QUOTA_REFRESH_S = int(os.getenv("QUOTA_REFRESH_S", "300"))
+
+
+def _min_free_mb() -> float:
+    """MIN_FREE_MB: free space below which a node with a quota is unhealthy (0 = off)."""
+    raw = os.getenv("MIN_FREE_MB")
+    if not raw:
+        return 0.0
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(f"MIN_FREE_MB must be a number, got {raw!r}") from None
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"MIN_FREE_MB must be a finite, non-negative number, got {raw!r}")
+    return value
+
+
+MIN_FREE_MB = _min_free_mb()
 
 
 NODES: dict[str, dict[str, str | tuple[str, str]]] = {
@@ -69,6 +91,16 @@ NODES: dict[str, dict[str, str | tuple[str, str]]] = {
 # Polling logic
 
 node_quota_map: dict[str, int] = {}
+_quota_checked_at: dict[str, float] = {}
+
+
+def _expire_stale_quota(node_id: str) -> None:
+    """Forget a node's cached quota once it is QUOTA_REFRESH_S old, so poll_node reads it again."""
+    now = time.monotonic()
+    checked_at = _quota_checked_at.get(node_id)
+    if checked_at is None or now - checked_at >= QUOTA_REFRESH_S:
+        node_quota_map.pop(node_id, None)
+        _quota_checked_at[node_id] = now
 
 
 async def poll_node(
@@ -82,6 +114,7 @@ async def poll_node(
     auth = cfg["auth"]
     assert isinstance(auth, tuple)
 
+    _expire_stale_quota(node_id)
     try:
         async with asyncio.timeout(POLL_DEADLINE_S):
             stats_resp = await client.get(f"{base}/statistics", auth=auth, timeout=HTTP_TIMEOUT_S)
@@ -111,8 +144,8 @@ async def poll_node(
         if max_storage_mb > 0:
             free_mb = max(0.0, float(max_storage_mb - disk_used_mb))
             disk_free_mb, disk_total_mb = free_mb, max_storage_mb
-            # if free disk space is less than 2%, set node to unhealthy
-            is_disk_full = free_mb / max_storage_mb < 0.02
+            # Unhealthy when less than 2% of the quota is free, or less than MIN_FREE_MB.
+            is_disk_full = free_mb / max_storage_mb < 0.02 or free_mb < MIN_FREE_MB
         else:
             # MaximumStorageSize = 0 means no quota: free space is unknown, not zero.
             disk_free_mb = disk_total_mb = None
