@@ -318,3 +318,64 @@ async def test_run_checks_startup_warnings(monkeypatch):
 
     warn_creds.assert_called_once()
     warn_ttl.assert_called_once()
+
+
+@pytest.fixture
+def daemon_logs(monkeypatch, caplog):
+    monkeypatch.setattr(daemon_module.log, "propagate", True)
+    monkeypatch.setattr(daemon_module, "node_quota_map", {})
+    return caplog
+
+
+def _mock_node(system: dict) -> None:
+    respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=STATS_OK))
+    respx.get(f"{BASE}/system").mock(return_value=Response(200, json=system))
+    respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=JOBS_MIXED))
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_warns_once_when_a_node_recycles_its_oldest_patients(daemon_logs):
+    _mock_node({"MaximumStorageSize": 10000, "MaximumStorageMode": "Recycle"})
+
+    redis = await _redis()
+    async with httpx.AsyncClient() as client:
+        await poll_node(client, redis, "us-east1", _cfg())
+        await poll_node(client, redis, "us-east1", _cfg())
+
+    warnings = [r for r in daemon_logs.records if "MaximumStorageMode" in r.getMessage()]
+    assert len(warnings) == 1
+    assert warnings[0].levelname == "WARNING"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_warns_when_the_storage_mode_is_not_reported(daemon_logs):
+    """Orthanc releases that predate MaximumStorageMode always recycle."""
+    _mock_node({"MaximumStorageSize": 10000})
+
+    redis = await _redis()
+    async with httpx.AsyncClient() as client:
+        await poll_node(client, redis, "us-east1", _cfg())
+
+    assert "MaximumStorageMode" in daemon_logs.text
+
+
+@respx.mock
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "system",
+    [
+        {"MaximumStorageSize": 10000, "MaximumStorageMode": "Reject"},
+        {"MaximumStorageSize": 0},
+    ],
+    ids=["reject", "no-quota"],
+)
+async def test_no_storage_mode_warning_when_nothing_is_deleted(daemon_logs, system):
+    _mock_node(system)
+
+    redis = await _redis()
+    async with httpx.AsyncClient() as client:
+        await poll_node(client, redis, "us-east1", _cfg())
+
+    assert "MaximumStorageMode" not in daemon_logs.text

@@ -129,6 +129,12 @@ free and total disk as unknown (`null`) and the disk term counts as full headroo
 an RTT, the scorer falls back to a neutral default so decisions degrade gracefully
 to queue depth and disk space rather than failing.
 
+Every Orthanc node sets `MaximumStorageMode` to `Reject`. With Orthanc's default (`Recycle`), a
+node whose `MaximumStorageSize` is reached deletes its oldest stored patients to make room, and
+the forwarder has already removed the edge copy of anything it uploaded. With `Reject` the node
+answers HTTP 507 instead, and the forwarder moves the study to another node. The daemon
+warns when a node with a quota reports any other mode.
+
 ## 5. Dead-Node Detection
 
 The Telemetry Daemon writes each node's health to Redis with a **30-second TTL**. If a node becomes unreachable, the daemon writes `{"healthy": false}` — and if the daemon itself can't reach Redis, the TTL expires and the key disappears. Both cases cause the Orchestrator to exclude the node from the next routing decision automatically.
