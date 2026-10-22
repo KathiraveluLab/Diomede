@@ -13,6 +13,7 @@ import io
 import os
 import subprocess
 import sys
+import threading
 import time
 
 import httpx
@@ -107,15 +108,71 @@ def upload_instance(client: httpx.Client, edge_url: str, instance_bytes: bytes) 
 
 
 def get_instance_counts(client: httpx.Client) -> dict[str, int]:
+    """Instances stored on each cloud node; -1 for a node that could not be read."""
     counts: dict[str, int] = {}
     for region, base_url in CLOUD_URLS.items():
         try:
             resp = client.get(f"{base_url}/statistics", auth=CLOUD_AUTH, timeout=5.0)
-            if resp.status_code == 200:
-                counts[region] = resp.json().get("CountInstances", 0)
+            resp.raise_for_status()
+            counts[region] = resp.json().get("CountInstances", 0)
         except Exception:
             counts[region] = -1
     return counts
+
+
+def get_final_instance_counts(client: httpx.Client, attempts: int = 10) -> dict[str, int]:
+    """Like get_instance_counts, but waits for nodes that are still restarting."""
+    counts = get_instance_counts(client)
+    for _ in range(attempts - 1):
+        if -1 not in counts.values():
+            break
+        time.sleep(1.0)
+        counts = get_instance_counts(client)
+    return counts
+
+
+def confirmed_on_cloud(initial: dict[str, int], final: dict[str, int]) -> tuple[int, list[str]]:
+    """Instances gained across the cloud nodes, and the nodes that could not be compared."""
+    gained = 0
+    unreadable: list[str] = []
+    for region, count in final.items():
+        before = initial.get(region, -1)
+        if count < 0 or before < 0:
+            unreadable.append(region)
+        else:
+            gained += max(0, count - before)
+    return gained, unreadable
+
+
+def docker(action: str, container: str) -> bool:
+    """Run `docker <action> <container>`; True only if it succeeded."""
+    try:
+        result = subprocess.run(
+            ["docker", action, container],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as exc:
+        log.error("docker %s %s could not run: %s", action, container, exc)
+        return False
+    if result.returncode != 0:
+        log.error(
+            "docker %s %s failed (exit %d): %s",
+            action,
+            container,
+            result.returncode,
+            (result.stderr or "").strip(),
+        )
+        return False
+    return True
+
+
+def restore_node(container: str, delay_s: float) -> None:
+    time.sleep(delay_s)
+    log.info("RESTORING NODE: Restarting container '%s'...", container)
+    docker("start", container)
 
 
 def run_benchmark() -> int:
@@ -133,6 +190,8 @@ def run_benchmark() -> int:
 
         sent_ids: list[str] = []
         outage_triggered = False
+        node_stopped = False
+        restore_thread: threading.Thread | None = None
         t_start = time.monotonic()
 
         for idx in range(1, args.burst_count + 1):
@@ -153,26 +212,14 @@ def run_benchmark() -> int:
                     args.outage_node,
                     args.outage_duration_s,
                 )
-                subprocess.run(
-                    ["docker", "stop", args.outage_node],
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-
-                def restore_node() -> None:
-                    time.sleep(args.outage_duration_s)
-                    log.info("RESTORING NODE: Restarting container '%s'...", args.outage_node)
-                    subprocess.run(
-                        ["docker", "start", args.outage_node],
-                        check=False,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
+                if docker("stop", args.outage_node):
+                    node_stopped = True
+                    restore_thread = threading.Thread(
+                        target=restore_node, args=(args.outage_node, args.outage_duration_s)
                     )
-
-                import threading
-
-                threading.Thread(target=restore_node, daemon=True).start()
+                    restore_thread.start()
+                else:
+                    log.error("The outage was NOT applied; this run does not test failover.")
 
         log.info(
             "Ingestion complete: %d/%d instances accepted by edge. Waiting for pipeline drain...",
@@ -195,29 +242,52 @@ def run_benchmark() -> int:
                 log.warning("Edge polling transient error: %s", exc)
             time.sleep(1.0)
 
+        # A node stopped for the outage must be back before its count can be read
+        if restore_thread is not None:
+            restore_thread.join()
+
         t_elapsed = time.monotonic() - t_start
-        final_counts = get_instance_counts(client)
-        delivered_count = len(sent_ids) - remaining
+        final_counts = get_final_instance_counts(client)
+        cleared_from_edge = len(sent_ids) - remaining
+        # The edge buffer emptying only shows the forwarder let go of the instances; the cloud
+        # nodes must also hold them, or the data was lost on the way.
+        on_cloud, unreadable = confirmed_on_cloud(initial_counts, final_counts)
+        delivered_count = min(cleared_from_edge, on_cloud)
         success_rate = (delivered_count / args.burst_count) * 100.0
+        outage_applied = node_stopped if args.simulate_outage else None
 
         print("\n" + "=" * 60)
         print("DIOMEDE END-TO-END TRANSFER BENCHMARK REPORT")
         print("=" * 60)
         print(f"Total Sent:             {args.burst_count}")
         print(f"Accepted by Edge:       {len(sent_ids)}")
+        print(f"Cleared from Edge:      {cleared_from_edge}")
+        print(f"Confirmed on Cloud:     {on_cloud}")
         print(f"Successfully Delivered: {delivered_count}")
         print(f"Remaining on Edge:      {remaining}")
         print(f"Elapsed Time:           {t_elapsed:.2f} s")
         print(f"Delivery Success Rate:  {success_rate:.2f}%")
-        print(f"Mid-Transfer Outage:    {args.simulate_outage}")
+        if outage_applied is None:
+            print("Mid-Transfer Outage:    False")
+        else:
+            print(f"Mid-Transfer Outage:    {'True' if outage_applied else 'NOT APPLIED'}")
         print("-" * 60)
         print("Final Cloud Node Distribution:")
         for region, count in final_counts.items():
-            init = initial_counts.get(region, 0)
-            delta = count - init if count >= 0 and init >= 0 else 0
-            print(f"  - {region:<18}: +{delta} instances (total: {count})")
+            init = initial_counts.get(region, -1)
+            if count < 0 or init < 0:
+                print(f"  - {region:<18}: unreadable (before: {init}, after: {count})")
+            else:
+                print(f"  - {region:<18}: +{count - init} instances (total: {count})")
+        if unreadable:
+            names = ", ".join(unreadable)
+            print(f"WARNING: could not compare {names}; delivery is not fully confirmed.")
         print("=" * 60 + "\n")
 
+        if outage_applied is False:
+            return 2  # the run did not test what was asked for
+        if unreadable:
+            return 1
         return 0 if delivered_count == args.burst_count else 1
 
 
