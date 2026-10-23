@@ -14,7 +14,7 @@ import httpx
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
-from src.utils.env import require_env
+from src.utils.env import env_non_negative_float, require_env
 from src.utils.logging_config import get_logger
 
 log = get_logger(__name__, "DAEMON")
@@ -28,6 +28,9 @@ REDIS_TTL_S = int(require_env("REDIS_TTL_S"))
 HTTP_TIMEOUT_S = float(require_env("HTTP_TIMEOUT_S"))
 POLL_DEADLINE_S = 3 * HTTP_TIMEOUT_S
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
+
+# Free space below this many MB marks a node with a storage quota unhealthy (0 = off)
+MIN_FREE_MB = env_non_negative_float("MIN_FREE_MB", 0.0)
 
 
 NODES: dict[str, dict[str, str | tuple[str, str]]] = {
@@ -68,8 +71,6 @@ NODES: dict[str, dict[str, str | tuple[str, str]]] = {
 
 # Polling logic
 
-node_quota_map: dict[str, int] = {}
-
 
 async def poll_node(
     client: httpx.AsyncClient,
@@ -88,12 +89,11 @@ async def poll_node(
             stats_resp.raise_for_status()
             stats = stats_resp.json()
 
-            if node_id not in node_quota_map:
-                system_resp = await client.get(f"{base}/system", auth=auth, timeout=HTTP_TIMEOUT_S)
-                system_resp.raise_for_status()
-                system = system_resp.json()
-                log.debug("System info for %s: %s", node_id, system)
-                node_quota_map[node_id] = system.get("MaximumStorageSize")
+            # Read every poll, so a quota changed on the node is noticed on the next one.
+            system_resp = await client.get(f"{base}/system", auth=auth, timeout=HTTP_TIMEOUT_S)
+            system_resp.raise_for_status()
+            system = system_resp.json()
+            log.debug("System info for %s: %s", node_id, system)
 
             log.debug("Statistics for %s: %s", node_id, stats)
 
@@ -105,14 +105,14 @@ async def poll_node(
         queue_size = len([j for j in jobs if j.get("State") in ("Pending", "Running")])
 
         disk_used_mb = stats.get("TotalDiskSizeMB")
-        max_storage_mb = node_quota_map.get(node_id, 0) or 0
+        max_storage_mb = system.get("MaximumStorageSize") or 0
         disk_free_mb: float | None
         disk_total_mb: int | None
         if max_storage_mb > 0:
             free_mb = max(0.0, float(max_storage_mb - disk_used_mb))
             disk_free_mb, disk_total_mb = free_mb, max_storage_mb
-            # if free disk space is less than 2%, set node to unhealthy
-            is_disk_full = free_mb / max_storage_mb < 0.02
+            # Unhealthy when less than 2% of the quota is free, or less than MIN_FREE_MB.
+            is_disk_full = free_mb / max_storage_mb < 0.02 or free_mb < MIN_FREE_MB
         else:
             # MaximumStorageSize = 0 means no quota: free space is unknown, not zero.
             disk_free_mb = disk_total_mb = None
