@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import json
 import os
+import subprocess
 import sys
 from datetime import UTC, datetime
 
@@ -30,6 +31,7 @@ API_KEY = os.getenv("ORCHESTRATOR_API_KEY", "CHANGE_IN_PRODUCTION")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 # Not a real edge agent's ID, so the synthetic RTTs never replace measured ones.
 AGENT_ID = "routing-benchmark"
+DAEMON_CONTAINER = "telemetry-daemon"
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "certs/ca.pem")
 VERIFY_SSL: str | bool = CA_CERT if os.path.exists(CA_CERT) else False
 
@@ -169,7 +171,14 @@ def main() -> int:
         "--trials", type=int, default=35, help="Number of load permutations (default: 35)."
     )
     args = parser.parse_args()
-    return asyncio.run(evaluate_correctness(args.trials))
+    # The daemon would overwrite the synthetic node:* telemetry with real readings mid-trial.
+    subprocess.run(["docker", "pause", DAEMON_CONTAINER], check=True, stdout=subprocess.DEVNULL)
+    try:
+        return asyncio.run(evaluate_correctness(args.trials))
+    finally:
+        subprocess.run(
+            ["docker", "unpause", DAEMON_CONTAINER], check=True, stdout=subprocess.DEVNULL
+        )
 
 
 if __name__ == "__main__":
