@@ -7,16 +7,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import os
-import time
 from datetime import UTC, datetime
 
 import httpx
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
-from src.utils.env import require_env
+from src.utils.env import env_non_negative_float, require_env
 from src.utils.logging_config import get_logger
 
 log = get_logger(__name__, "DAEMON")
@@ -31,25 +29,8 @@ HTTP_TIMEOUT_S = float(require_env("HTTP_TIMEOUT_S"))
 POLL_DEADLINE_S = 3 * HTTP_TIMEOUT_S
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
 
-# A node's storage quota is re-read this often, so a quota changed on the node is noticed.
-QUOTA_REFRESH_S = int(os.getenv("QUOTA_REFRESH_S", "300"))
-
-
-def _min_free_mb() -> float:
-    """MIN_FREE_MB: free space below which a node with a quota is unhealthy (0 = off)."""
-    raw = os.getenv("MIN_FREE_MB")
-    if not raw:
-        return 0.0
-    try:
-        value = float(raw)
-    except ValueError:
-        raise ValueError(f"MIN_FREE_MB must be a number, got {raw!r}") from None
-    if not math.isfinite(value) or value < 0:
-        raise ValueError(f"MIN_FREE_MB must be a finite, non-negative number, got {raw!r}")
-    return value
-
-
-MIN_FREE_MB = _min_free_mb()
+# Free space below this many MB marks a node with a storage quota unhealthy (0 = off)
+MIN_FREE_MB = env_non_negative_float("MIN_FREE_MB", 0.0)
 
 
 NODES: dict[str, dict[str, str | tuple[str, str]]] = {
@@ -90,18 +71,6 @@ NODES: dict[str, dict[str, str | tuple[str, str]]] = {
 
 # Polling logic
 
-node_quota_map: dict[str, int] = {}
-_quota_checked_at: dict[str, float] = {}
-
-
-def _expire_stale_quota(node_id: str) -> None:
-    """Forget a node's cached quota once it is QUOTA_REFRESH_S old, so poll_node reads it again."""
-    now = time.monotonic()
-    checked_at = _quota_checked_at.get(node_id)
-    if checked_at is None or now - checked_at >= QUOTA_REFRESH_S:
-        node_quota_map.pop(node_id, None)
-        _quota_checked_at[node_id] = now
-
 
 async def poll_node(
     client: httpx.AsyncClient,
@@ -114,19 +83,17 @@ async def poll_node(
     auth = cfg["auth"]
     assert isinstance(auth, tuple)
 
-    _expire_stale_quota(node_id)
     try:
         async with asyncio.timeout(POLL_DEADLINE_S):
             stats_resp = await client.get(f"{base}/statistics", auth=auth, timeout=HTTP_TIMEOUT_S)
             stats_resp.raise_for_status()
             stats = stats_resp.json()
 
-            if node_id not in node_quota_map:
-                system_resp = await client.get(f"{base}/system", auth=auth, timeout=HTTP_TIMEOUT_S)
-                system_resp.raise_for_status()
-                system = system_resp.json()
-                log.debug("System info for %s: %s", node_id, system)
-                node_quota_map[node_id] = system.get("MaximumStorageSize")
+            # Read every poll, so a quota changed on the node is noticed on the next one.
+            system_resp = await client.get(f"{base}/system", auth=auth, timeout=HTTP_TIMEOUT_S)
+            system_resp.raise_for_status()
+            system = system_resp.json()
+            log.debug("System info for %s: %s", node_id, system)
 
             log.debug("Statistics for %s: %s", node_id, stats)
 
@@ -138,7 +105,7 @@ async def poll_node(
         queue_size = len([j for j in jobs if j.get("State") in ("Pending", "Running")])
 
         disk_used_mb = stats.get("TotalDiskSizeMB")
-        max_storage_mb = node_quota_map.get(node_id, 0) or 0
+        max_storage_mb = system.get("MaximumStorageSize") or 0
         disk_free_mb: float | None
         disk_total_mb: int | None
         if max_storage_mb > 0:

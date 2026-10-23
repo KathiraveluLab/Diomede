@@ -134,9 +134,6 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
   Telemetry Daemon, on top of the built-in rule that a node with under 2% of its
   quota free is unhealthy. `0` turns the extra check off. Must be a finite,
   non-negative number; the daemon refuses to start otherwise.
-- **`QUOTA_REFRESH_S`** (optional, default `300`) — how often the Telemetry Daemon
-  re-reads each node's `MaximumStorageSize`, so a quota changed on a node takes
-  effect without restarting the daemon.
 
 `.env` is gitignored and must never be committed.
 

@@ -21,12 +21,6 @@ def _cfg() -> dict:
     return {"base": BASE, "ae_title": "Orthanc_US", "auth": ("orthanc", "pass")}
 
 
-@pytest.fixture(autouse=True)
-def fresh_quota_cache(monkeypatch):
-    monkeypatch.setattr(daemon_module, "node_quota_map", {})
-    monkeypatch.setattr(daemon_module, "_quota_checked_at", {})
-
-
 def _mock_node(quota_mb: int, used_mb: float) -> None:
     respx.get(f"{BASE}/system").mock(
         return_value=Response(
@@ -91,14 +85,13 @@ async def test_node_without_quota_ignores_min_free_mb(monkeypatch):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_raised_quota_is_picked_up_without_restarting_the_daemon(monkeypatch):
+async def test_raised_quota_is_picked_up_on_the_next_poll(monkeypatch):
     monkeypatch.setattr(daemon_module, "MIN_FREE_MB", 0.0)
     _mock_node(quota_mb=10_000, used_mb=9_900)
     assert (await _poll())["healthy"] is False
 
-    # The operator doubles the node's storage quota; the cached value is now stale.
+    # The operator doubles the node's storage quota; the very next poll sees it.
     _mock_node(quota_mb=20_000, used_mb=9_900)
-    daemon_module._quota_checked_at["us-east1"] -= daemon_module.QUOTA_REFRESH_S + 1
 
     payload = await _poll()
 
@@ -108,32 +101,14 @@ async def test_raised_quota_is_picked_up_without_restarting_the_daemon(monkeypat
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_quota_is_not_fetched_on_every_poll(monkeypatch):
+async def test_lowered_quota_is_picked_up_on_the_next_poll(monkeypatch):
     monkeypatch.setattr(daemon_module, "MIN_FREE_MB", 0.0)
-    _mock_node(quota_mb=10_000, used_mb=100)
+    _mock_node(quota_mb=20_000, used_mb=9_000)
+    assert (await _poll())["healthy"] is True
 
-    await _poll()
-    await _poll()
-    await _poll()
+    _mock_node(quota_mb=9_100, used_mb=9_000)
 
-    assert respx.get(f"{BASE}/system").call_count == 1
+    payload = await _poll()
 
-
-@pytest.mark.parametrize("value", ["abc", "-1", "nan", "inf"])
-def test_invalid_min_free_mb_is_rejected(monkeypatch, value):
-    monkeypatch.setenv("MIN_FREE_MB", value)
-
-    with pytest.raises(ValueError, match="MIN_FREE_MB"):
-        daemon_module._min_free_mb()
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"), [(None, 0.0), ("", 0.0), ("500", 500.0), ("0", 0.0)]
-)
-def test_min_free_mb_parsing(monkeypatch, value, expected):
-    if value is None:
-        monkeypatch.delenv("MIN_FREE_MB", raising=False)
-    else:
-        monkeypatch.setenv("MIN_FREE_MB", value)
-
-    assert daemon_module._min_free_mb() == expected
+    assert payload["healthy"] is False
+    assert payload["disk_total_mb"] == 9_100

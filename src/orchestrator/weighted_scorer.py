@@ -5,10 +5,9 @@ Adding a new strategy follows the same pattern: subclass NodeScorer in a new
 module, then append _REGISTRY["<name>"] = <Class> at the bottom.
 """
 
-import math
-import os
 from typing import Any
 
+from src.utils.env import env_non_negative_float
 from src.utils.logging_config import get_logger
 
 from .scorer import _REGISTRY, NodeScorer
@@ -44,9 +43,9 @@ class WeightedScorer(NodeScorer):
                      directly affects transfer speed.
             rtt_ref_ms: Reference RTT value for normalization.
         """
-        self.w_queue = w_queue if w_queue is not None else _env_weight("W_QUEUE", 0.5)
-        self.w_disk = w_disk if w_disk is not None else _env_weight("W_DISK", 0.15)
-        self.w_rtt = w_rtt if w_rtt is not None else _env_weight("W_RTT", 0.35)
+        self.w_queue = w_queue if w_queue is not None else env_non_negative_float("W_QUEUE", 0.5)
+        self.w_disk = w_disk if w_disk is not None else env_non_negative_float("W_DISK", 0.15)
+        self.w_rtt = w_rtt if w_rtt is not None else env_non_negative_float("W_RTT", 0.35)
         self.rtt_ref_ms = rtt_ref_ms
         log.info(
             "WeightedScorer initialized with weights:\n"
@@ -86,19 +85,6 @@ class WeightedScorer(NodeScorer):
         log.info(f"TOTAL SCORE: {node.get('node_id', 'unknown')} = {total_score:.4f}")
 
         return total_score
-
-
-def _env_weight(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if not raw:
-        return default
-    try:
-        weight = float(raw)
-    except ValueError:
-        raise ValueError(f"{name} must be a number, got {raw!r}") from None
-    if not math.isfinite(weight) or weight < 0:
-        raise ValueError(f"{name} must be a finite, non-negative number, got {raw!r}")
-    return weight
 
 
 _REGISTRY["weighted"] = WeightedScorer
