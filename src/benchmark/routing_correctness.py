@@ -4,6 +4,12 @@ src/benchmark/routing_correctness.py
 Benchmark script for validating routing decision correctness across synthetic load permutations.
 Reproduces the 35 load permutations across the 4 Orthanc nodes described in
 Section 4.2 (Routing Correctness) of the paper, validating 100% routing accuracy.
+
+It writes synthetic telemetry straight to Redis, which the stack does not publish to the
+host, so start it with the benchmark override first:
+
+    docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d
+    python -m src.benchmark.routing_correctness
 """
 
 from __future__ import annotations
@@ -28,7 +34,8 @@ log = get_logger(__name__, "BENCHMARK_CORRECTNESS")
 
 ORCH_URL = os.getenv("ORCHESTRATOR_HTTPS_URL", "https://localhost:8000")
 API_KEY = os.getenv("ORCHESTRATOR_API_KEY", "CHANGE_IN_PRODUCTION")
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+# Not REDIS_URL: .env sets that to redis://redis:6379, which only resolves inside Docker.
+REDIS_URL = os.getenv("BENCHMARK_REDIS_URL", "redis://localhost:6379")
 # Not a real edge agent's ID, so the synthetic RTTs never replace measured ones.
 AGENT_ID = "routing-benchmark"
 DAEMON_CONTAINER = "telemetry-daemon"
