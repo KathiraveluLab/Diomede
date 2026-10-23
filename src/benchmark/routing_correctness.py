@@ -28,7 +28,8 @@ log = get_logger(__name__, "BENCHMARK_CORRECTNESS")
 ORCH_URL = os.getenv("ORCHESTRATOR_HTTPS_URL", "https://localhost:8000")
 API_KEY = os.getenv("ORCHESTRATOR_API_KEY", "CHANGE_IN_PRODUCTION")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-AGENT_ID = os.getenv("EDGE_AGENT1", "agent-001")
+# Not a real edge agent's ID, so the synthetic RTTs never replace measured ones.
+AGENT_ID = "routing-benchmark"
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "certs/ca.pem")
 VERIFY_SSL: str | bool = CA_CERT if os.path.exists(CA_CERT) else False
 
