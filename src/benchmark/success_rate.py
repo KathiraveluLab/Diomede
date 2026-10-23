@@ -107,41 +107,60 @@ def upload_instance(client: httpx.Client, edge_url: str, instance_bytes: bytes) 
         return None
 
 
-def get_instance_counts(client: httpx.Client) -> dict[str, int]:
-    """Instances stored on each cloud node; -1 for a node that could not be read."""
-    counts: dict[str, int] = {}
-    for region, base_url in CLOUD_URLS.items():
-        try:
-            resp = client.get(f"{base_url}/statistics", auth=CLOUD_AUTH, timeout=5.0)
-            resp.raise_for_status()
-            counts[region] = resp.json().get("CountInstances", 0)
-        except Exception:
-            counts[region] = -1
-    return counts
+def wait_for_cloud_nodes(client: httpx.Client, attempts: int = 10) -> list[str]:
+    """Wait until every cloud node answers (one may still be restarting after the outage).
 
-
-def get_final_instance_counts(client: httpx.Client, attempts: int = 10) -> dict[str, int]:
-    """Like get_instance_counts, but waits for nodes that are still restarting."""
-    counts = get_instance_counts(client)
-    for _ in range(attempts - 1):
-        if -1 not in counts.values():
+    Returns the nodes that still do not answer after `attempts` tries.
+    """
+    unreachable = list(CLOUD_URLS)
+    for attempt in range(attempts):
+        unreachable = []
+        for region, base_url in CLOUD_URLS.items():
+            try:
+                client.get(
+                    f"{base_url}/statistics", auth=CLOUD_AUTH, timeout=5.0
+                ).raise_for_status()
+            except Exception:
+                unreachable.append(region)
+        if not unreachable:
             break
-        time.sleep(1.0)
-        counts = get_instance_counts(client)
-    return counts
+        if attempt < attempts - 1:
+            time.sleep(1.0)
+    return unreachable
 
 
-def confirmed_on_cloud(initial: dict[str, int], final: dict[str, int]) -> tuple[int, list[str]]:
-    """Instances gained across the cloud nodes, and the nodes that could not be compared."""
-    gained = 0
-    unreadable: list[str] = []
-    for region, count in final.items():
-        before = initial.get(region, -1)
-        if count < 0 or before < 0:
-            unreadable.append(region)
+def locate_on_cloud(
+    client: httpx.Client, instance_ids: list[str]
+) -> tuple[dict[str, int], list[str], set[str]]:
+    """Find each sent instance on the cloud nodes by its Orthanc ID.
+
+    Orthanc derives an instance ID from the DICOM identifiers, so the ID the edge returned is
+    also the ID of that instance on whichever cloud node stores it. Unlike comparing instance
+    counts, this only credits the instances this run sent.
+
+    Returns the instances found per node, the IDs found on no node, and the nodes that could
+    not be queried (an ID missing while a node is unreadable may still be stored there).
+    """
+    found_per_node = {region: 0 for region in CLOUD_URLS}
+    missing: list[str] = []
+    unreadable: set[str] = set()
+    for instance_id in instance_ids:
+        for region, base_url in CLOUD_URLS.items():
+            try:
+                resp = client.get(
+                    f"{base_url}/instances/{instance_id}", auth=CLOUD_AUTH, timeout=5.0
+                )
+            except Exception:
+                unreadable.add(region)
+                continue
+            if resp.status_code == 200:
+                found_per_node[region] += 1
+                break
+            if resp.status_code != 404:
+                unreadable.add(region)
         else:
-            gained += max(0, count - before)
-    return gained, unreadable
+            missing.append(instance_id)
+    return found_per_node, missing, unreadable
 
 
 def docker(action: str, container: str) -> bool:
@@ -185,9 +204,6 @@ def run_benchmark() -> int:
     )
 
     with httpx.Client(verify=VERIFY_SSL) as client:
-        initial_counts = get_instance_counts(client)
-        log.info("Initial cloud node instance counts: %s", initial_counts)
-
         sent_ids: list[str] = []
         outage_triggered = False
         node_stopped = False
@@ -242,17 +258,17 @@ def run_benchmark() -> int:
                 log.warning("Edge polling transient error: %s", exc)
             time.sleep(1.0)
 
-        # A node stopped for the outage must be back before its count can be read
+        # A node stopped for the outage must be back before the instances are looked up on it
         if restore_thread is not None:
             restore_thread.join()
+        not_answering = wait_for_cloud_nodes(client)
 
         t_elapsed = time.monotonic() - t_start
-        final_counts = get_final_instance_counts(client)
         cleared_from_edge = len(sent_ids) - remaining
-        # The edge buffer emptying only shows the forwarder let go of the instances; the cloud
-        # nodes must also hold them, or the data was lost on the way.
-        on_cloud, unreadable = confirmed_on_cloud(initial_counts, final_counts)
-        delivered_count = min(cleared_from_edge, on_cloud)
+        # The edge buffer emptying only shows the forwarder let go of the instances; each one
+        # must also be stored on a cloud node, or the data was lost on the way.
+        found_per_node, missing, unreadable = locate_on_cloud(client, sent_ids)
+        delivered_count = len(sent_ids) - len(missing)
         success_rate = (delivered_count / args.burst_count) * 100.0
         outage_applied = node_stopped if args.simulate_outage else None
 
@@ -262,8 +278,8 @@ def run_benchmark() -> int:
         print(f"Total Sent:             {args.burst_count}")
         print(f"Accepted by Edge:       {len(sent_ids)}")
         print(f"Cleared from Edge:      {cleared_from_edge}")
-        print(f"Confirmed on Cloud:     {on_cloud}")
-        print(f"Successfully Delivered: {delivered_count}")
+        print(f"Confirmed on Cloud:     {delivered_count}")
+        print(f"Missing from Cloud:     {len(missing)}")
         print(f"Remaining on Edge:      {remaining}")
         print(f"Elapsed Time:           {t_elapsed:.2f} s")
         print(f"Delivery Success Rate:  {success_rate:.2f}%")
@@ -272,22 +288,17 @@ def run_benchmark() -> int:
         else:
             print(f"Mid-Transfer Outage:    {'True' if outage_applied else 'NOT APPLIED'}")
         print("-" * 60)
-        print("Final Cloud Node Distribution:")
-        for region, count in final_counts.items():
-            init = initial_counts.get(region, -1)
-            if count < 0 or init < 0:
-                print(f"  - {region:<18}: unreadable (before: {init}, after: {count})")
-            else:
-                print(f"  - {region:<18}: +{count - init} instances (total: {count})")
-        if unreadable:
-            names = ", ".join(unreadable)
-            print(f"WARNING: could not compare {names}; delivery is not fully confirmed.")
+        print("Where the sent instances were found:")
+        for region, count in found_per_node.items():
+            print(f"  - {region:<18}: {count} instances")
+        silent = sorted(set(not_answering) | unreadable)
+        if silent and missing:
+            names = ", ".join(silent)
+            print(f"WARNING: {names} could not be queried; some missing instances may be there.")
         print("=" * 60 + "\n")
 
         if outage_applied is False:
             return 2  # the run did not test what was asked for
-        if unreadable:
-            return 1
         return 0 if delivered_count == args.burst_count else 1
 
 
