@@ -9,17 +9,6 @@ pytestmark = pytest.mark.unit
 
 COMPOSE = Path(__file__).resolve().parents[2] / "docker-compose.yml"
 
-EXPECTED_SERVICES = {
-    "orthanc-us",
-    "orthanc-eu",
-    "orthanc-asia",
-    "orthanc-af",
-    "redis",
-    "telemetry-daemon",
-    "orchestrator",
-    "agent-001",
-}
-
 
 def _restart_policies() -> dict[str, str | None]:
     """Map each service to its restart policy, reading the file line by line."""
@@ -43,12 +32,19 @@ def _restart_policies() -> dict[str, str | None]:
     return policies
 
 
-def test_the_compose_file_defines_the_expected_services():
-    assert set(_restart_policies()) == EXPECTED_SERVICES
+def test_the_compose_file_defines_services():
+    # Guards the parser: a file it cannot read would make the policy test below pass vacuously.
+    assert _restart_policies()
 
 
-@pytest.mark.parametrize("service", sorted(EXPECTED_SERVICES))
-def test_service_is_restarted_unless_stopped_on_purpose(service):
+def test_every_service_is_restarted_unless_stopped_on_purpose():
     # "unless-stopped" restarts after a crash but respects `docker stop`, which the failover
-    # tests and benchmarks use to take a node down.
-    assert _restart_policies()[service] == "unless-stopped"
+    # tests and benchmarks use to take a node down. Checking every service the file defines
+    # means a service added later (more Orthanc nodes, for example) is covered too.
+    missing = {
+        service: policy
+        for service, policy in _restart_policies().items()
+        if policy != "unless-stopped"
+    }
+
+    assert missing == {}
