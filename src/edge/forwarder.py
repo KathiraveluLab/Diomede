@@ -56,6 +56,11 @@ CLOUD_NODES: dict[str, _NodeCfg] = {
 }
 
 
+# Nodes whose last latency probe failed. The orchestrator scores a node with no measurement at a
+# default RTT, so a node left out of the heartbeat could still win; instead it is excluded from
+# routing until a probe succeeds or an upload to it does.
+_probe_failed: set[str] = set()
+
 _pending_ack: set[str] = set()
 
 # Upload statuses that mean the node will never accept this particular file, unlike 401/404/429.
@@ -104,7 +109,7 @@ async def route_study(
         return
 
     # 1. Ask the Orchestrator for the study's destination (before downloading anything).
-    dest = await _destination(client, study_id, exclude=[])
+    dest = await _pick_destination(client, study_id, failed=set())
     if dest is None:
         return
     node_id, node_cfg, best = dest
@@ -149,7 +154,7 @@ async def route_study(
                     node_id,
                     exc,
                 )
-                dest = await _destination(client, study_id, exclude=failed_nodes)
+                dest = await _pick_destination(client, study_id, failed=set(failed_nodes))
                 if dest is not None and dest[0] not in failed_nodes:
                     node_id, node_cfg, best = dest
                     continue
@@ -164,6 +169,7 @@ async def route_study(
             )
             return
 
+        _probe_failed.discard(node_id)
         log.info(
             "study=%s instance=%s routed -> %s (score=%.4f)",
             study_id,
@@ -175,6 +181,22 @@ async def route_study(
         # 3. Acknowledge (delete local copy) only after a confirmed successful forward.
         await _acknowledge(client, source, instance_id)
         i += 1
+
+
+async def _pick_destination(
+    client: httpx.AsyncClient, study_id: str, failed: set[str]
+) -> tuple[str, _NodeCfg, dict[str, Any]] | None:
+    """Ask where the study goes, skipping nodes that failed an upload and, if another node
+    is left, nodes that failed their latency probe.
+
+    A node that failed its probe is only avoided, not forbidden: when excluding it leaves no
+    node, ask again without it excluded rather than stop forwarding. Both the first request and
+    the failover after a failed upload go through here, so the fallback applies to both.
+    """
+    dest = await _destination(client, study_id, exclude=sorted(_probe_failed | failed))
+    if dest is None and _probe_failed - failed:
+        dest = await _destination(client, study_id, exclude=sorted(failed))
+    return dest
 
 
 async def _destination(
@@ -263,7 +285,10 @@ async def forward_loop(source: DicomSource) -> None:
 
 
 async def latency_probe_loop() -> None:
-    """GET /system on each cloud node once per hour, report RTT to /heartbeat."""
+    """GET /system on each cloud node once per hour, report RTT to /heartbeat.
+
+    A node that cannot be probed is left out of the report and excluded from routing.
+    """
     while True:
         rtt_dict: dict[str, float] = {}
         async with httpx.AsyncClient(verify=_VERIFY) as client:
@@ -276,9 +301,13 @@ async def latency_probe_loop() -> None:
                     rtt_ms = (time.monotonic() - t0) * 1000
                     resp.raise_for_status()
                     rtt_dict[node_id] = round(rtt_ms, 1)
+                    _probe_failed.discard(node_id)
                     log.info("node=%-15s rtt=%.1f ms", node_id, rtt_ms)
                 except Exception as exc:
-                    log.warning("node=%-15s probe failed: %s", node_id, exc)
+                    _probe_failed.add(node_id)
+                    log.warning(
+                        "node=%-15s probe failed: %s; excluding it from routing", node_id, exc
+                    )
 
             if rtt_dict:
                 try:
