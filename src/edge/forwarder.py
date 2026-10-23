@@ -109,10 +109,7 @@ async def route_study(
         return
 
     # 1. Ask the Orchestrator for the study's destination (before downloading anything).
-    dest = await _destination(client, study_id, exclude=sorted(_probe_failed))
-    if dest is None and _probe_failed:
-        # Every node failed its probe: try them anyway rather than stop forwarding.
-        dest = await _destination(client, study_id, exclude=[])
+    dest = await _pick_destination(client, study_id, failed=set())
     if dest is None:
         return
     node_id, node_cfg, best = dest
@@ -157,9 +154,7 @@ async def route_study(
                     node_id,
                     exc,
                 )
-                dest = await _destination(
-                    client, study_id, exclude=sorted(_probe_failed | set(failed_nodes))
-                )
+                dest = await _pick_destination(client, study_id, failed=set(failed_nodes))
                 if dest is not None and dest[0] not in failed_nodes:
                     node_id, node_cfg, best = dest
                     continue
@@ -186,6 +181,22 @@ async def route_study(
         # 3. Acknowledge (delete local copy) only after a confirmed successful forward.
         await _acknowledge(client, source, instance_id)
         i += 1
+
+
+async def _pick_destination(
+    client: httpx.AsyncClient, study_id: str, failed: set[str]
+) -> tuple[str, _NodeCfg, dict[str, Any]] | None:
+    """Ask where the study goes, skipping nodes that failed an upload and, if another node
+    is left, nodes that failed their latency probe.
+
+    A node that failed its probe is only avoided, not forbidden: when excluding it leaves no
+    node, ask again without it excluded rather than stop forwarding. Both the first request and
+    the failover after a failed upload go through here, so the fallback applies to both.
+    """
+    dest = await _destination(client, study_id, exclude=sorted(_probe_failed | failed))
+    if dest is None and _probe_failed - failed:
+        dest = await _destination(client, study_id, exclude=sorted(failed))
+    return dest
 
 
 async def _destination(

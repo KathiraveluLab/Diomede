@@ -1008,6 +1008,59 @@ async def test_successful_upload_clears_the_probe_failure(monkeypatch):
     assert forwarder_module._probe_failed == set()
 
 
+@respx.mock
+@pytest.mark.asyncio
+async def test_failover_falls_back_to_a_probe_failed_node_when_nothing_else_is_left(monkeypatch):
+    """us-east1 failed its probe and the upload to eu-west1 then fails: the study must still be
+    tried on us-east1 instead of stopping with a 503 from the orchestrator."""
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    monkeypatch.setattr(forwarder_module, "_probe_failed", {"us-east1"})
+    orch_route = respx.get(_ORCH_URL).mock(side_effect=_orchestrator_skipping_excluded)
+    us_post = respx.post("http://orthanc-us:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+    eu_post = respx.post("http://orthanc-eu:8042/instances").mock(
+        side_effect=ConnectError("refused")
+    )
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1"])
+
+    excludes = [call.request.url.params.get_list("exclude") for call in orch_route.calls]
+    assert excludes == [["us-east1"], ["eu-west1", "us-east1"], ["eu-west1"]]
+    assert eu_post.call_count == 1
+    assert us_post.call_count == 1
+    assert source.acknowledged == ["i1"]
+    assert forwarder_module._probe_failed == set()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_failover_does_not_retry_a_node_whose_upload_just_failed(monkeypatch):
+    """The fallback only relaxes the probe exclusion; a node that refused an upload stays out."""
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)
+    monkeypatch.setattr(forwarder_module, "_probe_failed", {"us-east1"})
+    orch_route = respx.get(_ORCH_URL).mock(side_effect=_orchestrator_skipping_excluded)
+    us_post = respx.post("http://orthanc-us:8042/instances").mock(
+        side_effect=ConnectError("refused")
+    )
+    eu_post = respx.post("http://orthanc-eu:8042/instances").mock(
+        side_effect=ConnectError("refused")
+    )
+
+    source = _StubSource()
+    async with AsyncClient() as client:
+        await route_study(client, source, _STUDY, ["i1"])
+
+    assert eu_post.call_count == 1
+    assert us_post.call_count == 1
+    assert source.acknowledged == []
+    assert orch_route.call_count == 4  # eu; then us after eu failed; then nothing is left
+
+
 def _orchestrator_by_study(request):
     node_id = "us-east1" if request.url.params["study_id"].startswith("slow") else "eu-west1"
     return Response(200, json={"node_id": node_id, "score": 0.5})
