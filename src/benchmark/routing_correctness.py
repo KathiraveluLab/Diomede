@@ -56,7 +56,7 @@ def generate_permutations(num_trials: int = 35) -> list[dict[str, int]]:
                 if idx == i:
                     perm[reg] = 0
                 else:
-                    perm[reg] = level + (idx * 2)
+                    perm[reg] = max(level + idx * 2, 1)
             permutations.append(perm)
             trial_count += 1
 
