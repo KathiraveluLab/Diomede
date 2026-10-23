@@ -4,6 +4,12 @@ src/benchmark/routing_correctness.py
 Benchmark script for validating routing decision correctness across synthetic load permutations.
 Reproduces the 35 load permutations across the 4 Orthanc nodes described in
 Section 4.2 (Routing Correctness) of the paper, validating 100% routing accuracy.
+
+It writes synthetic telemetry straight to Redis, which the stack does not publish to the
+host, so start it with the benchmark override first:
+
+    docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d
+    python -m src.benchmark.routing_correctness
 """
 
 from __future__ import annotations
@@ -12,6 +18,7 @@ import argparse
 import asyncio
 import json
 import os
+import subprocess
 import sys
 from datetime import UTC, datetime
 
@@ -27,8 +34,11 @@ log = get_logger(__name__, "BENCHMARK_CORRECTNESS")
 
 ORCH_URL = os.getenv("ORCHESTRATOR_HTTPS_URL", "https://localhost:8000")
 API_KEY = os.getenv("ORCHESTRATOR_API_KEY", "CHANGE_IN_PRODUCTION")
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-AGENT_ID = os.getenv("EDGE_AGENT1", "agent-001")
+# Not REDIS_URL: .env sets that to redis://redis:6379, which only resolves inside Docker.
+REDIS_URL = os.getenv("BENCHMARK_REDIS_URL", "redis://localhost:6379")
+# Not a real edge agent's ID, so the synthetic RTTs never replace measured ones.
+AGENT_ID = "routing-benchmark"
+DAEMON_CONTAINER = "telemetry-daemon"
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "certs/ca.pem")
 VERIFY_SSL: str | bool = CA_CERT if os.path.exists(CA_CERT) else False
 
@@ -56,7 +66,7 @@ def generate_permutations(num_trials: int = 35) -> list[dict[str, int]]:
                 if idx == i:
                     perm[reg] = 0
                 else:
-                    perm[reg] = level + (idx * 2)
+                    perm[reg] = max(level + idx * 2, 1)
             permutations.append(perm)
             trial_count += 1
 
@@ -168,7 +178,14 @@ def main() -> int:
         "--trials", type=int, default=35, help="Number of load permutations (default: 35)."
     )
     args = parser.parse_args()
-    return asyncio.run(evaluate_correctness(args.trials))
+    # The daemon would overwrite the synthetic node:* telemetry with real readings mid-trial.
+    subprocess.run(["docker", "pause", DAEMON_CONTAINER], check=True, stdout=subprocess.DEVNULL)
+    try:
+        return asyncio.run(evaluate_correctness(args.trials))
+    finally:
+        subprocess.run(
+            ["docker", "unpause", DAEMON_CONTAINER], check=True, stdout=subprocess.DEVNULL
+        )
 
 
 if __name__ == "__main__":

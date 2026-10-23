@@ -1,0 +1,6 @@
+# Publishes Redis on the host's loopback only, for src/benchmark/routing_correctness.py.
+#   docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d
+services:
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
