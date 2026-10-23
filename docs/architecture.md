@@ -139,7 +139,7 @@ The Telemetry Daemon writes each node's health to Redis with a **30-second TTL**
 
 Every routing decision requires a synchronous call to `GET /get-best-node`, which makes the Orchestrator a potential single point of failure (SPOF). These mitigations are currently in place:
 
-**Automatic container restart.** The orchestrator, Redis and the Telemetry Daemon each run in their own container with `restart: unless-stopped`, so Docker restarts whichever process crashes. A restarted daemon writes fresh telemetry well within the 30 s TTL, so routing carries on, and restarting the orchestrator no longer touches Redis.
+**Automatic container restart.** Every service in `docker-compose.yml` (the orchestrator, Redis, the Telemetry Daemon, the edge agent and the four cloud Orthanc nodes) runs with `restart: unless-stopped`, so Docker restarts whichever process crashes. The edge agent matters most: its `start.sh` exits as soon as either Orthanc or the Forwarder dies, so without a restart policy intake and forwarding would stay down until someone noticed. A container stopped on purpose (`docker stop`, `docker compose stop`) stays stopped, which the failover tests rely on. A restarted daemon writes fresh telemetry well within the 30 s TTL, so routing carries on, and restarting the orchestrator no longer touches Redis.
 
 **Buffered retry at the edge.** If the Orchestrator is unreachable or returns an error, the Forwarder does not guess a destination. It leaves the instance in the Edge Orthanc buffer and asks again on the next poll (every `FORWARDER_POLL_INTERVAL_S`), so nothing is dropped; delivery is only delayed until the Orchestrator recovers.
 
