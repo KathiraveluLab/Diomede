@@ -1,5 +1,7 @@
 networks:
   diomede-net:
+    # Fixed name so the partition benchmark and scripts/simulate_partition.sh can find it.
+    name: diomede-net
     driver: bridge
 
 volumes:
