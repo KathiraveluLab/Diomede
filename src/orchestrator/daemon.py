@@ -94,6 +94,12 @@ async def poll_node(
                 system = system_resp.json()
                 log.debug("System info for %s: %s", node_id, system)
                 node_quota_map[node_id] = system.get("MaximumStorageSize")
+                if node_quota_map[node_id] and system.get("MaximumStorageMode") == "Recycle":
+                    log.warning(
+                        "node=%s deletes its oldest patients once its storage quota is full; "
+                        "set MaximumStorageMode to Reject so uploads fail over instead",
+                        node_id,
+                    )
 
             log.debug("Statistics for %s: %s", node_id, stats)
 
