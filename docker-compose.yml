@@ -24,11 +24,12 @@ services:
     command:
       - -c
       - |
-        sed "s/\$${orthanc_user}/$$ORTHANC_USER/g; s/\$${orthanc_password}/$$ORTHANC_PASSWORD/g" \
-          /etc/orthanc/orthanc.template.json > /tmp/orthanc.json
+        python3 /etc/orthanc/render_orthanc_config.py \
+          /etc/orthanc/orthanc.template.json /tmp/orthanc.json
         exec Orthanc /tmp/orthanc.json
     volumes:
       - ./config/orthanc/us.template.json:/etc/orthanc/orthanc.template.json:ro
+      - ./src/utils/render_orthanc_config.py:/etc/orthanc/render_orthanc_config.py:ro
       - ./certs/orthanc-us:/etc/orthanc/certs:ro
       - orthanc-us-data:/var/lib/orthanc/db
     cap_add:
@@ -64,11 +65,12 @@ services:
     command:
       - -c
       - |
-        sed "s/\$${orthanc_user}/$$ORTHANC_USER/g; s/\$${orthanc_password}/$$ORTHANC_PASSWORD/g" \
-          /etc/orthanc/orthanc.template.json > /tmp/orthanc.json
+        python3 /etc/orthanc/render_orthanc_config.py \
+          /etc/orthanc/orthanc.template.json /tmp/orthanc.json
         exec Orthanc /tmp/orthanc.json
     volumes:
       - ./config/orthanc/eu.template.json:/etc/orthanc/orthanc.template.json:ro
+      - ./src/utils/render_orthanc_config.py:/etc/orthanc/render_orthanc_config.py:ro
       - ./certs/orthanc-eu:/etc/orthanc/certs:ro
       - orthanc-eu-data:/var/lib/orthanc/db
     cap_add:
@@ -104,11 +106,12 @@ services:
     command:
       - -c
       - |
-        sed "s/\$${orthanc_user}/$$ORTHANC_USER/g; s/\$${orthanc_password}/$$ORTHANC_PASSWORD/g" \
-          /etc/orthanc/orthanc.template.json > /tmp/orthanc.json
+        python3 /etc/orthanc/render_orthanc_config.py \
+          /etc/orthanc/orthanc.template.json /tmp/orthanc.json
         exec Orthanc /tmp/orthanc.json
     volumes:
       - ./config/orthanc/asia.template.json:/etc/orthanc/orthanc.template.json:ro
+      - ./src/utils/render_orthanc_config.py:/etc/orthanc/render_orthanc_config.py:ro
       - ./certs/orthanc-asia:/etc/orthanc/certs:ro
       - orthanc-asia-data:/var/lib/orthanc/db
     cap_add:
@@ -144,11 +147,12 @@ services:
     command:
       - -c
       - |
-        sed "s/\$${orthanc_user}/$$ORTHANC_USER/g; s/\$${orthanc_password}/$$ORTHANC_PASSWORD/g" \
-          /etc/orthanc/orthanc.template.json > /tmp/orthanc.json
+        python3 /etc/orthanc/render_orthanc_config.py \
+          /etc/orthanc/orthanc.template.json /tmp/orthanc.json
         exec Orthanc /tmp/orthanc.json
     volumes:
       - ./config/orthanc/af.template.json:/etc/orthanc/orthanc.template.json:ro
+      - ./src/utils/render_orthanc_config.py:/etc/orthanc/render_orthanc_config.py:ro
       - ./certs/orthanc-af:/etc/orthanc/certs:ro
       - orthanc-af-data:/var/lib/orthanc/db
     cap_add:
