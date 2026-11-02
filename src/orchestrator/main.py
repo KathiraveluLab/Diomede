@@ -27,6 +27,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, field_validator
+from redis.asyncio.retry import Retry
+from redis.backoff import NoBackoff
 from redis.exceptions import RedisError, WatchError
 
 from src.utils.env import require_env
@@ -112,7 +114,9 @@ REDIS_URL = require_env("REDIS_URL")
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _redis
     get_scorer()  # fail at startup, not on the first request, if the scorer config is invalid
-    _redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+    # from_url() skips Redis()'s default retry, so a connection closed by a Redis restart
+    # would fail its next command instead of reconnecting.
+    _redis = aioredis.from_url(REDIS_URL, decode_responses=True, retry=Retry(NoBackoff(), 1))
     yield
     if _redis:
         await _redis.close()
