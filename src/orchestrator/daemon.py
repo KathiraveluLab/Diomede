@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 import httpx
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
+from redis.asyncio.retry import Retry
+from redis.backoff import NoBackoff
 
 from src.utils.env import require_env
 from src.utils.logging_config import get_logger
@@ -183,7 +185,8 @@ async def run() -> None:
     _warn_default_creds()
     _warn_short_ttl()
 
-    redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+    # One retry so a write on a connection closed by a Redis restart reconnects.
+    redis = aioredis.from_url(REDIS_URL, decode_responses=True, retry=Retry(NoBackoff(), 1))
     verify: str | bool = CA_CERT if CA_CERT else True
 
     try:
