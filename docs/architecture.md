@@ -133,6 +133,8 @@ to queue depth and disk space rather than failing.
 
 The Telemetry Daemon writes each node's health to Redis with a **30-second TTL**. If a node becomes unreachable, the daemon writes `{"healthy": false}` — and if the daemon itself can't reach Redis, the TTL expires and the key disappears. Both cases cause the Orchestrator to exclude the node from the next routing decision automatically.
 
+**Full nodes.** The daemon also marks a node unhealthy once it has less than 2% of its storage quota free. Because it only polls every `DAEMON_POLL_INTERVAL_S`, uploads can still fill a node between polls, so every Orthanc node runs with `MaximumStorageMode: Reject`. A full cloud node answers `507 Insufficient Storage` and the Forwarder sends the rest of the study to the next node (see 3.2), instead of Orthanc deleting its oldest patients to make room. Nothing in Diomede frees space on a cloud node, so a full node stays full until studies are deleted from it or its quota is raised. The daemon logs a warning on its first poll of any node with a quota that is still set to `Recycle`.
+
 ## 6. Non-Functional Requirements
 
 ### 6.1 Orchestrator Resilience

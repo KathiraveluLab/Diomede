@@ -68,6 +68,8 @@ NODES: dict[str, dict[str, str | tuple[str, str]]] = {
     },
 }
 
+node_quota_map: dict[str, int | None] = {}
+
 
 # Polling logic
 
@@ -94,6 +96,18 @@ async def poll_node(
             system_resp.raise_for_status()
             system = system_resp.json()
             log.debug("System info for %s: %s", node_id, system)
+            first_poll = node_id not in node_quota_map
+            node_quota_map[node_id] = system.get("MaximumStorageSize")
+            if (
+                first_poll
+                and node_quota_map[node_id]
+                and system.get("MaximumStorageMode") == "Recycle"
+            ):
+                log.warning(
+                    "node=%s deletes its oldest patients once its storage quota is full; "
+                    "set MaximumStorageMode to Reject so uploads fail over instead",
+                    node_id,
+                )
 
             log.debug("Statistics for %s: %s", node_id, stats)
 

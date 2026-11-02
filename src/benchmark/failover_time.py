@@ -78,19 +78,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def is_node_healthy(client: httpx.Client, node_id: str) -> bool:
+def is_node_healthy(client: httpx.Client, node_id: str) -> bool | None:
+    """None when the orchestrator can't be asked, which says nothing about the node."""
     try:
         resp = client.get(
             f"{ORCH_URL}/nodes",
             headers={"X-API-Key": API_KEY},
             timeout=3.0,
         )
-        if resp.status_code == 200:
-            for node in resp.json():
-                if node.get("node_id") == node_id:
-                    return bool(node.get("healthy"))
-    except Exception:
-        pass
+        resp.raise_for_status()
+        nodes = resp.json()
+    except Exception as exc:
+        log.warning("Could not read node health from the orchestrator: %s", exc)
+        return None
+    for node in nodes:
+        if node.get("node_id") == node_id:
+            return bool(node.get("healthy"))
     return False
 
 
@@ -125,7 +128,7 @@ def run_single_trial(
     timeout_s: float,
 ) -> tuple[float, float]:
     # 1. Ensure node starts healthy
-    if not is_node_healthy(client, node_id):
+    if is_node_healthy(client, node_id) is False:
         log.warning("Node %s is not healthy before trial; restoring and waiting...", node_id)
         restore_node(mode, container_name)
         time.sleep(12.0)
@@ -137,7 +140,7 @@ def run_single_trial(
     failover_time = timeout_s
 
     while (time.monotonic() - t0) < timeout_s:
-        if not is_node_healthy(client, node_id):
+        if is_node_healthy(client, node_id) is False:
             failover_time = time.monotonic() - t0
             failover_detected = True
             break
@@ -196,6 +199,7 @@ def main() -> int:
                         client, region, container, mode, args.poll_interval_s, args.timeout_s
                     )
                     results[mode][region]["failover"].append(fo_time)
+                    results[mode][region]["recovery"].append(rec_time)
                     print(
                         f"  Trial {trial_idx}/{args.trials}: "
                         f"Failover = {fo_time:5.2f} s | "
