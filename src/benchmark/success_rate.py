@@ -13,6 +13,7 @@ import io
 import os
 import subprocess
 import sys
+import threading
 import time
 
 import httpx
@@ -106,16 +107,91 @@ def upload_instance(client: httpx.Client, edge_url: str, instance_bytes: bytes) 
         return None
 
 
-def get_instance_counts(client: httpx.Client) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for region, base_url in CLOUD_URLS.items():
-        try:
-            resp = client.get(f"{base_url}/statistics", auth=CLOUD_AUTH, timeout=5.0)
+def wait_for_cloud_nodes(client: httpx.Client, attempts: int = 10) -> list[str]:
+    """Wait until every cloud node answers (one may still be restarting after the outage).
+
+    Returns the nodes that still do not answer after `attempts` tries.
+    """
+    unreachable = list(CLOUD_URLS)
+    for attempt in range(attempts):
+        unreachable = []
+        for region, base_url in CLOUD_URLS.items():
+            try:
+                client.get(
+                    f"{base_url}/statistics", auth=CLOUD_AUTH, timeout=5.0
+                ).raise_for_status()
+            except Exception:
+                unreachable.append(region)
+        if not unreachable:
+            break
+        if attempt < attempts - 1:
+            time.sleep(1.0)
+    return unreachable
+
+
+def locate_on_cloud(
+    client: httpx.Client, instance_ids: list[str]
+) -> tuple[dict[str, int], list[str], set[str]]:
+    """Find each sent instance on the cloud nodes by its Orthanc ID.
+
+    Orthanc derives an instance ID from the DICOM identifiers, so the ID the edge returned is
+    also the ID of that instance on whichever cloud node stores it. Unlike comparing instance
+    counts, this only credits the instances this run sent.
+
+    Returns the instances found per node, the IDs found on no node, and the nodes that could
+    not be queried (an ID missing while a node is unreadable may still be stored there).
+    """
+    found_per_node = {region: 0 for region in CLOUD_URLS}
+    missing: list[str] = []
+    unreadable: set[str] = set()
+    for instance_id in instance_ids:
+        for region, base_url in CLOUD_URLS.items():
+            try:
+                resp = client.get(
+                    f"{base_url}/instances/{instance_id}", auth=CLOUD_AUTH, timeout=5.0
+                )
+            except Exception:
+                unreadable.add(region)
+                continue
             if resp.status_code == 200:
-                counts[region] = resp.json().get("CountInstances", 0)
-        except Exception:
-            counts[region] = -1
-    return counts
+                found_per_node[region] += 1
+                break
+            if resp.status_code != 404:
+                unreadable.add(region)
+        else:
+            missing.append(instance_id)
+    return found_per_node, missing, unreadable
+
+
+def docker(action: str, container: str) -> bool:
+    """Run `docker <action> <container>`; True only if it succeeded."""
+    try:
+        result = subprocess.run(
+            ["docker", action, container],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as exc:
+        log.error("docker %s %s could not run: %s", action, container, exc)
+        return False
+    if result.returncode != 0:
+        log.error(
+            "docker %s %s failed (exit %d): %s",
+            action,
+            container,
+            result.returncode,
+            (result.stderr or "").strip(),
+        )
+        return False
+    return True
+
+
+def restore_node(container: str, delay_s: float) -> None:
+    time.sleep(delay_s)
+    log.info("RESTORING NODE: Restarting container '%s'...", container)
+    docker("start", container)
 
 
 def run_benchmark() -> int:
@@ -128,11 +204,10 @@ def run_benchmark() -> int:
     )
 
     with httpx.Client(verify=VERIFY_SSL) as client:
-        initial_counts = get_instance_counts(client)
-        log.info("Initial cloud node instance counts: %s", initial_counts)
-
         sent_ids: list[str] = []
         outage_triggered = False
+        node_stopped = False
+        restore_thread: threading.Thread | None = None
         t_start = time.monotonic()
 
         for idx in range(1, args.burst_count + 1):
@@ -153,26 +228,14 @@ def run_benchmark() -> int:
                     args.outage_node,
                     args.outage_duration_s,
                 )
-                subprocess.run(
-                    ["docker", "stop", args.outage_node],
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-
-                def restore_node() -> None:
-                    time.sleep(args.outage_duration_s)
-                    log.info("RESTORING NODE: Restarting container '%s'...", args.outage_node)
-                    subprocess.run(
-                        ["docker", "start", args.outage_node],
-                        check=False,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
+                if docker("stop", args.outage_node):
+                    node_stopped = True
+                    restore_thread = threading.Thread(
+                        target=restore_node, args=(args.outage_node, args.outage_duration_s)
                     )
-
-                import threading
-
-                threading.Thread(target=restore_node, daemon=True).start()
+                    restore_thread.start()
+                else:
+                    log.error("The outage was NOT applied; this run does not test failover.")
 
         log.info(
             "Ingestion complete: %d/%d instances accepted by edge. Waiting for pipeline drain...",
@@ -195,29 +258,47 @@ def run_benchmark() -> int:
                 log.warning("Edge polling transient error: %s", exc)
             time.sleep(1.0)
 
+        # A node stopped for the outage must be back before the instances are looked up on it
+        if restore_thread is not None:
+            restore_thread.join()
+        not_answering = wait_for_cloud_nodes(client)
+
         t_elapsed = time.monotonic() - t_start
-        final_counts = get_instance_counts(client)
-        delivered_count = len(sent_ids) - remaining
+        cleared_from_edge = len(sent_ids) - remaining
+        # The edge buffer emptying only shows the forwarder let go of the instances; each one
+        # must also be stored on a cloud node, or the data was lost on the way.
+        found_per_node, missing, unreadable = locate_on_cloud(client, sent_ids)
+        delivered_count = len(sent_ids) - len(missing)
         success_rate = (delivered_count / args.burst_count) * 100.0
+        outage_applied = node_stopped if args.simulate_outage else None
 
         print("\n" + "=" * 60)
         print("DIOMEDE END-TO-END TRANSFER BENCHMARK REPORT")
         print("=" * 60)
         print(f"Total Sent:             {args.burst_count}")
         print(f"Accepted by Edge:       {len(sent_ids)}")
-        print(f"Successfully Delivered: {delivered_count}")
+        print(f"Cleared from Edge:      {cleared_from_edge}")
+        print(f"Confirmed on Cloud:     {delivered_count}")
+        print(f"Missing from Cloud:     {len(missing)}")
         print(f"Remaining on Edge:      {remaining}")
         print(f"Elapsed Time:           {t_elapsed:.2f} s")
         print(f"Delivery Success Rate:  {success_rate:.2f}%")
-        print(f"Mid-Transfer Outage:    {args.simulate_outage}")
+        if outage_applied is None:
+            print("Mid-Transfer Outage:    False")
+        else:
+            print(f"Mid-Transfer Outage:    {'True' if outage_applied else 'NOT APPLIED'}")
         print("-" * 60)
-        print("Final Cloud Node Distribution:")
-        for region, count in final_counts.items():
-            init = initial_counts.get(region, 0)
-            delta = count - init if count >= 0 and init >= 0 else 0
-            print(f"  - {region:<18}: +{delta} instances (total: {count})")
+        print("Where the sent instances were found:")
+        for region, count in found_per_node.items():
+            print(f"  - {region:<18}: {count} instances")
+        silent = sorted(set(not_answering) | unreadable)
+        if silent and missing:
+            names = ", ".join(silent)
+            print(f"WARNING: {names} could not be queried; some missing instances may be there.")
         print("=" * 60 + "\n")
 
+        if outage_applied is False:
+            return 2  # the run did not test what was asked for
         return 0 if delivered_count == args.burst_count else 1
 
 
