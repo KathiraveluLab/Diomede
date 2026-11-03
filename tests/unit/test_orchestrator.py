@@ -206,6 +206,15 @@ async def test_returns_503_when_redis_unreachable(monkeypatch, path):
     assert resp.status_code == 503
 
 
+async def test_redis_client_retries_after_a_dropped_connection(monkeypatch):
+    """A Redis restart closes every pooled connection; the next command must reconnect."""
+    monkeypatch.setattr(main_module, "_redis", None)
+    async with main_module.lifespan(app):
+        assert main_module._redis is not None
+        conn = main_module._redis.connection_pool.make_connection()
+        assert conn.retry.get_retries() >= 1
+
+
 async def test_nodes_returns_503_when_redis_uninitialized(monkeypatch):
     monkeypatch.setattr(main_module, "_redis", None)
     async with AsyncClient(

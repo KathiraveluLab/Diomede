@@ -197,6 +197,22 @@ def test_rtt_survives_orchestrator_restart():
     assert node["rtt_ms"] == rtt[node["node_id"]]
 
 
+def test_requests_succeed_right_after_redis_restarts():
+    """The orchestrator reconnects to a restarted Redis instead of answering 503."""
+    _get_nodes()
+    subprocess.run(["docker", "restart", "redis"], check=True, capture_output=True)
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        ping = subprocess.run(["docker", "exec", "redis", "redis-cli", "ping"], capture_output=True)
+        if ping.stdout.strip() == b"PONG":
+            break
+        time.sleep(1)
+
+    for _ in range(3):
+        assert _get_nodes()
+
+
 def test_routing_survives_telemetry_daemon_crash():
     """A crashed telemetry daemon is restarted before node telemetry expires in Redis."""
     restarts = _restart_count("telemetry-daemon")

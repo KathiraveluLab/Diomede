@@ -345,3 +345,17 @@ async def test_run_checks_startup_warnings(monkeypatch):
 
     warn_creds.assert_called_once()
     warn_ttl.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_run_redis_client_retries_after_a_dropped_connection(monkeypatch):
+    """A Redis restart closes every pooled connection; the next write must reconnect."""
+    from_url = daemon_module.aioredis.from_url
+    _, poll, _, _ = _stop_run_after_first_cycle(monkeypatch)
+    monkeypatch.setattr(daemon_module.aioredis, "from_url", from_url)
+
+    with pytest.raises(asyncio.CancelledError):
+        await daemon_module.run()
+
+    redis = poll.await_args.args[1]
+    assert redis.connection_pool.make_connection().retry.get_retries() >= 1
