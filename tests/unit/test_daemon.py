@@ -212,7 +212,6 @@ async def test_unhealthy_payload_also_gets_ttl():
 @pytest.mark.asyncio
 async def test_unlimited_storage_reports_unknown_free_disk(monkeypatch):
     """MaximumStorageSize = 0 means no quota: free disk is unknown, not 0 MB."""
-    monkeypatch.setattr("src.orchestrator.daemon.node_quota_map", {})
     respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=STATS_OK))
     respx.get(f"{BASE}/system").mock(return_value=Response(200, json={"MaximumStorageSize": 0}))
     respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=[]))
