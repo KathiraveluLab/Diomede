@@ -76,13 +76,19 @@ class WeightedScorer(NodeScorer):
         total_score = self.w_queue * q_score + self.w_disk * disk_score + self.w_rtt * rtt_score
         node["score"] = total_score
 
-        log.info(
-            f"Scoring node {node.get('node_id', 'unknown')}:\n"
-            f"  q_size={q_size}, q_score={q_score:.4f}, disk_free={disk_free}, \n"
-            f"  disk_total={disk_total}, disk_score={disk_score:.4f},\n"
-            f"  rtt_ms={rtt_ms}, rtt_score={rtt_score:.4f}"
+        log.debug(
+            "Scoring node %s: q_size=%s, q_score=%.4f, disk_free=%s, "
+            "disk_total=%s, disk_score=%.4f, rtt_ms=%s, rtt_score=%.4f",
+            node.get("node_id", "unknown"),
+            q_size,
+            q_score,
+            disk_free,
+            disk_total,
+            disk_score,
+            rtt_ms,
+            rtt_score,
         )
-        log.info(f"TOTAL SCORE: {node.get('node_id', 'unknown')} = {total_score:.4f}")
+        log.debug("TOTAL SCORE: %s = %.4f", node.get("node_id", "unknown"), total_score)
 
         return total_score
 

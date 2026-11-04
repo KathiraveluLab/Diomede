@@ -1,6 +1,7 @@
 """Unit tests for scorer, weighted_scorer, and the /get-best-node endpoint."""
 
 import json
+import logging
 import os
 import secrets
 
@@ -616,3 +617,86 @@ def test_unknown_disk_scores_as_full_headroom():
     full_quota = {**_NODE, "disk_free_mb": 10_000.0, "disk_total_mb": 10_000}
     assert scorer.score(unlimited) == pytest.approx(scorer.score(full_quota))
     assert scorer.score(unlimited) > scorer.score({**_NODE, "disk_free_mb": 0.0})
+
+
+# Log volume: one INFO line per routing decision, detail at DEBUG
+_ALL_NODE_IDS = ["us-east1", "eu-west1", "asia-northeast1", "af-south1"]
+
+
+async def _seed_all_nodes(fake_redis) -> None:
+    rtts = {}
+    for i, node_id in enumerate(_ALL_NODE_IDS):
+        node = {**_HEALTHY_NODE, "node_id": node_id, "queue_size": i}
+        await fake_redis.set(f"node:{node_id}", json.dumps(node))
+        rtts[node_id] = 20.0 + i
+    await fake_redis.set("rtt:test-agent", json.dumps(rtts))
+
+
+@pytest.fixture
+def orchestrator_logs(caplog):
+    """Return start(level) -> list of the records the orchestrator loggers emit from then on.
+
+    The loggers do not propagate (see get_logger), so a handler is attached to them directly.
+    """
+    import src.orchestrator.weighted_scorer as scorer_module
+
+    loggers = (main_module.log, scorer_module.log)
+    records: list[logging.LogRecord] = []
+
+    class _Collect(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _Collect()
+
+    def start(level: int) -> list[logging.LogRecord]:
+        get_scorer()  # build the singleton now so its one-off init line is not counted
+        for logger in loggers:
+            caplog.set_level(level, logger=logger.name)  # restored when the test ends
+            logger.addHandler(handler)
+        return records
+
+    yield start
+    for logger in loggers:
+        logger.removeHandler(handler)
+
+
+@pytest.mark.parametrize("study_id", [None, "s1"])
+async def test_routing_request_logs_at_most_two_info_lines(
+    client, fake_redis, orchestrator_logs, study_id
+):
+    await _seed_all_nodes(fake_redis)
+    records = orchestrator_logs(logging.INFO)
+
+    data = await _best(client, study_id)
+
+    info = [r.getMessage() for r in records]
+    assert len(info) <= 2, info
+    assert any(data["node_id"] in line for line in info), info
+    for line in info:
+        assert "\n" not in line
+        assert "TOTAL SCORE" not in line
+        assert "queue_size" not in line  # the raw telemetry JSON
+        assert "orthanc-us" not in line  # internal base_url
+
+
+async def test_nodes_endpoint_logs_no_info_lines(client, fake_redis, orchestrator_logs):
+    await _seed_all_nodes(fake_redis)
+    records = orchestrator_logs(logging.INFO)
+
+    resp = await client.get("/nodes")
+
+    assert resp.status_code == 200
+    assert [r.getMessage() for r in records] == []
+
+
+async def test_routing_detail_is_still_logged_at_debug(client, fake_redis, orchestrator_logs):
+    await _seed_all_nodes(fake_redis)
+    records = orchestrator_logs(logging.DEBUG)
+
+    await _best(client)
+
+    text = "\n".join(r.getMessage() for r in records)
+    assert "Fetched raw nodes" in text
+    assert text.count("TOTAL SCORE") == len(_ALL_NODE_IDS)
+    assert "has RTT" in text
