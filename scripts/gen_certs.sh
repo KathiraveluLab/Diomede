@@ -71,6 +71,7 @@ sign_cert() {
     -days "$DAYS_SERVER" -sha256 \
     -extfile "$ext" \
     -out "$dir/server.crt" 2>/dev/null
+  [[ -s "$dir/server.crt" ]] || { echo "gen_certs.sh: could not sign $name" >&2; exit 1; }
 
   rm -f "$ext" "$dir/server.csr"
 
@@ -110,6 +111,7 @@ sign_client_cert() {
     -days "$DAYS_SERVER" -sha256 \
     -extfile "$ext" \
     -out "$dir/client.crt" 2>/dev/null
+  [[ -s "$dir/client.crt" ]] || { echo "gen_certs.sh: could not sign $name" >&2; exit 1; }
 
   rm -f "$ext" "$dir/client.csr"
   echo "  $name  (clientAuth)"
