@@ -27,6 +27,7 @@ import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
 from src.orchestrator.weighted_scorer import WeightedScorer
+from src.utils.ca_bundle import ca_ssl_context
 from src.utils.logging_config import get_logger
 
 load_dotenv()
@@ -39,8 +40,6 @@ REDIS_URL = os.getenv("BENCHMARK_REDIS_URL", "redis://localhost:6379")
 # Not a real edge agent's ID, so the synthetic RTTs never replace measured ones.
 AGENT_ID = "routing-benchmark"
 DAEMON_CONTAINER = "telemetry-daemon"
-CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "certs/ca.pem")
-VERIFY_SSL: str | bool = CA_CERT if os.path.exists(CA_CERT) else False
 
 REGIONS = [
     os.getenv("REGION1_NAME", "us-east1"),
@@ -118,7 +117,7 @@ async def evaluate_correctness(num_trials: int = 35) -> int:
 
     correct_count = 0
 
-    async with httpx.AsyncClient(verify=VERIFY_SSL) as client:
+    async with httpx.AsyncClient(verify=ca_ssl_context()) as client:
         for idx, perm in enumerate(perms, start=1):
             await set_synthetic_telemetry(redis, perm)
             # Allow telemetry propagation
@@ -178,6 +177,8 @@ def main() -> int:
         "--trials", type=int, default=35, help="Number of load permutations (default: 35)."
     )
     args = parser.parse_args()
+    # Fail on a missing CA before anything is paused.
+    ca_ssl_context()
     # The daemon would overwrite the synthetic node:* telemetry with real readings mid-trial.
     subprocess.run(["docker", "pause", DAEMON_CONTAINER], check=True, stdout=subprocess.DEVNULL)
     try:

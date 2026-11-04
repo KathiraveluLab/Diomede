@@ -5,6 +5,7 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import certifi
 import httpx
 import pytest
 import respx
@@ -16,6 +17,11 @@ pytestmark = pytest.mark.unit
 
 EDGE = sr.DEFAULT_EDGE_URL
 REGIONS = list(sr.CLOUD_URLS)
+
+
+@pytest.fixture(autouse=True)
+def _ca_bundle(monkeypatch):
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", certifi.where())
 
 
 class FakeDocker:
@@ -77,6 +83,19 @@ def _run(argv, holders, fake_docker=None, failing_regions=()):
                 )
         code = sr.run_benchmark()
     return code, fake_docker
+
+
+def test_missing_ca_bundle_stops_the_benchmark_before_it_sends_anything(monkeypatch, tmp_path):
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(tmp_path / "missing.pem"))
+    monkeypatch.setattr(sys, "argv", ["success_rate", "--burst-count", "1"])
+
+    def upload(*args):
+        pytest.fail("sent an instance before the CA bundle was checked")
+
+    monkeypatch.setattr(sr, "upload_instance", upload)
+
+    with pytest.raises(RuntimeError, match="gen_certs"):
+        sr.run_benchmark()
 
 
 # --- delivery is confirmed instance by instance on the cloud nodes -----------------------------

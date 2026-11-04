@@ -18,6 +18,7 @@ import time
 import httpx
 from dotenv import load_dotenv
 
+from src.utils.ca_bundle import ca_ssl_context
 from src.utils.logging_config import get_logger
 
 load_dotenv()
@@ -25,8 +26,6 @@ log = get_logger(__name__, "BENCHMARK_FAILOVER")
 
 ORCH_URL = os.getenv("ORCHESTRATOR_HTTPS_URL", "https://localhost:8000")
 API_KEY = os.getenv("ORCHESTRATOR_API_KEY", "CHANGE_IN_PRODUCTION")
-CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "certs/ca.pem")
-VERIFY_SSL: str | bool = CA_CERT if os.path.exists(CA_CERT) else False
 
 REGION_CONTAINERS = {
     os.getenv("REGION1_NAME", "us-east1"): os.getenv("REGION1_HOST", "orthanc-us"),
@@ -182,7 +181,7 @@ def main() -> int:
 
     results: dict[str, dict[str, dict[str, list[float]]]] = {}
 
-    with httpx.Client(verify=VERIFY_SSL) as client:
+    with httpx.Client(verify=ca_ssl_context()) as client:
         for mode in args.modes:
             results[mode] = {}
             for region in args.regions:

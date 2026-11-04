@@ -20,6 +20,7 @@ import httpx
 from dotenv import load_dotenv
 
 from src.simulator.generate_dicom import make_sized
+from src.utils.ca_bundle import ca_ssl_context
 from src.utils.logging_config import get_logger
 
 load_dotenv()
@@ -44,9 +45,6 @@ CLOUD_URLS: dict[str, str] = {
         "NODE_AF_HTTPS_URL", "https://localhost:8045"
     ),
 }
-
-CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "certs/ca.pem")
-VERIFY_SSL: str | bool = CA_CERT if os.path.exists(CA_CERT) else False
 
 
 def parse_args() -> argparse.Namespace:
@@ -203,7 +201,7 @@ def run_benchmark() -> int:
         args.simulate_outage,
     )
 
-    with httpx.Client(verify=VERIFY_SSL) as client:
+    with httpx.Client(verify=ca_ssl_context()) as client:
         sent_ids: list[str] = []
         outage_triggered = False
         node_stopped = False
