@@ -29,10 +29,10 @@ CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "certs/ca.pem")
 VERIFY_SSL: str | bool = CA_CERT if os.path.exists(CA_CERT) else False
 
 REGION_CONTAINERS = {
-    os.getenv("REGION1_NAME", "us-east1"): os.getenv("REGION1_HOST", "orthanc-us"),
-    os.getenv("REGION2_NAME", "eu-west1"): os.getenv("REGION2_HOST", "orthanc-eu"),
-    os.getenv("REGION3_NAME", "asia-northeast1"): os.getenv("REGION3_HOST", "orthanc-asia"),
-    os.getenv("REGION4_NAME", "af-south1"): os.getenv("REGION4_HOST", "orthanc-af"),
+    "us-east1": os.getenv("REGION1_HOST", "orthanc-us"),
+    "eu-west1": os.getenv("REGION2_HOST", "orthanc-eu"),
+    "asia-northeast1": os.getenv("REGION3_HOST", "orthanc-asia"),
+    "af-south1": os.getenv("REGION4_HOST", "orthanc-af"),
 }
 
 DOCKER_NETWORK = os.getenv("DOCKER_NETWORK", "diomede-net")

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import Any, TypedDict
+from typing import Any
 
 import httpx
 from dotenv import load_dotenv
@@ -12,6 +12,7 @@ from src.edge.orthanc_source import OrthancSource
 from src.edge.transport import DicomSource
 from src.utils.env import require_env
 from src.utils.logging_config import get_logger
+from src.utils.nodes import NodeConfig, load_nodes
 
 log = get_logger(__name__, "FORWARDER")
 load_dotenv()
@@ -31,29 +32,7 @@ CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
 _VERIFY = CA_CERT if CA_CERT else True
 
 
-class _NodeCfg(TypedDict):
-    base: str
-    auth: tuple[str, str]
-
-
-CLOUD_NODES: dict[str, _NodeCfg] = {
-    require_env("REGION1_NAME"): {
-        "base": require_env("NODE_US_BASE"),
-        "auth": (require_env("NODE_US_USER"), require_env("NODE_US_PASS")),
-    },
-    require_env("REGION2_NAME"): {
-        "base": require_env("NODE_EU_BASE"),
-        "auth": (require_env("NODE_EU_USER"), require_env("NODE_EU_PASS")),
-    },
-    require_env("REGION3_NAME"): {
-        "base": require_env("NODE_ASIA_BASE"),
-        "auth": (require_env("NODE_ASIA_USER"), require_env("NODE_ASIA_PASS")),
-    },
-    require_env("REGION4_NAME"): {
-        "base": require_env("NODE_AF_BASE"),
-        "auth": (require_env("NODE_AF_USER"), require_env("NODE_AF_PASS")),
-    },
-}
+CLOUD_NODES = load_nodes()
 
 
 # Nodes whose last latency probe failed. The orchestrator scores a node with no measurement at a
@@ -185,7 +164,7 @@ async def route_study(
 
 async def _pick_destination(
     client: httpx.AsyncClient, study_id: str, failed: set[str]
-) -> tuple[str, _NodeCfg, dict[str, Any]] | None:
+) -> tuple[str, NodeConfig, dict[str, Any]] | None:
     """Ask where the study goes, skipping nodes that failed an upload and, if another node
     is left, nodes that failed their latency probe.
 
@@ -201,7 +180,7 @@ async def _pick_destination(
 
 async def _destination(
     client: httpx.AsyncClient, study_id: str, exclude: list[str]
-) -> tuple[str, _NodeCfg, dict[str, Any]] | None:
+) -> tuple[str, NodeConfig, dict[str, Any]] | None:
     """Ask the orchestrator where the study goes, skipping nodes in exclude."""
     try:
         best_resp = await client.get(
