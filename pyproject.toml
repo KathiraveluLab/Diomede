@@ -60,7 +60,7 @@ where = ["."]
 [tool.coverage.run]
 omit = [
     "*/__init__.py",
-    "src/benchmark/*",  # personal measurement scripts, gitignored, not part of reviewed src
+    "src/benchmark/*",  # benchmark scripts that run against a live stack, so left out of the coverage target
 ]
 
 # ── Tooling ──────────────────────────────────────────────────────────────────
@@ -77,10 +77,6 @@ python_version         = "3.12"
 strict                 = true
 ignore_missing_imports = true
 explicit_package_bases = true
-
-[[tool.mypy.overrides]]
-module = ["generate", "send_test_dicom"]
-strict = false
 
 [[tool.mypy.overrides]]
 module = ["src.orchestrator.daemon", "src.orchestrator.main"]

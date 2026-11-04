@@ -57,7 +57,11 @@ class WeightedScorer(NodeScorer):
         )
 
     def score(self, node: dict[str, Any]) -> float:
-        """Compute score = w_queue*(1/(q+1)) + w_disk*(free/total) + w_rtt*(1/(rtt+1))."""
+        """Compute score = w_queue*(1/(q+1)) + w_disk*(free/total) + w_rtt*(1/(rtt/rtt_ref+1)).
+
+        The disk term is 1.0 when the node reports no quota (disk_free_mb or disk_total_mb is
+        None). rtt is clamped to at least 1 ms and defaults to 250 ms when the node has none.
+        """
         q_size = node.get("queue_size")
         q_score = 1.0 / (float(q_size if q_size is not None else 0) + 1)
         raw_free = node.get("disk_free_mb")

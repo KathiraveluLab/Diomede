@@ -362,9 +362,9 @@ See [`tests/load/README.md`](../tests/load/README.md) for the full load-test opt
   `.env`) — restart the affected container so it re-reads them:
   `docker compose restart <service>`.
 
-See [Contributing](../CONTRIBUTING.md) for the branch/PR workflow and scoring-weight
-tuning, and [architecture.md](architecture.md) for how routing and dead-node
-detection work internally.
+See [Contributing](../CONTRIBUTING.md) for the branch/PR workflow, and
+[architecture.md](architecture.md) for how routing, the scoring weights and
+dead-node detection work internally.
 
 ---
 

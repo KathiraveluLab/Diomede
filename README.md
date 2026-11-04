@@ -112,7 +112,8 @@ stack to be running. The orchestrator and edge images **bake in** `src/`, so aft
 editing that code rebuild the affected container:
 `docker compose up -d --build orchestrator agent-001`.
 
-See **[Contributing](CONTRIBUTING.md)** for pre-commit hooks and scoring-weight tuning.
+See **[Contributing](CONTRIBUTING.md)** for pre-commit hooks and the PHI policy, and
+[Architecture](docs/architecture.md#4-scoring-algorithm) for the scoring weights.
 
 ---
 

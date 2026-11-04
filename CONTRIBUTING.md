@@ -8,14 +8,13 @@ Thank you for contributing! This project is developed as part of **Google Summer
 
 - Document any user-facing change in the relevant component `README` or `setup.md`.
 - API changes to the FastAPI route `summary=` strings and Pydantic models will update
-  the live Swagger UI at `http://localhost:8000/docs`. After any endpoint or model change,
-  regenerate the static API files at `docs/api.html` and `docs/openapi.json`.
+  the live Swagger UI at `https://localhost:8000/docs` automatically.
 
 ---
 
 ## Code Style
 
-This project uses **ruff** for linting/formatting and **mypy** for type checking. mypy runs in strict mode for all production code (`src/orchestrator/`, `src/edge/`); the simulator scripts (e.g., `send_test_dicom.py`) are exempt. Run both before pushing:
+This project uses **ruff** for linting/formatting and **mypy** for type checking. mypy runs in strict mode for `src/orchestrator/`, `src/edge/` and `src/simulator/`. Run both before pushing:
 
 ```bash
 ruff check --fix src/ tests/
@@ -114,9 +113,9 @@ The rules below apply to all code, logs, and committed files.
 
 **Committed files**
 - Never commit real DICOM files that contain PHI.
-- All files under `data/synthetic/` are algorithmically generated with no
-  patient data.
-- Real DICOM samples (e.g., `data/samples/`) must be fully anonymized
+- Test images made by `src/simulator/generate_dicom.py` are
+  algorithmically generated with no patient data.
+- Real DICOM samples (e.g., `data/sample_dicom/`) must be fully anonymized
   before inclusion. If unsure, do not commit the file.
 
 **Logs**
