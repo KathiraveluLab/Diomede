@@ -19,14 +19,22 @@ Configuration is read from `.env`:
 locust --config tests/load/locust.conf RoutingUser --users 100 --run-time 1m
 
 # Transfer-success KPI: a 100-image burst (stops after 100 POSTs)
-LOAD_BURST_COUNT=100 locust --config tests/load/locust.conf IngestUser --users 10
+# (set LOAD_BURST_COUNT=100 in .env first, see below)
+locust --config tests/load/locust.conf IngestUser --users 10
 
 # Interactive web UI instead of headless (drop --headless via CLI):
-locust -f tests/load/locustfile.py RoutingUser --host "$ORCHESTRATOR_HTTPS_URL"
+locust -f tests/load/locustfile.py RoutingUser --host https://localhost:8000
 ```
 
-Tunable via env: `LOAD_FILE_SIZE_KB` (image size, default 50),
-`LOAD_MAX_P99_MS` (default 50), `LOAD_MAX_FAIL_RATIO` (default 0.005).
+The tunables are also read from `.env` (`.env.example` lists the first six, with
+these values): `LOAD_BURST_COUNT` (`0` = no burst limit), `LOAD_FILE_SIZE_KB` (image size,
+50), `LOAD_MAX_P99_MS` (50), `LOAD_MAX_FAIL_RATIO` (0.005), `LOAD_MIN_INTERVAL` and
+`LOAD_MAX_INTERVAL` (seconds each user waits between requests, 0.02 and 0.10). Optional:
+`LOAD_VERIFY_TLS`, `LOAD_CA_CERT` and `LOAD_DRAIN_POLL_INTERVAL_S` /
+`LOAD_DRAIN_TIMEOUT_S` (1 and 5).
+
+Edit `.env` to change them: the locustfile loads it with `override=True`, so `.env`
+wins over the shell and `LOAD_BURST_COUNT=100 locust ...` has no effect.
 
 ## Notes
 

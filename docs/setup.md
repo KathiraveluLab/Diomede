@@ -56,8 +56,22 @@ production VMs.
 
 - Docker Desktop ≥ 4.x (macOS/Windows) **or** Docker Engine + Compose plugin (Linux).
   `docker compose version` should print `v2.x`.
-- Python 3.12+ on your host.
+- Python 3.12+ on your host. Check with `python3 --version`: Ubuntu 22.04 ships 3.10
+  and Debian 12 ships 3.11, so install 3.12 first on those.
 - `git`, `bash`, and `openssl` (already present on macOS/Linux).
+
+**Windows:** the simplest path is WSL2 (Ubuntu), where every command in this guide works
+unchanged. In a native Windows shell, these host-side commands differ:
+
+- `python3` is usually not on `PATH` (or opens the Microsoft Store). Create the virtual
+  environment with `py -3.12 -m venv .venv`, then use `python` (also in
+  `| python -m json.tool`).
+- Activate the virtual environment with `source .venv/Scripts/activate` (Git Bash),
+  `.venv\Scripts\Activate.ps1` (PowerShell) or `.venv\Scripts\activate` (cmd).
+- In Windows PowerShell 5.1, `curl` is an alias for `Invoke-WebRequest`, so call
+  `curl.exe`. PowerShell does not accept `\` line continuations or bash `for` loops,
+  and 5.1 strips the double quotes inside `-d '{...}'`, so run the multi-line `curl`
+  examples and the loops from WSL2 or Git Bash.
 
 ## Step 2 — Clone the repository
 
@@ -246,23 +260,38 @@ python -m src.simulator.send_dicom_native --host 127.0.0.1 --port 4242 --called-
 
 ```bash
 python -m src.simulator.send_dicom_rest --base-url https://127.0.0.1:8042
-# → REST send success → https://127.0.0.1:8042 (HTTP 200)
+# → REST send success → https://127.0.0.1:8042 (Orthanc: AlreadyStored) in <time> ms
 ```
 
-**8c. End-to-end through the edge agent** — the real routing path. Send a study to
-the edge, then confirm it landed on a cloud node and was deleted from the edge:
+Both scripts send the same fixed 8×8 instance (`send_dicom_rest` sends fresh UIDs only
+with `--file-size N`), so after 8a this reports `AlreadyStored`; on a fresh node it
+reports `Success`.
+
+**8c. End-to-end through the edge agent** — the real routing path. Send a **new**
+instance to the edge (`--file-size` gives it fresh UIDs; the default 8×8 image is the
+fixed instance steps 8a/8b already stored on `orthanc-us`), then confirm which cloud
+node the forwarder chose and that the edge copy was deleted:
 
 ```bash
-python -m src.simulator.send_dicom_rest --base-url https://localhost:8046   # send to edge
+python -m src.simulator.send_dicom_rest --base-url https://localhost:8046 --file-size 10
+sleep 10   # the forwarder polls the edge every 5 s
+           # (about 60 s longer if FORWARDER_WAIT_FOR_STABLE_STUDY=true)
 
-curl -k -u orthanc:your-password https://localhost:8042/instances           # arrived on a cloud node
-curl -k -u orthanc:your-password https://localhost:8046/instances           # [] — edge copy deleted
+docker compose logs agent-001 | grep 'routed ->'   # study=... instance=... routed -> <node> (score=...)
+
+# us-east1=8042 eu-west1=8043 asia-northeast1=8044 af-south1=8045
+# The node named above now lists the new instance (orthanc-us also still holds the 8a/8b one).
+for port in 8042 8043 8044 8045; do
+  echo "$port: $(curl -sk -u orthanc:your-password https://localhost:$port/instances)"
+done
+curl -sk -u orthanc:your-password https://localhost:8046/instances   # [] — edge copy deleted
 ```
 
-**8d. Real DICOM file** — the simulator scripts only generate synthetic 8×8 images,
-so to send a real study use the verifier. It uploads the file to the edge, waits
-for the forwarder to route it, downloads it back from whichever cloud node won, and
-diffs every header tag and pixel against the original (exit `0` = lossless).
+**8d. Real DICOM file** — the simulator scripts only generate synthetic images (8×8,
+or about N KB with `send_dicom_rest --file-size N`), so to send a real study use the
+verifier. It uploads the file to the edge, waits for the forwarder to route it,
+downloads it back from whichever cloud node won, and diffs every header tag and pixel
+against the original (exit `0` = lossless).
 
 ```bash
 python -m src.utils.verify_pipeline --local-path data/sample_dicom/IM_0001
@@ -289,12 +318,22 @@ Alaska → GCP paths, so routing decisions reflect geographic distance.
 ```bash
 bash scripts/inject_latency.sh           # apply (NET_ADMIN is already set in compose)
 bash scripts/inject_latency.sh --reset   # remove all rules
-docker exec orthanc-us tc qdisc show dev eth0   # inspect active rules
+bash scripts/inject_latency.sh --show    # print the active rules on all four nodes
 ```
+
+The script installs `iproute2` inside each container the first time, so it needs
+internet access.
 
 > `tc netem` delays **outbound** packets, so it captures the download half of the
 > RTT from the edge agent's perspective. Rules are **not persistent** — re-run the
 > script after any `docker compose up` or container restart.
+
+The forwarder measures RTT when it starts and then every `PROBE_INTERVAL_S` (3600 s in
+`.env.example`), so injected latency does not change `/get-best-node` for up to an
+hour. To see it now, run `docker compose restart agent-001` after injecting (it probes
+at start-up), or set `PROBE_INTERVAL_S=60` in `.env` and run
+`docker compose up -d --force-recreate agent-001`. The `tc` rules live on the four
+Orthanc containers, so restarting or recreating `agent-001` keeps them.
 
 ## Step 10 — Watch a failover
 
@@ -351,16 +390,18 @@ See [`tests/load/README.md`](../tests/load/README.md) for the full load-test opt
 
 - **Host code** (`src/simulator`, tests, the scorer under unit test) — the editable
   install means changes are live; just re-run pytest/ruff/mypy.
-- **Containerized code** (`src/orchestrator`, `src/edge`) — the images **bake in**
-  `src/` at build time, so after editing that code rebuild and restart:
+- **Containerized code** (`src/orchestrator`, `src/edge`, `config/*/start.sh`) — the
+  images **bake these in** at build time, so after editing them rebuild and restart:
 
   ```bash
   docker compose up -d --build orchestrator agent-001
   ```
 
-- **Config/template changes** (`config/orthanc/*.template.json`, `config/*/start.sh`,
-  `.env`) — restart the affected container so it re-reads them:
-  `docker compose restart <service>`.
+- **Orthanc templates** (`config/orthanc/*.template.json`) — mounted from the host, so
+  `docker compose restart <service>` is enough.
+- **`.env` changes** — a restart does **not** re-read `.env` (a container's environment
+  is fixed when it is created), so recreate the affected services:
+  `docker compose up -d --force-recreate <service>`.
 
 See [Contributing](../CONTRIBUTING.md) for the branch/PR workflow and scoring-weight
 tuning, and [architecture.md](architecture.md) for how routing and dead-node
@@ -403,7 +444,7 @@ The `Log` array lists the last five health-check attempts with exit codes and ou
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `orchestrator` exits immediately | `ORCHESTRATOR_API_KEY` missing from `.env` | Add it to `.env`, restart |
+| `orchestrator` exits immediately | `ORCHESTRATOR_API_KEY` missing from `.env` | Add it to `.env`, then `docker compose up -d --force-recreate orchestrator` (a plain restart keeps the old environment) |
 | `orchestrator` unhealthy | Redis or Uvicorn not ready within the healthcheck window | `docker compose logs orchestrator`, then `docker compose restart orchestrator` |
 | `agent-001` unhealthy | `orchestrator` not healthy yet (`depends_on` blocks it) | Wait for the orchestrator to become healthy first |
 | Regional node unhealthy | Missing certs or template substitution failed | `docker compose logs orthanc-<region>`; confirm `certs/` exists (Step 5) |
