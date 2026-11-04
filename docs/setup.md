@@ -187,9 +187,10 @@ docker compose ps          # wait for all four to show Up (healthy)
 docker compose up -d --build orchestrator agent-001
 ```
 
-The orchestrator waits (`depends_on: service_healthy`) for the four nodes, and the
-edge agent waits for the orchestrator — so starting them in this order avoids
-startup races.
+The telemetry daemon waits (`depends_on: service_healthy`) for Redis and the four
+nodes, the orchestrator waits for Redis, and the edge agent waits for the
+orchestrator and for the telemetry daemon to start — so starting them in this order
+avoids startup races, and starting the edge agent also starts the daemon.
 
 ## Step 7 — Verify it's running
 
@@ -388,7 +389,7 @@ docker compose logs --tail=50 <service>  # last 50 lines
 ```
 
 Service names: `orthanc-us`, `orthanc-eu`, `orthanc-asia`, `orthanc-af`,
-`orchestrator`, `agent-001`.
+`redis`, `telemetry-daemon`, `orchestrator`, `agent-001`.
 
 **Inspect health-check output** (`docker compose logs` only shows the main process —
 Orthanc or Uvicorn — not the individual health probes):
