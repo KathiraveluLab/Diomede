@@ -160,8 +160,17 @@ changing the list, run `docker compose up -d --force-recreate telemetry-daemon
 orchestrator agent-001`; a plain `restart` does not pick up a new `CLOUD_NODES`. A
 missing login or a bad list stops them at startup with an error that says what to fix.
 
-A new node also needs its own service in `docker-compose.yml` and a certificate
-from `scripts/gen_certs.sh`, which still has the four compose nodes written in it.
+A new node also needs its own service in `docker-compose.yml`, its own
+`config/orthanc/<name>.template.json` and a certificate. `scripts/gen_certs.sh` still
+has the four compose nodes written in it, so add a `sign_cert` line for the new node.
+The script replaces the CA and every certificate, so run `docker compose up -d
+--force-recreate` for the whole stack afterwards and copy the new certificates to any
+node outside it.
+
+`REGION*_NAME`, `REGION*_AET` and `NODE_*_BASE` no longer do anything. If your `.env`
+changed them, move those values to the list; the services log a warning until they
+are removed. `src/benchmark/success_rate.py` and `failover_time.py` only measure the
+four compose nodes.
 
 ## Step 5 — Generate TLS certificates
 

@@ -53,7 +53,6 @@ async def poll_node(
     """Get /statistics and /jobs?expand from one node and write to Redis."""
     base = cfg["base"]
     auth = cfg["auth"]
-    assert isinstance(auth, tuple)
 
     try:
         async with asyncio.timeout(POLL_DEADLINE_S):
