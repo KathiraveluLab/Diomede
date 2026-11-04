@@ -164,7 +164,6 @@ def _wait_for_edge_drain() -> int | None:
                 count = len(resp.json())
             except Exception as exc:
                 print(f"[KPI] drain check: edge poll failed: {exc}")
-                count = None
             if count == 0 or time.monotonic() >= deadline:
                 return count
             gevent.sleep(DRAIN_POLL_INTERVAL_S)
@@ -196,19 +195,24 @@ def _check_kpis(environment, **_kwargs) -> None:
     if ingest.num_requests:
         accepted = ingest.num_requests - ingest.num_failures
         stuck = _wait_for_edge_drain()
-        if stuck > accepted:
-            print(
-                f"[KPI] drain check: {stuck} instance(s) left on edge but only "
-                f"{accepted} were accepted this run -- edge buffer had leftovers "
-                f"from before this burst started"
-            )
-        delivered = max(accepted - stuck, 0)
-        ratio = (ingest.num_requests - delivered) / ingest.num_requestss
-        verdict = "PASS" if ratio <= MAX_FAIL_RATIO else "FAIL"
-        if ratio > MAX_FAIL_RATIO:
-            failures.append(f"ingest failure ratio {ratio:.4f} > {MAX_FAIL_RATIO:.4f}")
-        pct, limit = (1 - ratio) * 100, (1 - MAX_FAIL_RATIO) * 100
-        print(f"[KPI] transfer success = {pct:.2f}% (limit {limit:.1f}%) -> {verdict}")
+        if stuck is None:
+            # Delivery can't be confirmed, so don't report a success rate.
+            print("[KPI] drain check: could not read the edge buffer -> FAIL")
+            failures.append("ingest delivery unconfirmed (edge buffer unreadable)")
+        else:
+            if stuck > accepted:
+                print(
+                    f"[KPI] drain check: {stuck} instance(s) left on edge but only "
+                    f"{accepted} were accepted this run -- edge buffer had leftovers "
+                    f"from before this burst started"
+                )
+            delivered = max(accepted - stuck, 0)
+            ratio = (ingest.num_requests - delivered) / ingest.num_requests
+            verdict = "PASS" if ratio <= MAX_FAIL_RATIO else "FAIL"
+            if ratio > MAX_FAIL_RATIO:
+                failures.append(f"ingest failure ratio {ratio:.4f} > {MAX_FAIL_RATIO:.4f}")
+            pct, limit = (1 - ratio) * 100, (1 - MAX_FAIL_RATIO) * 100
+            print(f"[KPI] transfer success = {pct:.2f}% (limit {limit:.1f}%) -> {verdict}")
 
     if failures:
         print("[KPI] LOAD TEST FAILED: " + "; ".join(failures))
