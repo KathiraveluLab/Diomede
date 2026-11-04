@@ -120,14 +120,17 @@ async def test_http_401_writes_unhealthy_payload():
 @respx.mock
 @pytest.mark.asyncio
 async def test_jobs_endpoint_failure_writes_unhealthy_payload():
-    """/statistics succeeds but /jobs fails — whole poll is treated as unhealthy."""
+    """/statistics and /system succeed but /jobs fails — whole poll is treated as unhealthy."""
     respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=STATS_OK))
-    respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(500))
+    respx.get(f"{BASE}/system").mock(return_value=Response(200, json=SYSTEM_OK))
+    # A body that parses, so only the status code can make this poll unhealthy.
+    jobs_route = respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(500, json=[]))
 
     redis = await _redis()
     async with httpx.AsyncClient() as client:
         await poll_node(client, redis, "us-east1", _cfg())
 
+    assert jobs_route.called
     assert json.loads(await redis.get("node:us-east1"))["healthy"] is False
 
 
@@ -181,12 +184,17 @@ def test_no_ttl_warning_with_default_settings(monkeypatch, caplog):
 @pytest.mark.asyncio
 async def test_redis_key_written_with_correct_ttl():
     respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=STATS_OK))
+    respx.get(f"{BASE}/system").mock(return_value=Response(200, json=SYSTEM_OK))
     respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=[]))
 
     redis = await _redis()
     async with httpx.AsyncClient() as client:
         await poll_node(client, redis, "us-east1", _cfg())
 
+    # A healthy payload, not the unreachable fallback, is what got the TTL.
+    payload = json.loads(await redis.get("node:us-east1"))
+    assert payload["healthy"] is True
+    assert payload["queue_size"] == 0
     ttl = await redis.ttl("node:us-east1")
     assert 0 < ttl <= REDIS_TTL_S
 
