@@ -125,49 +125,63 @@ def run_single_trial(
     mode: str,
     poll_interval: float,
     timeout_s: float,
-) -> tuple[float, float]:
+) -> tuple[float | None, float | None]:
+    """Time one failure and recovery; a time is None when it was not seen within timeout_s."""
     # 1. Ensure node starts healthy
     if is_node_healthy(client, node_id) is False:
         log.warning("Node %s is not healthy before trial; restoring and waiting...", node_id)
         restore_node(mode, container_name)
         time.sleep(12.0)
 
-    # 2. Inject failure and measure detection time
+    # 2. Inject failure and measure detection time. The node is restored even if something
+    # fails or the run is interrupted in between.
+    failover_time: float | None = None
     t0 = time.monotonic()
-    inject_failure(mode, container_name)
-    failover_detected = False
-    failover_time = timeout_s
+    try:
+        inject_failure(mode, container_name)
 
-    while (time.monotonic() - t0) < timeout_s:
-        if is_node_healthy(client, node_id) is False:
-            failover_time = time.monotonic() - t0
-            failover_detected = True
-            break
-        time.sleep(poll_interval)
+        while (time.monotonic() - t0) < timeout_s:
+            if is_node_healthy(client, node_id) is False:
+                failover_time = time.monotonic() - t0
+                break
+            time.sleep(poll_interval)
 
-    if not failover_detected:
-        log.error("Failover detection timed out for %s under %s", node_id, mode)
+        if failover_time is None:
+            log.error("Failover detection timed out for %s under %s", node_id, mode)
 
-    # 3. Restore node and measure recovery time
-    time.sleep(2.0)  # Brief pause before restoration
-    t_restore = time.monotonic()
-    restore_node(mode, container_name)
-    recovery_detected = False
-    recovery_time = timeout_s
+        time.sleep(2.0)  # Brief pause before restoration
+    finally:
+        # 3. Restore node and measure recovery time
+        t_restore = time.monotonic()
+        restore_node(mode, container_name)
 
-    while (time.monotonic() - t_restore) < timeout_s:
-        if is_node_healthy(client, node_id):
-            recovery_time = time.monotonic() - t_restore
-            recovery_detected = True
-            break
-        time.sleep(poll_interval)
+    recovery_time: float | None = None
+    if failover_time is not None:  # a node never seen down has no recovery to time
+        while (time.monotonic() - t_restore) < timeout_s:
+            if is_node_healthy(client, node_id):
+                recovery_time = time.monotonic() - t_restore
+                break
+            time.sleep(poll_interval)
 
-    if not recovery_detected:
-        log.error("Recovery detection timed out for %s under %s", node_id, mode)
+        if recovery_time is None:
+            log.error("Recovery detection timed out for %s under %s", node_id, mode)
 
     # Settle period between trials
     time.sleep(3.0)
     return failover_time, recovery_time
+
+
+def _format_time(seconds: float | None) -> str:
+    return "timed out" if seconds is None else f"{seconds:5.2f} s"
+
+
+def _mean_std(times: list[float | None]) -> str:
+    """Mean ± std of the times that were measured; timed-out trials (None) are left out."""
+    measured = [t for t in times if t is not None]
+    if not measured:
+        return "n/a"
+    std = statistics.stdev(measured) if len(measured) > 1 else 0
+    return f"{statistics.mean(measured):5.2f} ± {std:4.2f} s"
 
 
 def main() -> int:
@@ -179,7 +193,7 @@ def main() -> int:
     print(f"Trials:  {args.trials} per permutation")
     print("=" * 70)
 
-    results: dict[str, dict[str, dict[str, list[float]]]] = {}
+    results: dict[str, dict[str, dict[str, list[float | None]]]] = {}
 
     with httpx.Client(verify=ca_ssl_context()) as client:
         for mode in args.modes:
@@ -199,35 +213,48 @@ def main() -> int:
                     )
                     results[mode][region]["failover"].append(fo_time)
                     results[mode][region]["recovery"].append(rec_time)
+                    # No recovery is timed for a failover that was never seen.
+                    rec_text = "not measured" if fo_time is None else _format_time(rec_time)
                     print(
                         f"  Trial {trial_idx}/{args.trials}: "
-                        f"Failover = {fo_time:5.2f} s | "
-                        f"Recovery = {rec_time:5.2f} s"
+                        f"Failover = {_format_time(fo_time)} | "
+                        f"Recovery = {rec_text}"
                     )
 
     # Print summary table
-    print("\n" + "=" * 76)
-    print(
-        f"{'Region':<18} | {'Mode':<18} | {'Failover (Mean±Std)':<18} | {'Recovery (Mean±Std)':<18}"
+    header = (
+        f"{'Region':<18} | {'Mode':<18} | {'Failover (Mean±Std)':<18} | "
+        f"{'Recovery (Mean±Std)':<18} | Timed out (failover, recovery)"
     )
-    print("-" * 76)
+    print("\n" + "=" * len(header))
+    print(header)
+    print("-" * len(header))
 
+    timed_out = 0
     for mode, reg_dict in results.items():
         for region, metrics in reg_dict.items():
             fo_vals = metrics["failover"]
             rec_vals = metrics["recovery"]
-            fo_mean = statistics.mean(fo_vals) if fo_vals else 0
-            fo_std = statistics.stdev(fo_vals) if len(fo_vals) > 1 else 0
-            rec_mean = statistics.mean(rec_vals) if rec_vals else 0
-            rec_std = statistics.stdev(rec_vals) if len(rec_vals) > 1 else 0
+            fo_timeouts = fo_vals.count(None)
+            # Recovery is only timed after a failover was seen, so only those can time out.
+            rec_attempts = len(fo_vals) - fo_timeouts
+            rec_timeouts = rec_vals.count(None) - fo_timeouts
+            timed_out += fo_timeouts + rec_timeouts
             print(
                 f"{region:<18} | {mode:<18} | "
-                f"{fo_mean:5.2f} ± {fo_std:4.2f} s       | "
-                f"{rec_mean:5.2f} ± {rec_std:4.2f} s"
+                f"{_mean_std(fo_vals):<19} | "
+                f"{_mean_std(rec_vals):<19} | "
+                f"{fo_timeouts}/{len(fo_vals)}, {rec_timeouts}/{rec_attempts}"
             )
 
-    print("=" * 76 + "\n")
-    return 0
+    print("=" * len(header) + "\n")
+    if timed_out:
+        log.error(
+            "%d trial(s) timed out and are not in the statistics above; "
+            "raise --timeout-s or check that the orchestrator is reachable.",
+            timed_out,
+        )
+    return 1 if timed_out else 0
 
 
 if __name__ == "__main__":
