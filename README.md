@@ -101,9 +101,9 @@ python -m pytest tests/unit/ -v -m unit --cov=src --cov-fail-under=80
 ruff check src/
 ruff format --check src/
 
-# Type check — each service dir is checked from inside it, mirroring runtime imports
+# Type check — run from the repo root, as CI does
 for src_dir in src/orchestrator src/edge src/simulator; do
-  (cd "$src_dir" && mypy .)
+  mypy "$src_dir"
 done
 ```
 

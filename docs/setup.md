@@ -318,11 +318,10 @@ python -m pytest tests/unit/ -v -m unit --cov=src --cov-fail-under=80
 ruff check src/
 ruff format --check src/
 
-# mypy runs from inside each service dir because they use bare imports
-# (e.g. `from scorer import ...`) that only resolve on that dir's path — the
-# same way the containers import at runtime.
+# mypy runs from the repo root, as CI does; the sources import each other
+# as `src.<package>`, which only resolves from there.
 for src_dir in src/orchestrator src/edge src/simulator; do
-  (cd "$src_dir" && mypy .)
+  mypy "$src_dir"
 done
 ```
 
