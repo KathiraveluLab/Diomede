@@ -8,6 +8,9 @@ os.environ.setdefault("ORCHESTRATOR_API_KEY", "test-key")
 os.environ.setdefault("AGENT_ID", "test-agent")
 os.environ.setdefault("ORCHESTRATOR_BASE", "http://orchestrator:8000")
 
+# Empty counts as unset, and load_dotenv won't replace it with a CLOUD_NODES from a local .env.
+os.environ["CLOUD_NODES"] = ""
+
 os.environ.setdefault("NODE_US_USER", "orthanc")
 os.environ.setdefault("NODE_US_PASS", "orthanc")
 os.environ.setdefault("NODE_EU_USER", "orthanc")
