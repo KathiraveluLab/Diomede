@@ -27,6 +27,14 @@
 
 set -euo pipefail
 
+# Git Bash (MSYS) rewrites arguments that start with "/" into Windows paths, which
+# turns -subj "/CN=..." into "C:/Program Files/Git/CN=..." and breaks openssl.
+# Exempt only those arguments; the mktemp paths still need converting. Ignored elsewhere.
+# A global MSYS_NO_PATHCONV=1 would stop those paths being converted too (and Git for Windows
+# checks it first), which makes the -extfile step fail, so clear it.
+export MSYS2_ARG_CONV_EXCL="/CN="
+unset MSYS_NO_PATHCONV
+
 DAYS_CA=10950      # 30 years for the CA
 DAYS_SERVER=730   # 2 years for server certs (renewable from the same CA)
 OUT="certs"
