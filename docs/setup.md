@@ -318,8 +318,9 @@ python -m pytest tests/unit/ -v -m unit --cov=src --cov-fail-under=80
 ruff check src/
 ruff format --check src/
 
-# mypy runs from the repo root, as CI does; the sources import each other
-# as `src.<package>`, which only resolves from there.
+# mypy runs from the repo root, as CI does. Run from inside a service dir, the
+# modules lose their `src.<package>` names, so the `src.` and relative imports
+# resolve to Any and report errors that CI does not.
 for src_dir in src/orchestrator src/edge src/simulator; do
   mypy "$src_dir"
 done
