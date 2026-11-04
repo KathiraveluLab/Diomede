@@ -6,11 +6,17 @@ on:
       - 'src/**'
       - 'tests/**'
       - '**/requirements.txt'
+      - 'pyproject.toml'
+      - 'docker-compose.yml'
+      - 'config/**'
   pull_request:
     paths:
       - 'src/**'
       - 'tests/**'
       - '**/requirements.txt'
+      - 'pyproject.toml'
+      - 'docker-compose.yml'
+      - 'config/**'
 
 jobs:
   unit:
