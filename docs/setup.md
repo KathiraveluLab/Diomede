@@ -183,15 +183,14 @@ docker pull orthancteam/orthanc:26.4.2
 docker compose up -d orthanc-us orthanc-eu orthanc-asia orthanc-af
 docker compose ps          # wait for all four to show Up (healthy)
 
-# Build and start the orchestrator, telemetry daemon and edge agent
-docker compose up -d --build orchestrator telemetry-daemon agent-001
+# Build and start the orchestrator + edge agent
+docker compose up -d --build orchestrator agent-001
 ```
 
 The telemetry daemon waits (`depends_on: service_healthy`) for Redis and the four
 nodes, the orchestrator waits for Redis, and the edge agent waits for the
-orchestrator — so starting them in this order avoids startup races. Nothing
-depends on `telemetry-daemon`, so it must be named explicitly; without it no node
-telemetry reaches Redis and `/get-best-node` returns 503.
+orchestrator and for the telemetry daemon to start — so starting them in this order
+avoids startup races, and starting the edge agent also starts the daemon.
 
 ## Step 7 — Verify it's running
 
@@ -357,7 +356,7 @@ See [`tests/load/README.md`](../tests/load/README.md) for the full load-test opt
   `src/` at build time, so after editing that code rebuild and restart:
 
   ```bash
-  docker compose up -d --build orchestrator telemetry-daemon agent-001
+  docker compose up -d --build orchestrator agent-001
   ```
 
 - **Config/template changes** (`config/orthanc/*.template.json`, `config/*/start.sh`,

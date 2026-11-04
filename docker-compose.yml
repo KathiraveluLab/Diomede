@@ -301,6 +301,9 @@ services:
     depends_on:
       orchestrator:
         condition: service_healthy
+      # Without node telemetry in Redis the orchestrator has nothing to route to.
+      telemetry-daemon:
+        condition: service_started
 
     networks:
       - diomede-net

@@ -68,8 +68,8 @@ bash scripts/gen_certs.sh
 docker compose up -d orthanc-us orthanc-eu orthanc-asia orthanc-af
 docker compose ps
 
-# 4. Build and start the orchestrator, telemetry daemon and edge agent (local Dockerfiles)
-docker compose up -d --build orchestrator telemetry-daemon agent-001
+# 4. Build and start the orchestrator + edge agent (local Dockerfiles)
+docker compose up -d --build orchestrator agent-001
 
 # 5. Verify all 8 containers healthy, then ask the orchestrator for the best node
 docker compose ps
@@ -109,8 +109,8 @@ done
 
 Integration tests (`pytest tests/integration/ -v -m integration`) require the full
 stack to be running. The orchestrator and edge images **bake in** `src/`, so after
-editing that code rebuild the affected containers:
-`docker compose up -d --build orchestrator telemetry-daemon agent-001`.
+editing that code rebuild the affected container:
+`docker compose up -d --build orchestrator agent-001`.
 
 See **[Contributing](CONTRIBUTING.md)** for pre-commit hooks and scoring-weight tuning.
 
