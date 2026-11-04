@@ -68,6 +68,9 @@ _REJECTED_STATUSES = {400, 413, 415, 422}
 _REJECTED_RETRY_S = 3600
 _rejected: dict[str, float] = {}
 
+# A node that failed its latency probe is probed again after this long, not PROBE_INTERVAL_S later.
+_PROBE_RETRY_S = 60
+
 # Limited per node, so a node that stops answering only ties up its own uploads.
 _node_slots: dict[str, asyncio.Semaphore] = {}
 
@@ -287,7 +290,8 @@ async def forward_loop(source: DicomSource) -> None:
 async def latency_probe_loop() -> None:
     """GET /system on each cloud node once per hour, report RTT to /heartbeat.
 
-    A node that cannot be probed is left out of the report and excluded from routing.
+    A node that cannot be probed is left out of the report and excluded from routing, and the
+    probes are repeated after _PROBE_RETRY_S until it answers.
     """
     while True:
         rtt_dict: dict[str, float] = {}
@@ -320,7 +324,9 @@ async def latency_probe_loop() -> None:
                 except Exception as exc:
                     log.warning("heartbeat failed: %s", exc)
 
-        await asyncio.sleep(PROBE_INTERVAL_S)
+        await asyncio.sleep(
+            min(PROBE_INTERVAL_S, _PROBE_RETRY_S) if _probe_failed else PROBE_INTERVAL_S
+        )
 
 
 async def run(source: DicomSource | None = None) -> None:
