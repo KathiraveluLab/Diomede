@@ -34,7 +34,7 @@ from redis.exceptions import RedisError, WatchError
 from src.utils.env import require_env
 from src.utils.logging_config import get_logger
 
-from .daemon import NODES
+from .daemon import NODES, REDIS_SOCKET_TIMEOUT_S
 from .scorer import get_scorer
 from .weighted_scorer import WeightedScorer  # noqa: F401 to trigger self-registration
 
@@ -116,7 +116,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     get_scorer()  # fail at startup, not on the first request, if the scorer config is invalid
     # from_url() skips Redis()'s default retry, so a connection closed by a Redis restart
     # would fail its next command instead of reconnecting.
-    _redis = aioredis.from_url(REDIS_URL, decode_responses=True, retry=Retry(NoBackoff(), 1))
+    _redis = aioredis.from_url(
+        REDIS_URL,
+        decode_responses=True,
+        retry=Retry(NoBackoff(), 1),
+        socket_timeout=REDIS_SOCKET_TIMEOUT_S,
+        socket_connect_timeout=REDIS_SOCKET_TIMEOUT_S,
+    )
     yield
     if _redis:
         await _redis.close()

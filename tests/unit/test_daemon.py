@@ -359,3 +359,19 @@ async def test_run_redis_client_retries_after_a_dropped_connection(monkeypatch):
 
     redis = poll.await_args.args[1]
     assert redis.connection_pool.make_connection().retry.get_retries() >= 1
+
+
+@pytest.mark.asyncio
+async def test_run_redis_client_has_socket_timeouts(monkeypatch):
+    """Without them a Redis that never answers stalls the whole poll cycle."""
+    from_url = daemon_module.aioredis.from_url
+    _, poll, _, _ = _stop_run_after_first_cycle(monkeypatch)
+    monkeypatch.setattr(daemon_module.aioredis, "from_url", from_url)
+    monkeypatch.setattr(daemon_module, "REDIS_SOCKET_TIMEOUT_S", 1.5)
+
+    with pytest.raises(asyncio.CancelledError):
+        await daemon_module.run()
+
+    kwargs = poll.await_args.args[1].connection_pool.connection_kwargs
+    assert kwargs.get("socket_timeout") == 1.5
+    assert kwargs.get("socket_connect_timeout") == 1.5

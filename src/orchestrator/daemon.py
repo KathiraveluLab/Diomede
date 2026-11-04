@@ -34,6 +34,10 @@ CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
 # Free space below this many MB marks a node with a storage quota unhealthy (0 = off)
 MIN_FREE_MB = env_non_negative_float("MIN_FREE_MB", 0.0)
 
+# Seconds before a Redis connect or command gives up, so a Redis that accepts connections but
+# never answers fails fast instead of hanging forever (0 = no timeout)
+REDIS_SOCKET_TIMEOUT_S = env_non_negative_float("REDIS_SOCKET_TIMEOUT_S", 2.0) or None
+
 
 NODES: dict[str, dict[str, str | tuple[str, str]]] = {
     require_env("REGION1_NAME"): {
@@ -194,7 +198,13 @@ async def run() -> None:
     _warn_short_ttl()
 
     # One retry so a write on a connection closed by a Redis restart reconnects.
-    redis = aioredis.from_url(REDIS_URL, decode_responses=True, retry=Retry(NoBackoff(), 1))
+    redis = aioredis.from_url(
+        REDIS_URL,
+        decode_responses=True,
+        retry=Retry(NoBackoff(), 1),
+        socket_timeout=REDIS_SOCKET_TIMEOUT_S,
+        socket_connect_timeout=REDIS_SOCKET_TIMEOUT_S,
+    )
     verify: str | bool = CA_CERT if CA_CERT else True
 
     try:

@@ -1,5 +1,6 @@
 """Unit tests for scorer, weighted_scorer, and the /get-best-node endpoint."""
 
+import asyncio
 import json
 import os
 import secrets
@@ -213,6 +214,46 @@ async def test_redis_client_retries_after_a_dropped_connection(monkeypatch):
         assert main_module._redis is not None
         conn = main_module._redis.connection_pool.make_connection()
         assert conn.retry.get_retries() >= 1
+
+
+async def test_redis_client_has_socket_timeouts(monkeypatch):
+    """Without them a Redis that accepts connections but never answers hangs every request."""
+    monkeypatch.setattr(main_module, "REDIS_SOCKET_TIMEOUT_S", 1.5)
+    monkeypatch.setattr(main_module, "_redis", None)
+    async with main_module.lifespan(app):
+        assert main_module._redis is not None
+        kwargs = main_module._redis.connection_pool.connection_kwargs
+        assert kwargs.get("socket_timeout") == 1.5
+        assert kwargs.get("socket_connect_timeout") == 1.5
+
+
+async def test_nodes_returns_503_when_redis_never_answers(monkeypatch):
+    """A half-open connection or partition must give the 503, not a request that hangs."""
+
+    async def silent(reader, writer):
+        try:
+            await reader.read()  # accept the connection, never reply
+        finally:
+            writer.close()
+
+    server = await asyncio.start_server(silent, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    monkeypatch.setattr(main_module, "REDIS_URL", f"redis://127.0.0.1:{port}")
+    monkeypatch.setattr(main_module, "REDIS_SOCKET_TIMEOUT_S", 0.3)
+    monkeypatch.setattr(main_module, "_redis", None)
+    try:
+        async with main_module.lifespan(app):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test",
+                headers={"X-API-Key": _TEST_API_KEY},
+            ) as c:
+                resp = await asyncio.wait_for(c.get("/nodes"), timeout=3)
+    finally:
+        server.close()
+        await server.wait_closed()
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "Telemetry store unavailable"
 
 
 async def test_nodes_returns_503_when_redis_uninitialized(monkeypatch):
