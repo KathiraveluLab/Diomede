@@ -38,8 +38,8 @@ from .daemon import NODES
 from .scorer import get_scorer
 from .weighted_scorer import WeightedScorer  # noqa: F401 to trigger self-registration
 
-log = get_logger(__name__, "ORCHESTRATOR")
 load_dotenv()
+log = get_logger(__name__, "ORCHESTRATOR")
 
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)

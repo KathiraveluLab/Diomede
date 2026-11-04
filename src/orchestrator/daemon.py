@@ -19,8 +19,8 @@ from redis.backoff import NoBackoff
 from src.utils.env import env_non_negative_float, require_env
 from src.utils.logging_config import get_logger
 
-log = get_logger(__name__, "DAEMON")
 load_dotenv()
+log = get_logger(__name__, "DAEMON")
 
 # Configuration from environment
 

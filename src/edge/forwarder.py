@@ -13,8 +13,8 @@ from src.edge.transport import DicomSource
 from src.utils.env import require_env
 from src.utils.logging_config import get_logger
 
-log = get_logger(__name__, "FORWARDER")
 load_dotenv()
+log = get_logger(__name__, "FORWARDER")
 
 ORCHESTRATOR_BASE = require_env("ORCHESTRATOR_BASE")
 ORCH_URL = f"{ORCHESTRATOR_BASE}/get-best-node"

@@ -19,8 +19,8 @@ from src.edge.transport import DicomSource
 from src.utils.env import require_env
 from src.utils.logging_config import get_logger
 
-log = get_logger(__name__, "ORTHANC_SOURCE")
 load_dotenv()
+log = get_logger(__name__, "ORTHANC_SOURCE")
 
 _EDGE_BASE = require_env("EDGE_BASE")
 _EDGE_AUTH = (require_env("EDGE_USER"), require_env("EDGE_PASS"))
