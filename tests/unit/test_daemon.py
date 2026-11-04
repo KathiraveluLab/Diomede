@@ -1,6 +1,7 @@
 """Unit tests for src/orchestrator/daemon.py"""
 
 import asyncio
+import importlib.util
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock
@@ -263,6 +264,33 @@ def test_ae_titles_match_orthanc_config():
     assert NODES["eu-west1"]["ae_title"] == "Orthanc_EU"
     assert NODES["asia-northeast1"]["ae_title"] == "Orthanc_ASIA"
     assert NODES["af-south1"]["ae_title"] == "Orthanc_AF"
+
+
+def _load_daemon_afresh():
+    """Run the daemon module's import-time setup again, without touching the imported module."""
+    spec = importlib.util.spec_from_file_location("_daemon_under_test", daemon_module.__file__)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("name", ["DAEMON_POLL_INTERVAL_S", "REDIS_TTL_S", "HTTP_TIMEOUT_S"])
+def test_import_fails_on_a_zero_timing_setting(monkeypatch, name):
+    """Zero used to import fine and then break polling or Redis writes."""
+    monkeypatch.setenv(name, "0")
+
+    with pytest.raises(ValueError, match=name):
+        _load_daemon_afresh()
+
+
+def test_import_reads_the_timing_settings(monkeypatch):
+    monkeypatch.setenv("DAEMON_POLL_INTERVAL_S", "12")
+    monkeypatch.setenv("REDIS_TTL_S", "90")
+    monkeypatch.setenv("HTTP_TIMEOUT_S", "2.5")
+
+    module = _load_daemon_afresh()
+
+    assert (module.POLL_INTERVAL_S, module.REDIS_TTL_S, module.HTTP_TIMEOUT_S) == (12, 90, 2.5)
 
 
 # Redis write failures

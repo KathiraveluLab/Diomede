@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from redis.asyncio.retry import Retry
 from redis.backoff import NoBackoff
 
-from src.utils.env import env_non_negative_float, require_env
+from src.utils.env import env_non_negative_float, env_positive_float, env_positive_int, require_env
 from src.utils.logging_config import get_logger
 
 log = get_logger(__name__, "DAEMON")
@@ -25,9 +25,9 @@ load_dotenv()
 # Configuration from environment
 
 REDIS_URL = require_env("REDIS_URL")
-POLL_INTERVAL_S = int(require_env("DAEMON_POLL_INTERVAL_S"))
-REDIS_TTL_S = int(require_env("REDIS_TTL_S"))
-HTTP_TIMEOUT_S = float(require_env("HTTP_TIMEOUT_S"))
+POLL_INTERVAL_S = env_positive_int("DAEMON_POLL_INTERVAL_S")
+REDIS_TTL_S = env_positive_int("REDIS_TTL_S")
+HTTP_TIMEOUT_S = env_positive_float("HTTP_TIMEOUT_S")
 POLL_DEADLINE_S = 3 * HTTP_TIMEOUT_S
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
 

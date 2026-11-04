@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -1205,3 +1206,17 @@ async def test_study_is_retried_on_a_later_poll_after_a_failure(monkeypatch):
     await _run_one_poll(source)
 
     assert "a" in source.acknowledged
+
+
+@pytest.mark.parametrize("name", ["FORWARDER_POLL_INTERVAL_S", "PROBE_INTERVAL_S"])
+def test_import_fails_on_a_zero_interval_setting(monkeypatch, name):
+    """Zero used to import fine and then make the poll or probe loop spin without pausing."""
+    monkeypatch.setenv(name, "0")
+    # A throwaway copy, so the module the other tests use is not touched.
+    spec = importlib.util.spec_from_file_location(
+        "_forwarder_under_test", forwarder_module.__file__
+    )
+    module = importlib.util.module_from_spec(spec)
+
+    with pytest.raises(ValueError, match=name):
+        spec.loader.exec_module(module)

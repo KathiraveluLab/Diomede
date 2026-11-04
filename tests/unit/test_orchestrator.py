@@ -1,5 +1,6 @@
 """Unit tests for scorer, weighted_scorer, and the /get-best-node endpoint."""
 
+import importlib.util
 import json
 import os
 import secrets
@@ -607,6 +608,36 @@ async def test_startup_fails_on_invalid_weight(monkeypatch):
     with pytest.raises(ValueError, match="W_QUEUE"):
         async with main_module.lifespan(app):
             pass
+
+
+# Redis expiry settings
+def _load_main_afresh():
+    """Run the orchestrator module's import-time setup again, without touching the imported one."""
+    # The "src.orchestrator." prefix is needed for main.py's "from .daemon import NODES".
+    spec = importlib.util.spec_from_file_location(
+        "src.orchestrator._main_under_test", main_module.__file__
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("name", ["STUDY_AFFINITY_TTL_S", "RTT_TTL_S"])
+def test_import_fails_on_a_zero_ttl_setting(monkeypatch, name):
+    """Redis rejects an expiry of 0, which used to turn every study request into a 503."""
+    monkeypatch.setenv(name, "0")
+
+    with pytest.raises(ValueError, match=name):
+        _load_main_afresh()
+
+
+def test_import_reads_the_ttl_settings(monkeypatch):
+    monkeypatch.setenv("STUDY_AFFINITY_TTL_S", "60")
+    monkeypatch.setenv("RTT_TTL_S", "120")
+
+    module = _load_main_afresh()
+
+    assert (module.STUDY_AFFINITY_TTL_S, module.RTT_TTL_S) == (60, 120)
 
 
 # Unlimited storage (no quota)

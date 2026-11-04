@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import secrets
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -31,7 +30,7 @@ from redis.asyncio.retry import Retry
 from redis.backoff import NoBackoff
 from redis.exceptions import RedisError, WatchError
 
-from src.utils.env import require_env
+from src.utils.env import env_positive_int, require_env
 from src.utils.logging_config import get_logger
 
 from .daemon import NODES
@@ -46,14 +45,14 @@ api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 API_KEY = require_env("ORCHESTRATOR_API_KEY")
 
 # How long a study stays pinned to its node after its last routing request.
-STUDY_AFFINITY_TTL_S = int(os.getenv("STUDY_AFFINITY_TTL_S", "3600"))
+STUDY_AFFINITY_TTL_S = env_positive_int("STUDY_AFFINITY_TTL_S", 3600)
 
 # Attempts to settle a study's pin when other agents keep changing it concurrently.
 _PIN_ATTEMPTS = 3
 
 # How long an agent's RTT measurements stay valid without a new heartbeat. Must exceed
 # the edge PROBE_INTERVAL_S (default 3600 s) so a healthy agent never loses its RTTs.
-RTT_TTL_S = int(os.getenv("RTT_TTL_S", "10800"))
+RTT_TTL_S = env_positive_int("RTT_TTL_S", 10800)
 
 
 def validate_api_key(api_key_str: str = Security(api_key_header)) -> str:

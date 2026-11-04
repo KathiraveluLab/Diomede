@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from src.edge.orthanc_source import OrthancSource
 from src.edge.transport import DicomSource
-from src.utils.env import require_env
+from src.utils.env import env_positive_int, require_env
 from src.utils.logging_config import get_logger
 
 log = get_logger(__name__, "FORWARDER")
@@ -21,8 +21,8 @@ ORCH_URL = f"{ORCHESTRATOR_BASE}/get-best-node"
 ORCH_HEARTBEAT_URL = f"{ORCHESTRATOR_BASE}/heartbeat"
 ORCH_API_KEY = require_env("ORCHESTRATOR_API_KEY")
 AGENT_ID = require_env("AGENT_ID")
-POLL_INTERVAL_S = int(require_env("FORWARDER_POLL_INTERVAL_S"))
-PROBE_INTERVAL_S = int(require_env("PROBE_INTERVAL_S"))
+POLL_INTERVAL_S = env_positive_int("FORWARDER_POLL_INTERVAL_S")
+PROBE_INTERVAL_S = env_positive_int("PROBE_INTERVAL_S")
 MAX_UPLOADS_PER_NODE = int(os.getenv("FORWARDER_MAX_UPLOADS_PER_NODE", "4"))
 if MAX_UPLOADS_PER_NODE < 1:
     raise ValueError("FORWARDER_MAX_UPLOADS_PER_NODE must be at least 1")
