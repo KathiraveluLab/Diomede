@@ -1,6 +1,7 @@
 """Unit tests for how the telemetry daemon judges a node's free disk space."""
 
 import json
+import logging
 
 import fakeredis.aioredis
 import httpx
@@ -112,3 +113,40 @@ async def test_lowered_quota_is_picked_up_on_the_next_poll(monkeypatch):
 
     assert payload["healthy"] is False
     assert payload["disk_total_mb"] == 9_100
+
+
+def _node_records(caplog) -> list[logging.LogRecord]:
+    records = [r for r in caplog.records if "node=us-east1" in r.getMessage()]
+    assert records
+    return records
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_full_node_is_not_logged_as_healthy(monkeypatch, caplog):
+    monkeypatch.setattr(daemon_module.log, "propagate", True)
+    monkeypatch.setattr(daemon_module, "MIN_FREE_MB", 0.0)
+    _mock_node(quota_mb=10_000, used_mb=9_900)
+
+    payload = await _poll()
+
+    records = _node_records(caplog)
+    assert payload["healthy"] is False
+    assert {r.levelno for r in records} == {logging.WARNING}
+    assert all("unhealthy (low disk)" in r.getMessage() for r in records)
+    assert all("disk_free=100 MB" in r.getMessage() for r in records)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_node_with_free_disk_is_logged_as_healthy(monkeypatch, caplog):
+    monkeypatch.setattr(daemon_module.log, "propagate", True)
+    monkeypatch.setattr(daemon_module, "MIN_FREE_MB", 0.0)
+    _mock_node(quota_mb=10_000, used_mb=5_000)
+
+    await _poll()
+
+    records = _node_records(caplog)
+    assert {r.levelno for r in records} == {logging.INFO}
+    assert all(" healthy " in r.getMessage() for r in records)
+    assert not any("unhealthy" in r.getMessage() for r in records)

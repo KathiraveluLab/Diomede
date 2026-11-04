@@ -146,9 +146,10 @@ async def poll_node(
             "ts": datetime.now(tz=UTC).isoformat(),
         }
 
-        log.info(
-            "node=%-15s healthy  queue=%d  disk_free=%s MB  instances=%d",
+        (log.warning if is_disk_full else log.info)(
+            "node=%-15s %s  queue=%d  disk_free=%s MB  instances=%d",
             node_id,
+            "unhealthy (low disk)" if is_disk_full else "healthy",
             queue_size,
             "unlimited" if disk_free_mb is None else f"{disk_free_mb:.0f}",
             payload["instance_count"],
