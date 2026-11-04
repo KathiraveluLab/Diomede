@@ -123,3 +123,6 @@ See **[Contributing](CONTRIBUTING.md)** for pre-commit hooks and scoring-weight 
 | [Setup guide](docs/setup.md) | Fresh-clone → running stack, test transfers, WAN latency, failover, tests |
 | [Architecture](docs/architecture.md) | System design, routing lifecycle, scoring algorithm, dead-node detection, security |
 | [Contributing](CONTRIBUTING.md) | Development workflow, pre-commit hooks, test strategy |
+| [Benchmarks](docs/benchmarks.md) | Routing-correctness, failover-time and transfer-success scripts: install, flags, side effects |
+| [Extending](docs/extending.md) | Adding a node scorer or an edge `DicomSource` |
+| [Operations](docs/operations.md) | `down` vs `down -v`, upgrading, backing up volumes |
