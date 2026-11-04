@@ -427,6 +427,51 @@ class TestCompareDatasetsGsps:
         assert "Bypassing pixel checks" in messages
 
 
+class TestCompareDatasetsMetadataDriftWithoutPixels:
+    """Header drift must fail verification even when there is no pixel matrix to compare."""
+
+    def test_no_pixel_data_tag_missing_remotely_fails(self, tmp_path):
+        ds = make_ct_8x8()
+        del ds.PixelData
+        local_path, remote = _round_trip(ds, tmp_path / "a.dcm")
+        remote = copy.deepcopy(remote)
+        del remote.PatientID
+
+        assert compare_datasets(local_path, remote) is False
+
+    def test_no_pixel_data_tag_added_remotely_fails(self, tmp_path):
+        ds = make_ct_8x8()
+        del ds.PixelData
+        local_path, remote = _round_trip(ds, tmp_path / "a.dcm")
+        remote = copy.deepcopy(remote)
+        remote.StudyDescription = "ADDED BY PIPELINE"
+
+        assert compare_datasets(local_path, remote) is False
+
+    def test_no_pixel_data_tag_altered_remotely_fails(self, tmp_path):
+        ds = make_ct_8x8()
+        del ds.PixelData
+        local_path, remote = _round_trip(ds, tmp_path / "a.dcm")
+        remote = copy.deepcopy(remote)
+        remote.PatientName = "ANON^ANON"
+
+        assert compare_datasets(local_path, remote) is False
+
+    def test_presentation_state_with_header_drift_fails(self, tmp_path):
+        local_path, remote = _round_trip(_gsps_dataset(), tmp_path / "gsps.dcm")
+        remote = copy.deepcopy(remote)
+        remote.PatientName = "ANON^ANON"
+
+        assert compare_datasets(local_path, remote) is False
+
+    def test_presentation_state_with_header_tag_dropped_fails(self, tmp_path):
+        local_path, remote = _round_trip(_gsps_dataset(), tmp_path / "gsps.dcm")
+        remote = copy.deepcopy(remote)
+        del remote.PatientID
+
+        assert compare_datasets(local_path, remote) is False
+
+
 class TestParseArgs:
     def test_local_path_parsed(self):
         with patch("sys.argv", ["verify_pipeline.py", "--local-path", "/data/scan.dcm"]):

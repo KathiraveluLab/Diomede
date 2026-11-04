@@ -266,11 +266,11 @@ def compare_datasets(local_path: str, dcm_proc: pydicom.Dataset) -> bool:
                 else:
                     log.info(f"[✓] Verification Passed: {label} match perfectly.")
 
-        return gsps_intact
+        return pipeline_intact and gsps_intact
 
     if "PixelData" not in dcm_orig and "PixelData" not in dcm_proc:
         log.info("[i] No pixel data present in either file. Skipping pixel comparison.")
-        return True
+        return pipeline_intact
 
     if "PixelData" not in dcm_orig or "PixelData" not in dcm_proc:
         log.info("[!] Aborting image validation: One or both files do not contain pixel matrices.")
