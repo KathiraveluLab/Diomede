@@ -135,7 +135,33 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
   quota free is unhealthy. `0` turns the extra check off. Must be a finite,
   non-negative number; the daemon refuses to start otherwise.
 
+- **`CLOUD_NODES`** (optional): the cloud nodes as a JSON list. When it is not
+  set, the Telemetry Daemon, Orchestrator and Forwarder read `config/nodes.json`,
+  which lists the four compose nodes. See [Changing the cloud nodes](#changing-the-cloud-nodes).
+
 `.env` is gitignored and must never be committed.
+
+### Changing the cloud nodes
+
+Each entry in `config/nodes.json` looks like this:
+
+```json
+{
+  "name": "us-east1",
+  "base": "https://orthanc-us:8042",
+  "ae_title": "Orthanc_US",
+  "auth_env": "NODE_US"
+}
+```
+
+`auth_env` is the prefix of the variables in `.env` that hold the node's login,
+here `NODE_US_USER` and `NODE_US_PASS`, so the list itself has no passwords. After
+changing the list, run `docker compose up -d --force-recreate telemetry-daemon
+orchestrator agent-001`; a plain `restart` does not pick up a new `CLOUD_NODES`. A
+missing login or a bad list stops them at startup with an error that says what to fix.
+
+A new node also needs its own service in `docker-compose.yml` and a certificate
+from `scripts/gen_certs.sh`, which still has the four compose nodes written in it.
 
 ## Step 5 — Generate TLS certificates
 
