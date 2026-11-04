@@ -23,7 +23,7 @@
     "IngestTranscodingEnabled": false,
     "StorageCompression": true,
     "StorageDirectory": "/var/lib/orthanc/db",
-    "RestApiWriteToFileSystemEnabled": true,
+    "RestApiWriteToFileSystemEnabled": false,
     "DicomModalities": {
         "us":   ["Orthanc_US",   "orthanc-us",   4242],
         "eu":   ["Orthanc_EU",   "orthanc-eu",   4242],

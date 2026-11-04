@@ -15,6 +15,7 @@ pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[2]
 # The five node templates share the same RegisteredUsers line, so one is enough.
 TEMPLATE = ROOT / "config" / "orthanc" / "us.template.json"
+NODE_TEMPLATES = sorted((ROOT / "config" / "orthanc").glob("*.template.json"))
 SCRIPT = ROOT / "src" / "utils" / "render_orthanc_config.py"
 
 # Characters that broke the old sed and str.replace substitution.
@@ -105,3 +106,16 @@ def test_runs_as_a_standalone_script(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert _registered_users(out.read_text()) == {"orthanc": 'a"b\\c/d&e'}
+
+
+def test_the_node_templates_are_found():
+    # An empty glob would turn the parametrized test below into a silent skip.
+    assert NODE_TEMPLATES
+
+
+@pytest.mark.parametrize("template", NODE_TEMPLATES, ids=lambda path: path.name)
+def test_rest_api_cannot_write_to_the_file_system(template):
+    """/instances/{id}/export lets a REST user write files in the container; nothing uses it."""
+    config = json.loads(template.read_text(encoding="utf-8"))
+
+    assert config.get("RestApiWriteToFileSystemEnabled", False) is False

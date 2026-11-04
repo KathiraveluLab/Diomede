@@ -23,7 +23,7 @@
     "IngestTranscodingEnabled": false,
     "StorageCompression": true,
     "StorageDirectory": "/var/lib/orthanc/db",
-    "RestApiWriteToFileSystemEnabled": true,
+    "RestApiWriteToFileSystemEnabled": false,
     "DicomModalities": {
         "edge": ["Orthanc_Edge", "agent-001", 4242],
         "simulator": ["Simulator", "host.docker.internal", 11112]
