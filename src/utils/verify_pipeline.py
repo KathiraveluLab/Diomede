@@ -16,7 +16,6 @@ import time
 import numpy as np
 import pydicom
 import requests
-import urllib3
 from dotenv import load_dotenv
 
 from src.utils.env import require_env
@@ -24,9 +23,6 @@ from src.utils.logging_config import get_logger
 
 log = get_logger(__name__, "VERIFY_PIPELINE")
 load_dotenv()
-
-# Suppress the insecure request warnings caused by verify=False
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def create_secure_session(ca_path, auth):
@@ -80,8 +76,8 @@ def upload_dicom_to_orthanc(
         with open(file_path, "rb") as dicom_file:
             file_data = dicom_file.read()
 
-        # Execute POST request with disabled SSL verification
-        response = session.post(url, auth=auth, headers=headers, data=file_data, verify=False)
+        # Verification is inherited from the session's CA bundle
+        response = session.post(url, auth=auth, headers=headers, data=file_data)
 
         # Verify Orthanc success code (200 OK)
         if response.status_code == 200:

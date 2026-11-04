@@ -1,17 +1,21 @@
 """Unit tests for src/utils/verify_pipeline.py"""
 
 import copy
+import importlib
 import os
+import warnings
 from argparse import Namespace
 from unittest.mock import MagicMock, patch
 
 import pydicom
 import pytest
 import requests
+import urllib3
 from pydicom.dataset import Dataset
 from pydicom.sequence import Sequence
 
 from src.simulator.generate_dicom import make_ct_8x8
+from src.utils import verify_pipeline as verify_pipeline_module
 from src.utils.verify_pipeline import (
     compare_datasets,
     create_secure_session,
@@ -137,6 +141,24 @@ class TestCreateSecureSession:
         assert session.auth == ("orthanc", "secret")
 
 
+class TestTlsVerification:
+    def test_import_does_not_silence_insecure_request_warnings(self):
+        """Importing the module must not install a process-wide ignore for TLS warnings."""
+        # Reloading re-runs the import-time code; catch_warnings restores the filters, and
+        # get_logger does not add a second handler, so other tests are unaffected.
+        with warnings.catch_warnings():
+            warnings.resetwarnings()
+            importlib.reload(verify_pipeline_module)
+            ignored = [
+                f
+                for f in warnings.filters
+                if f[0] == "ignore"
+                and isinstance(f[2], type)
+                and issubclass(f[2], urllib3.exceptions.InsecureRequestWarning)
+            ]
+        assert ignored == []
+
+
 class TestUploadDicomToOrthanc:
     def test_returns_instance_id_on_success(self, tmp_path):
         local_path = _save(make_ct_8x8(), tmp_path / "in.dcm")
@@ -164,6 +186,36 @@ class TestUploadDicomToOrthanc:
         assert kwargs["auth"] == ("edge", "pass")
         # 128-byte preamble followed by the DICM magic
         assert kwargs["data"][128:132] == b"DICM"
+
+    def test_upload_does_not_disable_tls_verification(self, tmp_path):
+        """verify must not be overridden per call, or the session's CA bundle is bypassed."""
+        local_path = _save(make_ct_8x8(), tmp_path / "in.dcm")
+        session = MagicMock()
+        response = _mock_response(200)
+        response.json.return_value = {"ID": "abc-123"}
+        session.post.return_value = response
+
+        upload_dicom_to_orthanc(session, local_path, ("edge", "pass"))
+
+        assert session.post.call_args.kwargs.get("verify") is not False
+
+    def test_upload_verifies_against_session_ca_bundle(self, tmp_path, monkeypatch):
+        """With a real Session, the request reaches send() verifying against the session CA."""
+        # requests prefers these env vars over session.verify when verify is not passed.
+        monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+        monkeypatch.delenv("CURL_CA_BUNDLE", raising=False)
+        local_path = _save(make_ct_8x8(), tmp_path / "in.dcm")
+        ca_file = tmp_path / "ca.pem"
+        ca_file.write_text("cert")
+        session = requests.Session()
+        session.verify = str(ca_file)
+        response = _mock_response(200)
+        response.json.return_value = {"ID": "abc-123"}
+
+        with patch.object(requests.Session, "send", return_value=response) as mock_send:
+            upload_dicom_to_orthanc(session, local_path, ("edge", "pass"))
+
+        assert mock_send.call_args.kwargs["verify"] == str(ca_file)
 
     def test_missing_local_file_returns_none(self, tmp_path):
         session = MagicMock()
