@@ -54,8 +54,10 @@ class _StubSource(DicomSource):
         fetch_raises: Exception | None = None,
         ack_raises: Exception | None = None,
         fetch_raises_for: set[str] | None = None,
+        held_back: set[str] | None = None,
     ) -> None:
         self.studies = studies or {}
+        self.held_back = held_back or set()
         self.dcm_bytes = dcm_bytes
         self.fetch_raises = fetch_raises
         self.ack_raises = ack_raises
@@ -65,6 +67,9 @@ class _StubSource(DicomSource):
 
     async def poll_new(self, client: AsyncClient) -> dict[str, list[str]]:
         return self.studies
+
+    def held_back_ids(self) -> set[str]:
+        return self.held_back
 
     @asynccontextmanager
     async def open_stream(
@@ -151,6 +156,47 @@ async def test_poll_new_waits_for_stable_study_when_enabled():
     async with AsyncClient() as client:
         studies = await source.poll_new(client)
     assert studies == {"s1": ["abc123"]}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_reports_held_back_instances_as_still_buffered():
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(
+            200, json=[_series("s1", "abc123"), _series("s2", "def456", "ghi789")]
+        )
+    )
+    respx.get(f"{_EDGE_BASE}/studies?expand").mock(
+        return_value=Response(
+            200, json=[{"ID": "s1", "IsStable": True}, {"ID": "s2", "IsStable": False}]
+        )
+    )
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=True)
+    async with AsyncClient() as client:
+        studies = await source.poll_new(client)
+    assert studies == {"s1": ["abc123"]}
+    assert source.held_back_ids() == {"def456", "ghi789"}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_poll_new_reports_nothing_held_back_once_the_study_is_stable():
+    respx.get(f"{_EDGE_BASE}/series?expand").mock(
+        return_value=Response(200, json=[_series("s1", "abc123")])
+    )
+    respx.get(f"{_EDGE_BASE}/studies?expand").mock(
+        side_effect=[
+            Response(200, json=[{"ID": "s1", "IsStable": False}]),
+            Response(200, json=[{"ID": "s1", "IsStable": True}]),
+        ]
+    )
+    source = OrthancSource(base=_EDGE_BASE, wait_for_stable_study=True)
+    async with AsyncClient() as client:
+        await source.poll_new(client)
+        assert source.held_back_ids() == {"abc123"}
+        studies = await source.poll_new(client)
+    assert studies == {"s1": ["abc123"]}
+    assert source.held_back_ids() == set()
 
 
 @respx.mock
@@ -863,6 +909,73 @@ async def test_forward_loop_routes_each_study_once(monkeypatch):
 
     assert sorted(c.request.url.params["study_id"] for c in orch_route.calls) == ["s1", "s2"]
     assert source.acknowledged == ["a", "b", "c"]
+
+
+@pytest.mark.asyncio
+async def test_forward_loop_keeps_pending_ack_of_a_held_back_instance(monkeypatch):
+    """A study held back until it is stable is still on the edge; its ack must not be forgotten."""
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 0)
+    forwarder_module._pending_ack.add("abc123")
+
+    source = _StubSource(studies={}, held_back={"abc123"})
+    task = asyncio.create_task(forwarder_module.forward_loop(source))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert forwarder_module._pending_ack == {"abc123"}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_held_back_study_is_not_uploaded_again_once_stable(monkeypatch):
+    """Uploaded but not deleted, then held back, then stable: only the delete is retried."""
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 0)
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    respx.get(_ORCH_URL).mock(return_value=Response(200, json=_BEST_NODE_RESP))
+    post_route = respx.post("http://orthanc-us:8042/instances").mock(
+        return_value=Response(200, json={"ID": "new-id"})
+    )
+    forwarder_module._pending_ack.add("abc123")
+
+    class _DeletingSource(_StubSource):
+        async def acknowledge(self, client: AsyncClient, instance_id: str) -> None:
+            await super().acknowledge(client, instance_id)
+            self.studies = {}
+
+    source = _DeletingSource(studies={}, held_back={"abc123"})
+    task = asyncio.create_task(forwarder_module.forward_loop(source))
+    await asyncio.sleep(0.05)
+    source.studies = {_STUDY: ["abc123"]}
+    source.held_back = set()
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert post_route.call_count == 0
+    assert source.fetched == []
+    assert source.acknowledged == ["abc123"]
+
+
+@pytest.mark.asyncio
+async def test_forward_loop_keeps_rejection_wait_of_a_held_back_instance(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "POLL_INTERVAL_S", 0)
+    forwarder_module._rejected["bad"] = 123.0
+
+    source = _StubSource(studies={}, held_back={"bad"})
+    task = asyncio.create_task(forwarder_module.forward_loop(source))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert forwarder_module._rejected == {"bad": 123.0}
 
 
 @pytest.mark.asyncio

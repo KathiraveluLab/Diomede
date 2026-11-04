@@ -42,6 +42,7 @@ class OrthancSource(DicomSource):
         self._auth = auth
         self._wait_for_stable_study = wait_for_stable_study
         self._last_seq: int = 0
+        self._held_back: set[str] = set()
         self._quota_mb: int | None = None
         self._storage_mode = ""
         self._storage_level = 0
@@ -53,6 +54,7 @@ class OrthancSource(DicomSource):
         safe to log and to pass to the orchestrator. Costs one request per poll, or two
         when waiting for stable studies, however many studies are buffered.
         """
+        self._held_back = set()
         resp = await client.get(f"{self._base}/series?expand", auth=self._auth, timeout=10)
         resp.raise_for_status()
         studies: dict[str, list[str]] = {}
@@ -63,6 +65,12 @@ class OrthancSource(DicomSource):
             resp = await client.get(f"{self._base}/studies?expand", auth=self._auth, timeout=10)
             resp.raise_for_status()
             stable = {study["ID"] for study in resp.json() if study.get("IsStable")}
+            self._held_back = {
+                instance_id
+                for sid, ids in studies.items()
+                if sid not in stable
+                for instance_id in ids
+            }
             studies = {sid: ids for sid, ids in studies.items() if sid in stable}
 
         studies = {sid: ids for sid, ids in studies.items() if ids}
@@ -73,6 +81,10 @@ class OrthancSource(DicomSource):
         )
         await self._check_storage(client)
         return studies
+
+    def held_back_ids(self) -> set[str]:
+        """Return the IDs of instances in studies the last poll_new() held back as unstable."""
+        return set(self._held_back)
 
     async def _check_storage(self, client: httpx.AsyncClient) -> None:
         """Log when the edge buffer crosses a fill level. Never raises, so polling carries on."""

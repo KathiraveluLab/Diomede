@@ -272,6 +272,8 @@ async def forward_loop(source: DicomSource) -> None:
             try:
                 studies = await source.poll_new(client)
                 buffered = {instance_id for ids in studies.values() for instance_id in ids}
+                # Held-back studies are still on the edge: keep their pending acks and rejections.
+                buffered |= source.held_back_ids()
                 _pending_ack.intersection_update(buffered)
                 for instance_id in _rejected.keys() - buffered:
                     del _rejected[instance_id]

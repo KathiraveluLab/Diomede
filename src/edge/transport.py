@@ -32,6 +32,15 @@ class DicomSource(ABC):
         """
         ...
 
+    def held_back_ids(self) -> set[str]:
+        """Return the IDs of instances still in the buffer that the last poll_new() left out.
+
+        A source that withholds instances (e.g. studies that are not yet stable) overrides
+        this, so the forwarder keeps their pending acknowledgements and rejections. The
+        default, for a source that returns every buffered instance, is none.
+        """
+        return set()
+
     @abstractmethod
     def open_stream(
         self, client: httpx.AsyncClient, instance_id: str
