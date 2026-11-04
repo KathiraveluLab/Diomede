@@ -6,12 +6,20 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'docker-compose.yml'
+      - 'pyproject.toml'
+      - 'config/**'
+      - '.env.example'
+      - 'scripts/gen_certs.sh'
       - '**/requirements.txt'
   pull_request:
     paths:
       - 'src/**'
       - 'tests/**'
       - 'docker-compose.yml'
+      - 'pyproject.toml'
+      - 'config/**'
+      - '.env.example'
+      - 'scripts/gen_certs.sh'
       - '**/requirements.txt'
 
 jobs:
