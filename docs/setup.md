@@ -183,13 +183,15 @@ docker pull orthancteam/orthanc:26.4.2
 docker compose up -d orthanc-us orthanc-eu orthanc-asia orthanc-af
 docker compose ps          # wait for all four to show Up (healthy)
 
-# Build and start the orchestrator + edge agent
-docker compose up -d --build orchestrator agent-001
+# Build and start the orchestrator, telemetry daemon and edge agent
+docker compose up -d --build orchestrator telemetry-daemon agent-001
 ```
 
-The orchestrator waits (`depends_on: service_healthy`) for the four nodes, and the
-edge agent waits for the orchestrator — so starting them in this order avoids
-startup races.
+The telemetry daemon waits (`depends_on: service_healthy`) for Redis and the four
+nodes, the orchestrator waits for Redis, and the edge agent waits for the
+orchestrator — so starting them in this order avoids startup races. Nothing
+depends on `telemetry-daemon`, so it must be named explicitly; without it no node
+telemetry reaches Redis and `/get-best-node` returns 503.
 
 ## Step 7 — Verify it's running
 
@@ -355,7 +357,7 @@ See [`tests/load/README.md`](../tests/load/README.md) for the full load-test opt
   `src/` at build time, so after editing that code rebuild and restart:
 
   ```bash
-  docker compose up -d --build orchestrator agent-001
+  docker compose up -d --build orchestrator telemetry-daemon agent-001
   ```
 
 - **Config/template changes** (`config/orthanc/*.template.json`, `config/*/start.sh`,
@@ -388,7 +390,7 @@ docker compose logs --tail=50 <service>  # last 50 lines
 ```
 
 Service names: `orthanc-us`, `orthanc-eu`, `orthanc-asia`, `orthanc-af`,
-`orchestrator`, `agent-001`.
+`redis`, `telemetry-daemon`, `orchestrator`, `agent-001`.
 
 **Inspect health-check output** (`docker compose logs` only shows the main process —
 Orthanc or Uvicorn — not the individual health probes):
