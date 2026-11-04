@@ -47,7 +47,7 @@ Follow in this order:
 | `config/` | Container build context: `Dockerfile`s, `start.sh` entrypoints, and Orthanc config templates (`config/orthanc/*.template.json`) |
 | `scripts/` | `gen_certs.sh` (TLS CA + per-node certs) and `inject_latency.sh` (WAN latency simulation) |
 | `tests/` | `unit/`, `integration/`, `load/`|
-| `docs/` | `setup.md`, `architecture.md`, and diagrams |
+| `docs/` | `setup.md`, `architecture.md`, `api.md`, and diagrams |
 
 ---
 
@@ -78,8 +78,9 @@ curl -k -H "X-API-Key: <your_api_key>" \
 ```
 
 > The orchestrator serves **HTTPS** with a self-signed cert, so `-k` skips
-> hostname verification for local calls. All endpoints require the `X-API-Key`
-> header matching `ORCHESTRATOR_API_KEY` in your `.env`.
+> certificate verification for local calls (or pass `--cacert certs/ca.pem`).
+> The data endpoints require the `X-API-Key` header matching `ORCHESTRATOR_API_KEY`
+> in your `.env`; `/health` and the Swagger UI (`/docs`) do not.
 
 Full walkthrough, including sending test DICOM studies, WAN latency injection,
 and failover testing, is in the **[setup guide](docs/setup.md)**.
@@ -122,4 +123,5 @@ See **[Contributing](CONTRIBUTING.md)** for pre-commit hooks and scoring-weight 
 |---|---|
 | [Setup guide](docs/setup.md) | Fresh-clone → running stack, test transfers, WAN latency, failover, tests |
 | [Architecture](docs/architecture.md) | System design, routing lifecycle, scoring algorithm, dead-node detection, security |
+| [API reference](docs/api.md) | Orchestrator endpoints: authentication, parameters, responses, error bodies |
 | [Contributing](CONTRIBUTING.md) | Development workflow, pre-commit hooks, test strategy |

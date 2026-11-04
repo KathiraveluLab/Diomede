@@ -153,7 +153,7 @@ Every routing decision requires a synchronous call to `GET /get-best-node`, whic
 
 ### 6.2 Security
 
-Diomede handles medical imaging data, so all communication channels are authenticated and encrypted.
+Diomede handles medical imaging data, so the REST and DICOM channels are authenticated and encrypted. Redis is the exception: it runs without a password or TLS and is only reachable on the internal Docker network (`docker-compose.yml` does not publish its port; the `docker-compose.bench.yml` overlay publishes it on the host's loopback for the routing benchmark).
 
 **TLS on every connection.** Every REST and DICOM link in the system runs over TLS: between the edge agent and Orchestrator, between the edge agent and regional nodes, between the Orchestrator daemon and regional nodes, and between the scanner and edge agent. All Orthanc nodes have `SslEnabled: true` (HTTPS on port 8042) and `DicomTlsEnabled: true` (DICOM TLS on port 4242). Certificates are issued from a shared self-signed CA (`scripts/gen_certs.sh`) and verified by every client via `REQUESTS_CA_BUNDLE`, so no traffic is sent in clear text in transit.
 
@@ -161,4 +161,4 @@ Diomede handles medical imaging data, so all communication channels are authenti
 
 **Mutual TLS and AE title validation on the DICOM channel.** Regional nodes set `DicomTlsRemoteCertificateRequired: true`, which means any party initiating a DICOM association must present a certificate signed by the shared CA so a self-signed or unknown certificate is rejected right away. In addition regional nodes enforce `DicomCheckCalledAet: true` and `DicomCheckCallingAet: true`, so both the destination AE title and the caller's AE title must match a pre-registered entry in `DicomModalities`. Together, these two controls ensure that only the known edge agent with the correct AE title and a valid certificate can push and query DICOM data on a regional node.
 
-**REST API key authentication on the Orchestrator.** All Orchestrator endpoints (`/get-best-node`, `/nodes`, `/heartbeat`) require a valid `X-API-Key` header. The key is set via the `ORCHESTRATOR_API_KEY` environment variable, which is a required field so the service fails fast at startup if it is not set. This prevents unauthorized clients from querying routing state or injecting fake RTT measurements.
+**REST API key authentication on the Orchestrator.** The data endpoints (`/get-best-node`, `/nodes`, `/heartbeat`) require a valid `X-API-Key` header; `/health` and the Swagger UI (`/docs`) do not. The key is set via the `ORCHESTRATOR_API_KEY` environment variable, which is a required field so the service fails fast at startup if it is not set. This prevents unauthorized clients from querying routing state or injecting fake RTT measurements.

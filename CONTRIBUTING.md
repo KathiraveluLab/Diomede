@@ -7,6 +7,8 @@ Thank you for contributing! This project is developed as part of **Google Summer
 ## Documentation
 
 - Document any user-facing change in the relevant component `README` or `setup.md`.
+- The Orchestrator endpoints are described in [`docs/api.md`](docs/api.md); update it when a
+  route, parameter or response changes.
 - API changes to the FastAPI route `summary=` strings and Pydantic models will update
   the live Swagger UI at `http://localhost:8000/docs`. After any endpoint or model change,
   regenerate the static API files at `docs/api.html` and `docs/openapi.json`.

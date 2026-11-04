@@ -110,8 +110,9 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
 - **`ORTHANC_PASSWORD`** — the templates in `config/orthanc/*.template.json`
   substitute `${ORTHANC_USER}` / `${ORTHANC_PASSWORD}` at container startup, so
   every Orthanc node shares the same credentials from this one file.
-- **`ORCHESTRATOR_API_KEY`** — required by both the Orchestrator (enforced on every
-  endpoint) and the Forwarder (sent as `X-API-Key`). Both services fail fast at
+- **`ORCHESTRATOR_API_KEY`** — required by both the Orchestrator (enforced on `/get-best-node`,
+  `/nodes` and `/heartbeat`; `/health` and `/docs` are open) and the Forwarder (sent as
+  `X-API-Key`). Both services fail fast at
   startup if it is missing.
 
 - **`STUDY_AFFINITY_TTL_S`** (optional, default `3600`) — how long the
