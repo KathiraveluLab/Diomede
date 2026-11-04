@@ -961,6 +961,28 @@ async def test_latency_probe_clears_a_node_that_answers_again(monkeypatch):
 
 @respx.mock
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 422, 503])
+async def test_latency_probe_logs_a_heartbeat_the_orchestrator_refuses(monkeypatch, caplog, status):
+    monkeypatch.setattr(forwarder_module.log, "propagate", True)
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "ORCH_HEARTBEAT_URL", _ORCH_HB_URL)
+    monkeypatch.setattr(forwarder_module, "PROBE_INTERVAL_S", 0)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    respx.get("http://orthanc-us:8042/system").mock(return_value=Response(200, json={}))
+    respx.post(_ORCH_HB_URL).mock(return_value=Response(status))
+
+    task = asyncio.create_task(forwarder_module.latency_probe_loop())
+    await asyncio.sleep(0.1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("heartbeat failed" in m and f"'{status} " in m for m in warnings)
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_route_study_asks_for_a_node_other_than_the_probe_failed_one(monkeypatch):
     monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
     monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_EU)

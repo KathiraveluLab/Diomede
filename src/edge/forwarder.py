@@ -311,12 +311,13 @@ async def latency_probe_loop() -> None:
 
             if rtt_dict:
                 try:
-                    await client.post(
+                    hb_resp = await client.post(
                         ORCH_HEARTBEAT_URL,
                         json={"agent_id": AGENT_ID, "rtt_dict": rtt_dict},
                         headers=_orch_headers(),
                         timeout=5,
                     )
+                    hb_resp.raise_for_status()
                 except Exception as exc:
                     log.warning("heartbeat failed: %s", exc)
 
