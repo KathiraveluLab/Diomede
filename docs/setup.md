@@ -135,7 +135,47 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
   quota free is unhealthy. `0` turns the extra check off. Must be a finite,
   non-negative number; the daemon refuses to start otherwise.
 
+- **`CLOUD_NODES`** (optional): the cloud nodes as a JSON list. When it is not
+  set, the Telemetry Daemon, Orchestrator and Forwarder read `config/nodes.json`,
+  which lists the four compose nodes. See [Changing the cloud nodes](#changing-the-cloud-nodes).
+
 `.env` is gitignored and must never be committed.
+
+### Changing the cloud nodes
+
+Each entry in `config/nodes.json` looks like this:
+
+```json
+{
+  "name": "us-east1",
+  "base": "https://orthanc-us:8042",
+  "ae_title": "Orthanc_US",
+  "auth_env": "NODE_US"
+}
+```
+
+`auth_env` is the prefix of the variables in `.env` that hold the node's login,
+here `NODE_US_USER` and `NODE_US_PASS`, so the list itself has no passwords. After
+changing the list, run `docker compose up -d --force-recreate telemetry-daemon
+orchestrator agent-001`; a plain `restart` does not pick up a new `CLOUD_NODES`. A
+missing login or a bad list stops them at startup with an error that says what to fix.
+
+A new node also needs its own service in `docker-compose.yml` and its own
+`config/orthanc/<name>.template.json`. Run `scripts/gen_certs.sh` to get its certificate:
+it signs one for the host of every node in the list. It also replaces the CA and all the
+other certificates, so run `docker compose up -d --force-recreate` for the whole stack
+afterwards and copy the new certificates to any node outside it. If it fails, the
+existing certificates stay as they were.
+
+To remove a node, also remove its service and its `depends_on` entries, since
+`gen_certs.sh` no longer signs a certificate for it. Keep the list in `.env` or
+`config/nodes.json` for the compose stack: a `CLOUD_NODES` set only in your shell reaches
+`gen_certs.sh` but not the containers. IPv6 addresses aren't supported in the list yet.
+
+`REGION*_NAME`, `REGION*_AET` and `NODE_*_BASE` no longer do anything. If your `.env`
+changed them, move those values to the list; the services log a warning until they
+are removed. `src/benchmark/success_rate.py` and `failover_time.py` only measure the
+four compose nodes.
 
 ## Step 5 — Generate TLS certificates
 

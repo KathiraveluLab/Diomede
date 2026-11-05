@@ -5,12 +5,16 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'config/nodes.json'
+      - 'scripts/gen_certs.sh'
       - 'docker-compose.yml'
       - '**/requirements.txt'
   pull_request:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'config/nodes.json'
+      - 'scripts/gen_certs.sh'
       - 'docker-compose.yml'
       - '**/requirements.txt'
 
