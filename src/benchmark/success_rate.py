@@ -53,10 +53,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Benchmark end-to-end DICOM transfer delivery success rate."
     )
+    # .env.example sets LOAD_BURST_COUNT=0 for the Locust tests ("no limit"); that means nothing
+    # here, so only a positive value overrides the default.
+    env_burst_count = int(os.getenv("LOAD_BURST_COUNT", "1000"))
     parser.add_argument(
         "--burst-count",
         type=int,
-        default=int(os.getenv("LOAD_BURST_COUNT", "1000")),
+        default=env_burst_count if env_burst_count > 0 else 1000,
         help="Number of synthetic DICOM studies/instances to transmit (default: 1000).",
     )
     parser.add_argument(
@@ -88,7 +91,10 @@ def parse_args() -> argparse.Namespace:
         default=120.0,
         help="Maximum wait time for all studies to clear the edge buffer (default: 120.0).",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.burst_count < 1:
+        parser.error("--burst-count must be a positive integer")
+    return args
 
 
 def upload_instance(client: httpx.Client, edge_url: str, instance_bytes: bytes) -> str | None:

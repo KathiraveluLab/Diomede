@@ -260,3 +260,33 @@ def test_wait_for_cloud_nodes_reports_a_node_that_never_answers():
 
     with patch.object(sr.time, "sleep"), httpx.Client() as client:
         assert sr.wait_for_cloud_nodes(client, attempts=3) == [down]
+
+
+# --- --burst-count must be positive ------------------------------------------------------------
+
+
+@pytest.mark.parametrize("env_value", ["0", "-5"])
+def test_a_non_positive_load_burst_count_in_the_environment_falls_back_to_the_default(env_value):
+    """.env.example sets LOAD_BURST_COUNT=0 for Locust ("no limit"); that must not reach here."""
+    with (
+        patch.dict(sr.os.environ, {"LOAD_BURST_COUNT": env_value}),
+        patch.object(sys, "argv", ["success_rate"]),
+    ):
+        assert sr.parse_args().burst_count == 1000
+
+
+def test_load_burst_count_in_the_environment_is_still_honoured():
+    with (
+        patch.dict(sr.os.environ, {"LOAD_BURST_COUNT": "25"}),
+        patch.object(sys, "argv", ["success_rate"]),
+    ):
+        assert sr.parse_args().burst_count == 25
+
+
+@pytest.mark.parametrize("value", ["0", "-3"])
+def test_a_non_positive_burst_count_flag_is_a_usage_error(value, capsys):
+    with pytest.raises(SystemExit) as exc:
+        _run(["--burst-count", value], {})
+
+    assert exc.value.code == 2
+    assert "--burst-count must be a positive integer" in capsys.readouterr().err
