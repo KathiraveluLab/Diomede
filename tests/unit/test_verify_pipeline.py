@@ -3,6 +3,7 @@
 import copy
 import importlib
 import os
+import re
 import warnings
 from argparse import Namespace
 from unittest.mock import MagicMock, patch
@@ -361,6 +362,95 @@ class TestCompareDatasetsMetadata:
         remote.PatientName = "ANON^ANON"
 
         assert compare_datasets(local_path, remote) is False
+
+
+class TestCompareDatasetsPhiRedaction:
+    """Tag values and file paths can be PHI: the logs may say what matched, never what it holds."""
+
+    @pytest.fixture(autouse=True)
+    def _capture_logs(self, monkeypatch, caplog):
+        monkeypatch.setattr(verify_pipeline_module.log, "propagate", True)
+        caplog.set_level("INFO")
+
+    @staticmethod
+    def _fake_phi_dataset() -> pydicom.Dataset:
+        ds = make_ct_8x8()
+        ds.PatientName = "FAKE^ZZPATIENT"
+        ds.PatientID = "ZZ-FAKE-ID-77"
+        ds.StudyDate = "19700101"
+        ds.SeriesDescription = "ZZ FAKE SERIES NOTE"
+        return ds
+
+    def test_metadata_table_reports_matches_without_values(self, tmp_path, caplog):
+        ds = self._fake_phi_dataset()
+        local_path, remote = _round_trip(ds, tmp_path / "a.dcm")
+
+        assert compare_datasets(local_path, remote) is True
+
+        for raw in (
+            "ZZPATIENT",
+            "ZZ-FAKE-ID-77",
+            "19700101",
+            "ZZ FAKE SERIES NOTE",
+            str(ds.SOPInstanceUID),
+        ):
+            assert raw not in caplog.text
+        assert re.search(r"Patient Name\s+\| match", caplog.text)
+        assert "DIFFERS" not in caplog.text
+
+    def test_altered_tag_is_flagged_without_values(self, tmp_path, caplog):
+        local_path, remote = _round_trip(self._fake_phi_dataset(), tmp_path / "a.dcm")
+        remote = copy.deepcopy(remote)
+        remote.PatientName = "OTHER^ZZALTERED"
+
+        assert compare_datasets(local_path, remote) is False
+
+        assert re.search(r"Patient Name\s+\| DIFFERS", caplog.text)
+        assert re.search(r"Patient ID\s+\| match", caplog.text)
+        assert "altered" in caplog.text
+        assert "ZZPATIENT" not in caplog.text
+        assert "ZZALTERED" not in caplog.text
+
+    def test_added_tag_is_reported_without_its_value(self, tmp_path, caplog):
+        local_path, remote = _round_trip(self._fake_phi_dataset(), tmp_path / "a.dcm")
+        remote = copy.deepcopy(remote)
+        remote.AccessionNumber = "ZZ-ACCESSION-55"
+
+        assert compare_datasets(local_path, remote) is False
+
+        assert "Added remotely" in caplog.text
+        assert "ZZ-ACCESSION-55" not in caplog.text
+
+    def test_removed_tag_is_reported_without_value(self, tmp_path, caplog):
+        local_path, remote = _round_trip(self._fake_phi_dataset(), tmp_path / "a.dcm")
+        remote = copy.deepcopy(remote)
+        del remote.PatientID
+
+        assert compare_datasets(local_path, remote) is False
+
+        assert "Missing in remote instance" in caplog.text
+        assert "ZZ-FAKE-ID-77" not in caplog.text
+
+    def test_upload_does_not_log_the_local_path(self, tmp_path, caplog):
+        patient_dir = tmp_path / "DOE_JOHN"
+        patient_dir.mkdir()
+        local_path = _save(make_ct_8x8(), patient_dir / "in.dcm")
+        session = MagicMock()
+        response = _mock_response(200)
+        response.json.return_value = {"ID": "abc-123"}
+        session.post.return_value = response
+
+        upload_dicom_to_orthanc(session, local_path, ("edge", "pass"))
+
+        assert "DOE_JOHN" not in caplog.text
+
+    def test_missing_file_error_does_not_log_the_path(self, tmp_path, caplog):
+        missing = str(tmp_path / "DOE_JOHN" / "missing.dcm")
+
+        assert upload_dicom_to_orthanc(MagicMock(), missing, ("edge", "pass")) is None
+
+        assert "not found" in caplog.text
+        assert "DOE_JOHN" not in caplog.text
 
 
 class TestCompareDatasetsPixels:

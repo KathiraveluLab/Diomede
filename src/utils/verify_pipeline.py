@@ -64,11 +64,11 @@ def upload_dicom_to_orthanc(
     url = require_env("EDGE_AGENT1_HTTPS_URL") + "/instances"
     headers = {"Content-Type": "application/dicom"}
 
-    log.info(f"[STEP 1] Uploading {file_path} to Orthanc...")
+    log.info("[STEP 1] Uploading the local DICOM file to Orthanc...")
 
     # Ensure file exists before trying to open it
     if not os.path.exists(file_path):
-        log.error(f"[FAIL] Local file not found: {file_path}")
+        log.error("[FAIL] Local file not found.")
         return None
 
     try:
@@ -168,12 +168,17 @@ def compare_datasets(local_path: str, dcm_proc: pydicom.Dataset) -> bool:
         ("Series Description", "SeriesDescription"),
     ]
 
-    log.info(f"{'Field':<20} | {'Original (Local)':<25} | {'Processed (Remote)':<25}")
-    log.info("-" * 76)
+    # Tag values are PHI, so only say whether each one matches.
+    log.info(f"{'Field':<20} | Result")
+    log.info("-" * 40)
     for label, attribute in common_tags:
-        val_orig = str(dcm_orig.get(attribute, "N/A"))
-        val_proc = str(dcm_proc.get(attribute, "N/A"))
-        log.info(f"{label:<20} | {val_orig:<25} | {val_proc:<25}")
+        val_orig = dcm_orig.get(attribute)
+        val_proc = dcm_proc.get(attribute)
+        if val_orig is None and val_proc is None:
+            result = "absent in both"
+        else:
+            result = "match" if val_orig == val_proc else "DIFFERS"
+        log.info(f"{label:<20} | {result}")
 
     log.info("\n" + "=" * 60)
     log.info(" PHASE 2: DETAILED METADATA TAG AUDIT ")
@@ -195,17 +200,13 @@ def compare_datasets(local_path: str, dcm_proc: pydicom.Dataset) -> bool:
             log.info(f"[-] Tag {tag} ({dcm_orig[tag].name}): Missing in remote instance")
             metadata_matches = False
         elif not in_orig and in_proc:
-            log.info(
-                f"[+] Tag {tag} ({dcm_proc[tag].name}): Added remotely ({dcm_proc[tag].value})"
-            )
+            log.info(f"[+] Tag {tag} ({dcm_proc[tag].name}): Added remotely")
             metadata_matches = False
         else:
             val_orig = dcm_orig[tag].value
             val_proc = dcm_proc[tag].value
             if val_orig != val_proc:
-                log.info(f"[Δ] Tag {tag} ({dcm_orig[tag].name}) altered:")
-                log.info(f"    - Original:  {val_orig}")
-                log.info(f"    - Remote:    {val_proc}")
+                log.info(f"[Δ] Tag {tag} ({dcm_orig[tag].name}) altered")
                 metadata_matches = False
 
     if metadata_matches:
@@ -344,7 +345,7 @@ def main() -> None:
             sys.exit(1)
 
     except FileNotFoundError:
-        log.info(f"[X] Execution Failed: Local target path '{args.local_path}' does not exist.")
+        log.info("[X] Execution Failed: Local target path does not exist.")
         sys.exit(1)
     except Exception as exc:
         log.info(f"[X] Runtime System Error: {exc}")
