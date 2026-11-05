@@ -160,12 +160,17 @@ changing the list, run `docker compose up -d --force-recreate telemetry-daemon
 orchestrator agent-001`; a plain `restart` does not pick up a new `CLOUD_NODES`. A
 missing login or a bad list stops them at startup with an error that says what to fix.
 
-A new node also needs its own service in `docker-compose.yml`, its own
-`config/orthanc/<name>.template.json` and a certificate. `scripts/gen_certs.sh` still
-has the four compose nodes written in it, so add a `sign_cert` line for the new node.
-The script replaces the CA and every certificate, so run `docker compose up -d
---force-recreate` for the whole stack afterwards and copy the new certificates to any
-node outside it.
+A new node also needs its own service in `docker-compose.yml` and its own
+`config/orthanc/<name>.template.json`. Run `scripts/gen_certs.sh` to get its certificate:
+it signs one for the host of every node in the list. It also replaces the CA and all the
+other certificates, so run `docker compose up -d --force-recreate` for the whole stack
+afterwards and copy the new certificates to any node outside it. If it fails, the
+existing certificates stay as they were.
+
+To remove a node, also remove its service and its `depends_on` entries, since
+`gen_certs.sh` no longer signs a certificate for it. Keep the list in `.env` or
+`config/nodes.json` for the compose stack: a `CLOUD_NODES` set only in your shell reaches
+`gen_certs.sh` but not the containers. IPv6 addresses aren't supported in the list yet.
 
 `REGION*_NAME`, `REGION*_AET` and `NODE_*_BASE` no longer do anything. If your `.env`
 changed them, move those values to the list; the services log a warning until they
