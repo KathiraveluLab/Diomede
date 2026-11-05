@@ -6,12 +6,14 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'config/nodes.json'
+      - 'scripts/gen_certs.sh'
       - '**/requirements.txt'
   pull_request:
     paths:
       - 'src/**'
       - 'tests/**'
       - 'config/nodes.json'
+      - 'scripts/gen_certs.sh'
       - '**/requirements.txt'
 
 jobs:

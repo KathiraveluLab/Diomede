@@ -2,9 +2,9 @@
 # scripts/gen_certs.sh  –  Generate TLS certificates for Diomede
 #
 # Creates a 30-year self-signed root CA and use it to sign certificate requests of
-# 2-year server certificates for all four 4 regional Orthanc nodes, the Orchestrator, and
-# the edge agent Orthanc using the same hostnames as the Docker Compose service names, as
-# well as a client certificate for the simulator.
+# 2-year server certificates for the cloud nodes (the hosts in CLOUD_NODES or
+# config/nodes.json), the Orchestrator, and the edge agent Orthanc, as well as a client
+# certificate for the simulator.
 #
 # Usage:
 #   bash scripts/gen_certs.sh
@@ -29,7 +29,8 @@ set -euo pipefail
 
 DAYS_CA=10950      # 30 years for the CA
 DAYS_SERVER=730   # 2 years for server certs (renewable from the same CA)
-OUT="certs"
+CERTS="certs"
+OUT="$CERTS/.new"
 KEY_BITS=4096
 
 # --------------------------------------------------------------------------- #
@@ -43,6 +44,8 @@ sign_cert() {
   mkdir -p "$dir"
 
   local san="DNS:${name},DNS:localhost,IP:127.0.0.1"
+  # TLS checks an address given as an IP against the IP entries only.
+  [[ "$name" =~ ^[0-9.]+$ ]] && san="IP:${name},DNS:localhost,IP:127.0.0.1"
 
   openssl genrsa -out "$dir/server.key" "$KEY_BITS" 2>/dev/null
   chmod 600 "$dir/server.key"
@@ -108,16 +111,42 @@ sign_client_cert() {
 }
 
 # --------------------------------------------------------------------------- #
+# Helper: print the host of each cloud node, in the order src/utils/nodes.py looks:
+# CLOUD_NODES in the environment, then in .env, then config/nodes.json
+# --------------------------------------------------------------------------- #
+node_hosts() {
+  local list="${CLOUD_NODES-$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?CLOUD_NODES[[:space:]]*=[[:space:]]*//p' .env 2>/dev/null | tr -d '\r' | tail -n 1)}"
+  printf '%s' "${list:-$(cat config/nodes.json)}" \
+    | grep -oE '"base"[[:space:]]*:[[:space:]]*"[^"]*"' \
+    | sed -E 's|.*://([^/"]*@)?([^:/"?#]+).*|\2|' \
+    | sort -u
+}
+
+# The tests source this file for node_hosts
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0
+
+# --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
+hosts=$(node_hosts) || true
+# shortcut: IPv6 addresses are refused here, allow them when a node needs one.
+bad=$(printf '%s\n' "$hosts" | grep -vE '^[A-Za-z0-9][A-Za-z0-9.-]*$' || true)
+if [ -z "$hosts" ] || [ -n "$bad" ]; then
+  echo "Bad cloud node list, nothing changed. Check CLOUD_NODES or config/nodes.json." >&2
+  [ -z "$bad" ] || echo "Unusable hosts: $bad" >&2
+  exit 1
+fi
+
 echo "Generating TLS certificates for Diomede..."
 echo ""
 
+# Built next to the old certificates and swapped in at the end, so a failure leaves them alone
+rm -rf "$OUT"
 mkdir -p "$OUT"
-# Remove existing certificates directory to ensure a clean regeneration
-rm -rf "$OUT"/*
+trap 'status=$?; rm -rf "$OUT"; [ "$status" -eq 0 ] || echo "gen_certs.sh failed, the existing certificates were kept." >&2' EXIT
+
 # Root CA (30 years) ─────────────────────────────────────────────────────────
-echo "[1/8] Root CA (${DAYS_CA} days)"
+echo "Root CA (${DAYS_CA} days)"
 openssl genrsa -out "$OUT/ca.key" "$KEY_BITS" 2>/dev/null
 chmod 600 "$OUT/ca.key"
 # -addext avoids process substitution so set -euo pipefail works correctly
@@ -129,25 +158,28 @@ openssl req -x509 -new -nodes \
   -addext "keyUsage=critical,keyCertSign,cRLSign" \
   -addext "subjectKeyIdentifier=hash" \
   -out "$OUT/ca.pem" 2>/dev/null
-echo "  CA → $OUT/ca.pem"
+echo "  CA → $CERTS/ca.pem"
 echo ""
 
 # Server certs ────────────────────────────────────────────────────────────────
-sign_cert "orchestrator" && echo "[2/8] orchestrator  done"
-sign_cert "orthanc-us"   && echo "[3/8] orthanc-us    done"
-sign_cert "orthanc-eu"   && echo "[4/8] orthanc-eu    done"
-sign_cert "orthanc-asia" && echo "[5/8] orthanc-asia  done"
-sign_cert "orthanc-af"   && echo "[6/8] orthanc-af    done"
-sign_cert "agent-001"   && echo "[7/8] agent-001    done"
+for name in orchestrator $hosts agent-001; do
+  sign_cert "$name"
+  echo "$name done"
+done
 
 # Client cert (clientAuth EKU) — used by simulator scripts to prove
 # identity during DICOM TLS mutual authentication.
-sign_client_cert "diomede-client" && echo "[8/8] diomede-client  done"
+sign_client_cert "diomede-client"
+echo "diomede-client done"
+
+# Swap in the new certificates ────────────────────────────────────────────────
+rm -rf "$CERTS"/*
+mv "$OUT"/* "$CERTS"/
 
 # Summary ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "Done.  Certificate tree:"
-find "$OUT" -type f | sort | sed 's/^/  /'
+find "$CERTS" -type f | sort | sed 's/^/  /'
 echo ""
 echo "Keep certs/ca.key and all server.key / combined.pem files secret."
 echo "Distribute certs/ca.pem to any client that needs to verify servers."
