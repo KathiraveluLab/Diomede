@@ -239,8 +239,11 @@ async def _route_study(
             continue
 
         if pinned in healthy:
-            await redis.expire(key, STUDY_AFFINITY_TTL_S)
-            return BestNodeResponse.model_validate({**healthy[pinned], "study_id": study_id})
+            # The pin can expire or be moved by another agent after GET. Refresh only
+            # while it still holds this node, otherwise re-read the current assignment.
+            if await _replace_pin(redis, key, pinned, pinned):
+                return BestNodeResponse.model_validate({**healthy[pinned], "study_id": study_id})
+            continue
 
         # Pinned node is unhealthy or its telemetry expired: move the rest of the study,
         # unless another agent already moved it since we read the pin.
@@ -256,7 +259,11 @@ async def _route_study(
 
 
 async def _replace_pin(redis: aioredis.Redis[str], key: str, old: str, new: str) -> bool:
-    """Atomically set key to new only if it still holds old (compare-and-set)."""
+    """Atomically set key to new with a fresh TTL only if it still holds old.
+
+    Passing the same node as old and new refreshes an existing assignment without
+    reviving an expired pin or overwriting another agent's reassignment.
+    """
     async with redis.pipeline(transaction=True) as pipe:
         try:
             await pipe.watch(key)

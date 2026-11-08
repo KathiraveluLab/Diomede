@@ -75,7 +75,12 @@ would see an incomplete series. Diomede therefore routes per study:
   `SET study:{study_id} <node_id> NX EX STUDY_AFFINITY_TTL_S`. `NX` makes the first
   writer win, so two edge agents racing on one study get the same node.
 - Later requests return the pinned node while it is healthy, even if another node
-  now scores higher, and refresh the TTL. Expired keys clean themselves up.
+  now scores higher, and refresh the TTL. The refresh uses the same compare-and-set
+  transaction as re-pinning: it succeeds only if the stored assignment still
+  matches the node being returned. Otherwise the request re-reads the assignment,
+  following a concurrent re-pin or creating a new pin if the old one expired.
+  Conflicts use the same three-attempt limit described below. Expired keys clean
+  themselves up.
 - If the pinned node is unhealthy or its telemetry key has expired, the study is
   re-pinned to the current best node, a warning is logged, and the response carries
   `"rerouted": true` so the split is visible to operators. The re-pin is a

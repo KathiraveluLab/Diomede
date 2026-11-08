@@ -1,5 +1,6 @@
 """Unit tests for scorer, weighted_scorer, and the /get-best-node endpoint."""
 
+import asyncio
 import json
 import os
 import secrets
@@ -377,6 +378,134 @@ async def test_pinned_hit_refreshes_ttl(client, fake_redis, monkeypatch):
     assert await fake_redis.ttl("study:s1") > 5
 
 
+async def test_pinned_hit_follows_another_requests_reassignment(client, fake_redis, monkeypatch):
+    """A concurrent failover before the TTL refresh must be followed in the response."""
+    await _seed(fake_redis, us_queue=0, eu_queue=20)
+    await fake_redis.set("study:s1", "us-east1", ex=5)
+    read_pin = asyncio.Event()
+    resume = asyncio.Event()
+    real_get = fake_redis.get
+    paused = False
+
+    async def pause_first_read(key):
+        nonlocal paused
+        value = await real_get(key)
+        if key == "study:s1" and not paused:
+            paused = True
+            read_pin.set()
+            await resume.wait()
+        return value
+
+    monkeypatch.setattr(fake_redis, "get", pause_first_read)
+    request = asyncio.create_task(_best(client, "s1"))
+    try:
+        async with asyncio.timeout(5):
+            await read_pin.wait()
+            failover = await client.get(
+                "/get-best-node",
+                params={"agent_id": "test-agent", "study_id": "s1", "exclude": "us-east1"},
+            )
+            assert failover.status_code == 200
+            assert failover.json()["node_id"] == "eu-west1"
+            assert failover.json()["rerouted"] is True
+            resume.set()
+            data = await request
+    finally:
+        resume.set()
+        request.cancel()
+        await asyncio.gather(request, return_exceptions=True)
+
+    assert data["node_id"] == "eu-west1"
+    assert data["rerouted"] is False
+    assert await real_get("study:s1") == "eu-west1"
+    assert await fake_redis.ttl("study:s1") > 5
+
+
+async def test_pinned_hit_recreates_a_pin_lost_after_read(client, fake_redis, monkeypatch):
+    """Expiration between GET and the TTL refresh must follow the normal NX pin path."""
+    await _seed(fake_redis, us_queue=20, eu_queue=0)
+    await fake_redis.set("study:s1", "us-east1", ex=5)
+    real_get = fake_redis.get
+    expired = False
+
+    async def expire_after_read(key):
+        nonlocal expired
+        value = await real_get(key)
+        if key == "study:s1" and not expired:
+            expired = True
+            # Removing the key models expiry at this exact interleaving, without sleeps.
+            await fake_redis.delete(key)
+        return value
+
+    monkeypatch.setattr(fake_redis, "get", expire_after_read)
+    data = await _best(client, "s1")
+
+    assert data["node_id"] == "eu-west1"
+    assert data["rerouted"] is False
+    assert await real_get("study:s1") == "eu-west1"
+    assert await fake_redis.ttl("study:s1") > 5
+
+
+async def test_pinned_hit_retries_a_change_during_refresh(client, fake_redis, monkeypatch):
+    """A change after the transaction's read must abort its refresh, not restore the old pin."""
+    await _seed(fake_redis, us_queue=0, eu_queue=20)
+    await fake_redis.set("study:s1", "us-east1", ex=5)
+    other = fakeredis.aioredis.FakeRedis(
+        connection_pool=fake_redis.connection_pool, decode_responses=True
+    )
+    real_pipeline = fake_redis.pipeline
+    raced = False
+
+    def racing_pipeline(*args, **kwargs):
+        pipe = real_pipeline(*args, **kwargs)
+        real_get = pipe.get
+
+        async def get(key):
+            nonlocal raced
+            value = await real_get(key)
+            if key == "study:s1" and not raced:
+                raced = True
+                await other.set(key, "eu-west1", ex=5)
+            return value
+
+        pipe.get = get
+        return pipe
+
+    monkeypatch.setattr(fake_redis, "pipeline", racing_pipeline)
+    try:
+        data = await _best(client, "s1")
+        assert raced
+        assert data["node_id"] == "eu-west1"
+        assert await other.get("study:s1") == "eu-west1"
+        assert await other.ttl("study:s1") > 5
+    finally:
+        await other.aclose()
+
+
+async def test_pinned_hit_gives_up_when_healthy_pin_keeps_changing(client, fake_redis, monkeypatch):
+    """Healthy-pin conflicts obey the same retry limit as unhealthy-pin conflicts."""
+    await _seed(fake_redis, us_queue=0, eu_queue=20)
+    await fake_redis.set("study:s1", "us-east1")
+    real_get = fake_redis.get
+    reads = 0
+
+    async def change_after_read(key):
+        nonlocal reads
+        value = await real_get(key)
+        if key == "study:s1":
+            reads += 1
+            await fake_redis.set(key, "eu-west1" if value == "us-east1" else "us-east1")
+        return value
+
+    monkeypatch.setattr(fake_redis, "get", change_after_read)
+    response = await client.get(
+        "/get-best-node", params={"agent_id": "test-agent", "study_id": "s1"}
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Study assignment is changing, retry later"
+    assert reads == main_module._PIN_ATTEMPTS
+
+
 async def test_study_repinned_when_pinned_node_unhealthy(client, fake_redis, monkeypatch):
     await _seed(fake_redis, us_queue=20, eu_queue=0, eu_healthy=False)
     await fake_redis.set("study:s1", "eu-west1")
@@ -502,9 +631,16 @@ async def test_concurrent_repin_follows_other_agents_choice(client, fake_redis, 
     )
     await fake_redis.set("study:s1", "eu-west1")
 
+    replace_pin = main_module._replace_pin
+    raced = False
+
     async def other_agent_wins(redis, key, old, new):
-        await redis.set(key, "asia-northeast1")
-        return False
+        nonlocal raced
+        if not raced:
+            raced = True
+            await redis.set(key, "asia-northeast1")
+            return False
+        return await replace_pin(redis, key, old, new)
 
     monkeypatch.setattr(main_module, "_replace_pin", other_agent_wins)
     data = await _best(client, "s1")
