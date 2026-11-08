@@ -264,6 +264,10 @@ so to send a real study use the verifier. It uploads the file to the edge, waits
 for the forwarder to route it, downloads it back from whichever cloud node won, and
 diffs every header tag and pixel against the original (exit `0` = lossless).
 
+Files without pixel data, including Grayscale Softcopy Presentation States, still
+undergo the metadata audit. Missing, added, or altered header tags make verification
+fail with exit `1`, even when pixel comparison is skipped.
+
 ```bash
 python -m src.utils.verify_pipeline --local-path data/sample_dicom/IM_0001
 ```
