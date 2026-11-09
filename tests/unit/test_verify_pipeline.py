@@ -427,6 +427,52 @@ class TestCompareDatasetsGsps:
         assert "Bypassing pixel checks" in messages
 
 
+@pytest.mark.parametrize("presentation_state", [False, True], ids=["no-pixels", "gsps"])
+@pytest.mark.parametrize("drift", ["removed", "added", "altered"])
+def test_metadata_drift_without_pixels_fails(tmp_path, presentation_state, drift):
+    """Skipping pixel checks must not discard the metadata audit result."""
+    if presentation_state:
+        ds = _gsps_dataset()
+    else:
+        ds = make_ct_8x8()
+        del ds.PixelData
+    local_path, remote = _round_trip(ds, tmp_path / "original.dcm")
+
+    if drift == "removed":
+        del remote.PatientID
+    elif drift == "added":
+        remote.StudyDescription = "SYNTHETIC ADDED DESCRIPTION"
+    else:
+        remote.PatientName = "SYNTHETIC^CHANGED"
+
+    assert compare_datasets(local_path, remote) is False
+
+
+@pytest.mark.parametrize("presentation_state", [False, True], ids=["no-pixels", "gsps"])
+@pytest.mark.parametrize("metadata_changed", [False, True], ids=["unchanged", "changed"])
+def test_main_exit_status_without_pixels(tmp_path, presentation_state, metadata_changed):
+    """Exercise the real comparison through main, with only transport mocked."""
+    if presentation_state:
+        ds = _gsps_dataset()
+    else:
+        ds = make_ct_8x8()
+        del ds.PixelData
+    local_path, remote = _round_trip(ds, tmp_path / "original.dcm")
+    if metadata_changed:
+        remote.PatientName = "SYNTHETIC^CHANGED"
+
+    with (
+        patch("sys.argv", ["verify_pipeline.py", "--local-path", local_path]),
+        patch("src.utils.verify_pipeline.create_secure_session"),
+        patch("src.utils.verify_pipeline.upload_dicom_to_orthanc", return_value="synthetic-id"),
+        patch("src.utils.verify_pipeline.download_remote_dicom", return_value=remote),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        main()
+
+    assert exc_info.value.code == (1 if metadata_changed else 0)
+
+
 class TestParseArgs:
     def test_local_path_parsed(self):
         with patch("sys.argv", ["verify_pipeline.py", "--local-path", "/data/scan.dcm"]):

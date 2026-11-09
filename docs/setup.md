@@ -264,9 +264,27 @@ so to send a real study use the verifier. It uploads the file to the edge, waits
 for the forwarder to route it, downloads it back from whichever cloud node won, and
 diffs every header tag and pixel against the original (exit `0` = lossless).
 
+Files without pixel data, including Grayscale Softcopy Presentation States, still
+undergo the metadata audit. Missing, added, or altered header tags make verification
+fail with exit `1`, even when pixel comparison is skipped.
+
 ```bash
 python -m src.utils.verify_pipeline --local-path data/sample_dicom/IM_0001
 ```
+
+To check non-pixel objects against the running stack, run:
+
+```bash
+python -m pytest tests/integration/test_verify_pipeline.py -v -m integration
+```
+
+Both cases generate synthetic DICOM files (one without PixelData and one GSPS),
+invoke the real verifier CLI, and require exit `0` with no metadata drift after
+Edge Orthanc storage, forwarding, and cloud Orthanc retrieval. Transport and
+comparison are not mocked. A failure includes the verifier's tag-drift output;
+review any Orthanc changes before treating them as harmless. These cases also run
+in the Integration Tests workflow. A skipped test is not evidence of a successful
+round trip: the stack must be running with the generated CA certificate available.
 
 `data/sample_dicom/IM_0001` is a real anonymized MR slice (Philips Ingenia, 480×480,
 ~460 KB) included in the repo. Drop in any other anonymized DICOM from
