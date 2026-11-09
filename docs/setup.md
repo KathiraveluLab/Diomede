@@ -272,6 +272,20 @@ fail with exit `1`, even when pixel comparison is skipped.
 python -m src.utils.verify_pipeline --local-path data/sample_dicom/IM_0001
 ```
 
+To check non-pixel objects against the running stack, run:
+
+```bash
+python -m pytest tests/integration/test_verify_pipeline.py -v -m integration
+```
+
+Both cases generate synthetic DICOM files (one without PixelData and one GSPS),
+invoke the real verifier CLI, and require exit `0` with no metadata drift after
+Edge Orthanc storage, forwarding, and cloud Orthanc retrieval. Transport and
+comparison are not mocked. A failure includes the verifier's tag-drift output;
+review any Orthanc changes before treating them as harmless. These cases also run
+in the Integration Tests workflow. A skipped test is not evidence of a successful
+round trip: the stack must be running with the generated CA certificate available.
+
 `data/sample_dicom/IM_0001` is a real anonymized MR slice (Philips Ingenia, 480×480,
 ~460 KB) included in the repo. Drop in any other anonymized DICOM from
 [Orthanc's sample datasets](https://orthanc.uclouvain.be/downloads/sample-datasets/)
