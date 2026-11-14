@@ -31,7 +31,7 @@ from locust import HttpUser, LoadTestShape, between, events, stats, task
 
 from src.simulator.generate_dicom import make_sized
 
-load_dotenv(override=True)
+load_dotenv()
 
 # --- Targets and credentials (host-facing; the simulator runs outside docker) ---
 ORCH_URL = os.environ.get("ORCHESTRATOR_HTTPS_URL")
