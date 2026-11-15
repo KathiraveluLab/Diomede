@@ -72,12 +72,10 @@ def _parse_args() -> argparse.Namespace:
         help="Orthanc DICOM host",
     )
     port_env = os.environ.get("ORTHANC_DICOM_PORT")
-    if port_env is None:
-        raise RuntimeError("ORTHANC_DICOM_PORT environment variable must be set")
     p.add_argument(
         "--port",
         type=int,
-        default=int(port_env),
+        default=int(port_env) if port_env is not None else None,
         help="Orthanc DICOM port",
     )
     p.add_argument(
@@ -93,7 +91,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--ca-cert", default=_DEFAULT_CA_CERT, help="CA certificate path")
     p.add_argument("--client-cert", default=_DEFAULT_CLIENT_CERT, help="Client certificate path")
     p.add_argument("--client-key", default=_DEFAULT_CLIENT_KEY, help="Client private-key path")
-    return p.parse_args()
+    args = p.parse_args()
+    if args.port is None:
+        raise RuntimeError("ORTHANC_DICOM_PORT environment variable must be set")
+    return args
 
 
 if __name__ == "__main__":

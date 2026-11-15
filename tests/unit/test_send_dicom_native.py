@@ -39,6 +39,14 @@ class TestParseArgs:
         ):
             _parse_args()
 
+    def test_port_flag_without_env_var(self):
+        with (
+            patch("sys.argv", ["send_dicom_native.py", "--port", "11112"]),
+            patch.dict("os.environ", {}, clear=True),
+        ):
+            args = _parse_args()
+        assert args.port == 11112
+
     def test_custom_values(self):
         with patch(
             "sys.argv",
