@@ -48,7 +48,6 @@ test = [
 dev = [
     "ruff>=0.15.8",
     "mypy>=2.0.0",
-    "types-redis",
     "pre-commit>=4",
 ]
 
