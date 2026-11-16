@@ -86,7 +86,7 @@ without reinstalling. The groups after the dot pull in optional dependencies:
 - `edge` — httpx
 - `scripts` — httpx, pydicom, pynetdicom, python-dotenv (for the simulator scripts)
 - `test` — pytest, fakeredis, respx, pytest-cov, and friends
-- `dev` — ruff, mypy, types-redis, pre-commit
+- `dev` — ruff, mypy, pre-commit
 - `load` — locust (add `,load` if you plan to run the load tests in Step 11)
 
 ## Step 4 — Configure `.env`
