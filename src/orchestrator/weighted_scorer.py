@@ -5,6 +5,7 @@ Adding a new strategy follows the same pattern: subclass NodeScorer in a new
 module, then append _REGISTRY["<name>"] = <Class> at the bottom.
 """
 
+import math
 from typing import Any
 
 from src.utils.env import env_non_negative_float
@@ -46,6 +47,8 @@ class WeightedScorer(NodeScorer):
         self.w_queue = w_queue if w_queue is not None else env_non_negative_float("W_QUEUE", 0.5)
         self.w_disk = w_disk if w_disk is not None else env_non_negative_float("W_DISK", 0.15)
         self.w_rtt = w_rtt if w_rtt is not None else env_non_negative_float("W_RTT", 0.35)
+        if not math.isfinite(rtt_ref_ms) or rtt_ref_ms <= 0:
+            raise ValueError("rtt_ref_ms must be a finite, positive number")
         self.rtt_ref_ms = rtt_ref_ms
         log.info(
             "WeightedScorer initialized with weights:\n"
