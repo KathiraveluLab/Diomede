@@ -146,6 +146,28 @@ def test_failed_signing_keeps_the_old_certificates(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="needs openssl")
+def test_failed_swap_puts_the_old_certificates_back(tmp_path):
+    old = _old_certs(tmp_path)
+    nodes = json.dumps([{**_US, "base": "https://10.0.0.5:8042"}])
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    # fails only the move of the new certificates into place
+    (shim / "mv").write_text(
+        '#!/bin/bash\ncase "$1" in *.new/*) exit 1;; esac\nexec /bin/mv "$@"\n'
+    )
+    (shim / "mv").chmod(0o755)
+
+    result = _run(tmp_path, f'PATH="{shim}:$PATH" bash "{SCRIPT}"', nodes)
+
+    assert result.returncode != 0
+    assert "kept" in result.stderr
+    assert old.read_text() == "keep me"
+    assert (tmp_path / "certs" / "orthanc-us").is_dir()
+    assert not (tmp_path / "certs" / ".new").exists()
+    assert not (tmp_path / "certs" / ".old").exists()
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="needs openssl")
 def test_full_run_replaces_the_old_certificates(tmp_path):
     old = _old_certs(tmp_path)
     nodes = json.dumps([{**_US, "base": "https://10.0.0.5:8042"}])

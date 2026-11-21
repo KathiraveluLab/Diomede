@@ -31,6 +31,7 @@ DAYS_CA=10950      # 30 years for the CA
 DAYS_SERVER=730   # 2 years for server certs (renewable from the same CA)
 CERTS="certs"
 OUT="$CERTS/.new"
+OLD="$CERTS/.old"
 KEY_BITS=4096
 
 # --------------------------------------------------------------------------- #
@@ -141,9 +142,15 @@ echo "Generating TLS certificates for Diomede..."
 echo ""
 
 # Built next to the old certificates and swapped in at the end, so a failure leaves them alone
-rm -rf "$OUT"
+rm -rf "$OUT" "$OLD"
 mkdir -p "$OUT"
-trap 'status=$?; rm -rf "$OUT"; [ "$status" -eq 0 ] || echo "gen_certs.sh failed, the existing certificates were kept." >&2' EXIT
+restore_old() {
+  [ -d "$OLD" ] || return 0
+  find "$CERTS" -mindepth 1 -maxdepth 1 ! -name '.*' -exec rm -rf {} +
+  find "$OLD" -mindepth 1 -maxdepth 1 -exec mv {} "$CERTS"/ \;
+  rmdir "$OLD"
+}
+trap 'status=$?; restore_old; rm -rf "$OUT"; [ "$status" -eq 0 ] || echo "gen_certs.sh failed, the existing certificates were kept." >&2' EXIT
 
 # Root CA (30 years) ─────────────────────────────────────────────────────────
 echo "Root CA (${DAYS_CA} days)"
@@ -173,8 +180,11 @@ sign_client_cert "diomede-client"
 echo "diomede-client done"
 
 # Swap in the new certificates ────────────────────────────────────────────────
-rm -rf "$CERTS"/*
+# Old files go aside first so a failed move can put them back
+mkdir "$OLD"
+find "$CERTS" -mindepth 1 -maxdepth 1 ! -name '.*' -exec mv {} "$OLD"/ \;
 mv "$OUT"/* "$CERTS"/
+rm -rf "$OLD"
 
 # Summary ─────────────────────────────────────────────────────────────────────
 echo ""
