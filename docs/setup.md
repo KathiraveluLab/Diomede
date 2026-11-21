@@ -160,6 +160,12 @@ changing the list, run `docker compose up -d --force-recreate telemetry-daemon
 orchestrator agent-001`; a plain `restart` does not pick up a new `CLOUD_NODES`. A
 missing login or a bad list stops them at startup with an error that says what to fix.
 
+`docker-compose.yml` still names the node containers from `REGIONn_HOST` and serves
+Orthanc on `ORTHANC_HTTPS_PORT`, both from `.env`. The `base` URLs in the list are not
+built from those values, so if you change `REGION1_HOST` or `ORTHANC_HTTPS_PORT`, change
+the matching `base` in `config/nodes.json` too. Nothing warns you when they differ; the
+daemon and forwarder just can't reach the node.
+
 A new node also needs its own service in `docker-compose.yml`, its own
 `config/orthanc/<name>.template.json` and a certificate. `scripts/gen_certs.sh` still
 has the four compose nodes written in it, so add a `sign_cert` line for the new node.
