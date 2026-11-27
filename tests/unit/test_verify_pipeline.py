@@ -1,17 +1,22 @@
 """Unit tests for src/utils/verify_pipeline.py"""
 
 import copy
+import importlib
 import os
+import re
+import warnings
 from argparse import Namespace
 from unittest.mock import MagicMock, patch
 
 import pydicom
 import pytest
 import requests
+import urllib3
 from pydicom.dataset import Dataset
 from pydicom.sequence import Sequence
 
 from src.simulator.generate_dicom import make_ct_8x8
+from src.utils import verify_pipeline as verify_pipeline_module
 from src.utils.verify_pipeline import (
     compare_datasets,
     create_secure_session,
@@ -137,6 +142,24 @@ class TestCreateSecureSession:
         assert session.auth == ("orthanc", "secret")
 
 
+class TestTlsVerification:
+    def test_import_does_not_silence_insecure_request_warnings(self):
+        """Importing the module must not install a process-wide ignore for TLS warnings."""
+        # Reloading re-runs the import-time code; catch_warnings restores the filters, and
+        # get_logger does not add a second handler, so other tests are unaffected.
+        with warnings.catch_warnings():
+            warnings.resetwarnings()
+            importlib.reload(verify_pipeline_module)
+            ignored = [
+                f
+                for f in warnings.filters
+                if f[0] == "ignore"
+                and isinstance(f[2], type)
+                and issubclass(f[2], urllib3.exceptions.InsecureRequestWarning)
+            ]
+        assert ignored == []
+
+
 class TestUploadDicomToOrthanc:
     def test_returns_instance_id_on_success(self, tmp_path):
         local_path = _save(make_ct_8x8(), tmp_path / "in.dcm")
@@ -164,6 +187,36 @@ class TestUploadDicomToOrthanc:
         assert kwargs["auth"] == ("edge", "pass")
         # 128-byte preamble followed by the DICM magic
         assert kwargs["data"][128:132] == b"DICM"
+
+    def test_upload_does_not_disable_tls_verification(self, tmp_path):
+        """verify must not be overridden per call, or the session's CA bundle is bypassed."""
+        local_path = _save(make_ct_8x8(), tmp_path / "in.dcm")
+        session = MagicMock()
+        response = _mock_response(200)
+        response.json.return_value = {"ID": "abc-123"}
+        session.post.return_value = response
+
+        upload_dicom_to_orthanc(session, local_path, ("edge", "pass"))
+
+        assert session.post.call_args.kwargs.get("verify") is not False
+
+    def test_upload_verifies_against_session_ca_bundle(self, tmp_path, monkeypatch):
+        """With a real Session, the request reaches send() verifying against the session CA."""
+        # requests prefers these env vars over session.verify when verify is not passed.
+        monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+        monkeypatch.delenv("CURL_CA_BUNDLE", raising=False)
+        local_path = _save(make_ct_8x8(), tmp_path / "in.dcm")
+        ca_file = tmp_path / "ca.pem"
+        ca_file.write_text("cert")
+        session = requests.Session()
+        session.verify = str(ca_file)
+        response = _mock_response(200)
+        response.json.return_value = {"ID": "abc-123"}
+
+        with patch.object(requests.Session, "send", return_value=response) as mock_send:
+            upload_dicom_to_orthanc(session, local_path, ("edge", "pass"))
+
+        assert mock_send.call_args.kwargs["verify"] == str(ca_file)
 
     def test_missing_local_file_returns_none(self, tmp_path):
         session = MagicMock()
@@ -309,6 +362,95 @@ class TestCompareDatasetsMetadata:
         remote.PatientName = "ANON^ANON"
 
         assert compare_datasets(local_path, remote) is False
+
+
+class TestCompareDatasetsPhiRedaction:
+    """Tag values and file paths can be PHI: the logs may say what matched, never what it holds."""
+
+    @pytest.fixture(autouse=True)
+    def _capture_logs(self, monkeypatch, caplog):
+        monkeypatch.setattr(verify_pipeline_module.log, "propagate", True)
+        caplog.set_level("INFO")
+
+    @staticmethod
+    def _fake_phi_dataset() -> pydicom.Dataset:
+        ds = make_ct_8x8()
+        ds.PatientName = "FAKE^ZZPATIENT"
+        ds.PatientID = "ZZ-FAKE-ID-77"
+        ds.StudyDate = "19700101"
+        ds.SeriesDescription = "ZZ FAKE SERIES NOTE"
+        return ds
+
+    def test_metadata_table_reports_matches_without_values(self, tmp_path, caplog):
+        ds = self._fake_phi_dataset()
+        local_path, remote = _round_trip(ds, tmp_path / "a.dcm")
+
+        assert compare_datasets(local_path, remote) is True
+
+        for raw in (
+            "ZZPATIENT",
+            "ZZ-FAKE-ID-77",
+            "19700101",
+            "ZZ FAKE SERIES NOTE",
+            str(ds.SOPInstanceUID),
+        ):
+            assert raw not in caplog.text
+        assert re.search(r"Patient Name\s+\| match", caplog.text)
+        assert "DIFFERS" not in caplog.text
+
+    def test_altered_tag_is_flagged_without_values(self, tmp_path, caplog):
+        local_path, remote = _round_trip(self._fake_phi_dataset(), tmp_path / "a.dcm")
+        remote = copy.deepcopy(remote)
+        remote.PatientName = "OTHER^ZZALTERED"
+
+        assert compare_datasets(local_path, remote) is False
+
+        assert re.search(r"Patient Name\s+\| DIFFERS", caplog.text)
+        assert re.search(r"Patient ID\s+\| match", caplog.text)
+        assert "altered" in caplog.text
+        assert "ZZPATIENT" not in caplog.text
+        assert "ZZALTERED" not in caplog.text
+
+    def test_added_tag_is_reported_without_its_value(self, tmp_path, caplog):
+        local_path, remote = _round_trip(self._fake_phi_dataset(), tmp_path / "a.dcm")
+        remote = copy.deepcopy(remote)
+        remote.AccessionNumber = "ZZ-ACCESSION-55"
+
+        assert compare_datasets(local_path, remote) is False
+
+        assert "Added remotely" in caplog.text
+        assert "ZZ-ACCESSION-55" not in caplog.text
+
+    def test_removed_tag_is_reported_without_value(self, tmp_path, caplog):
+        local_path, remote = _round_trip(self._fake_phi_dataset(), tmp_path / "a.dcm")
+        remote = copy.deepcopy(remote)
+        del remote.PatientID
+
+        assert compare_datasets(local_path, remote) is False
+
+        assert "Missing in remote instance" in caplog.text
+        assert "ZZ-FAKE-ID-77" not in caplog.text
+
+    def test_upload_does_not_log_the_local_path(self, tmp_path, caplog):
+        patient_dir = tmp_path / "DOE_JOHN"
+        patient_dir.mkdir()
+        local_path = _save(make_ct_8x8(), patient_dir / "in.dcm")
+        session = MagicMock()
+        response = _mock_response(200)
+        response.json.return_value = {"ID": "abc-123"}
+        session.post.return_value = response
+
+        upload_dicom_to_orthanc(session, local_path, ("edge", "pass"))
+
+        assert "DOE_JOHN" not in caplog.text
+
+    def test_missing_file_error_does_not_log_the_path(self, tmp_path, caplog):
+        missing = str(tmp_path / "DOE_JOHN" / "missing.dcm")
+
+        assert upload_dicom_to_orthanc(MagicMock(), missing, ("edge", "pass")) is None
+
+        assert "not found" in caplog.text
+        assert "DOE_JOHN" not in caplog.text
 
 
 class TestCompareDatasetsPixels:

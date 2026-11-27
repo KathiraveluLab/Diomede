@@ -122,8 +122,9 @@ The rules below apply to all code, logs, and committed files.
 **Logs**
 - Never log PHI. Log only routing metadata: Orthanc instance IDs, node IDs,
   scores, queue sizes, and disk metrics.
-- If a DICOM tag value must appear in a log message for debugging, replace it
-  with a truncated hash (e.g., `sha1(value)[:8]`).
+- Do not log DICOM tag values. To check a value, log the tag and whether the
+  values match. A short hash is no substitute for a low-entropy value such as a
+  date: it can be recovered by trying every candidate.
 
 **API responses**
 - Orchestrator endpoints (`/nodes`, `/get-best-node`, `/heartbeat`) return
