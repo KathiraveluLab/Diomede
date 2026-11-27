@@ -20,7 +20,7 @@ This project uses **ruff** for linting/formatting and **mypy** for type checking
 ```bash
 ruff check --fix src/ tests/
 ruff format src/ tests/
-for dir in src/orchestrator src/edge src/simulator; do (cd "$dir" && mypy .); done
+for dir in src/orchestrator src/edge src/simulator; do mypy "$dir"; done
 ```
 
 
