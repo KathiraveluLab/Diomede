@@ -71,7 +71,7 @@ docker compose ps
 # 4. Build and start the orchestrator + edge agent (local Dockerfiles)
 docker compose up -d --build orchestrator agent-001
 
-# 5. Verify all 6 containers healthy, then ask the orchestrator for the best node
+# 5. Verify all 8 containers healthy, then ask the orchestrator for the best node
 docker compose ps
 curl -k -H "X-API-Key: <your_api_key>" \
   "https://localhost:8000/get-best-node?agent_id=agent-001" | python3 -m json.tool
