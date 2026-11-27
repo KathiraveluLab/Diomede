@@ -46,7 +46,7 @@ node_quota_map: dict[str, int | None] = {}
 
 async def poll_node(
     client: httpx.AsyncClient,
-    redis: aioredis.Redis[str],  # type: ignore[type-arg]
+    redis: aioredis.Redis,
     node_id: str,
     cfg: NodeConfig,
 ) -> None:
@@ -132,7 +132,7 @@ async def poll_node(
         }
 
     try:
-        await redis.setex(f"node:{node_id}", REDIS_TTL_S, json.dumps(payload))
+        await redis.set(f"node:{node_id}", json.dumps(payload), ex=REDIS_TTL_S)
     except Exception as redis_err:
         log.error("Failed to write node:%s status to Redis: %s", node_id, redis_err)
 
@@ -178,7 +178,7 @@ async def run() -> None:
                 )
                 await asyncio.sleep(POLL_INTERVAL_S)
     finally:
-        await redis.close()
+        await redis.aclose()
 
 
 if __name__ == "__main__":

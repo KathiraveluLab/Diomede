@@ -17,7 +17,7 @@ import os
 import secrets
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
@@ -119,11 +119,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _redis = aioredis.from_url(REDIS_URL, decode_responses=True, retry=Retry(NoBackoff(), 1))
     yield
     if _redis:
-        await _redis.close()
+        await _redis.aclose()
 
 
 app = FastAPI(title="Diomede Orchestrator", lifespan=lifespan)
-_redis: aioredis.Redis[str] | None = None
+_redis: aioredis.Redis | None = None
 
 
 @app.exception_handler(RequestValidationError)
@@ -230,7 +230,8 @@ async def _route_study(
     best_id = best_node["node_id"]
 
     for _ in range(_PIN_ATTEMPTS):
-        pinned = await redis.get(key)
+        # The client uses decode_responses=True.
+        pinned = cast(str | None, await redis.get(key))
         if pinned is None:
             # NX: when two agents race on a new study, the first writer wins.
             if await redis.set(key, best_id, nx=True, ex=STUDY_AFFINITY_TTL_S):
@@ -255,14 +256,14 @@ async def _route_study(
     raise HTTPException(status_code=503, detail="Study assignment is changing, retry later")
 
 
-async def _replace_pin(redis: aioredis.Redis[str], key: str, old: str, new: str) -> bool:
+async def _replace_pin(redis: aioredis.Redis, key: str, old: str, new: str) -> bool:
     """Atomically set key to new only if it still holds old (compare-and-set)."""
     async with redis.pipeline(transaction=True) as pipe:
         try:
             await pipe.watch(key)
             if await pipe.get(key) != old:
                 return False
-            pipe.multi()
+            pipe.multi()  # type: ignore[no-untyped-call]
             pipe.set(key, new, ex=STUDY_AFFINITY_TTL_S)
             await pipe.execute()
         except WatchError:

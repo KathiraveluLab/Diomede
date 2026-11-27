@@ -284,7 +284,7 @@ async def test_redis_write_failure_is_logged_not_raised(monkeypatch, caplog):
     respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=JOBS_MIXED))
 
     redis = await _redis()
-    monkeypatch.setattr(redis, "setex", AsyncMock(side_effect=ConnectionError("redis down")))
+    monkeypatch.setattr(redis, "set", AsyncMock(side_effect=ConnectionError("redis down")))
     async with httpx.AsyncClient() as client:
         await poll_node(client, redis, "us-east1", _cfg())
 
@@ -347,7 +347,7 @@ async def test_run_polls_every_node_then_closes_redis(monkeypatch):
 
     assert poll.await_count == len(NODES)
     assert {call.args[2] for call in poll.await_args_list} == set(NODES)
-    fake_redis.close.assert_awaited_once()
+    fake_redis.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
