@@ -208,6 +208,7 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
+      - ./config/nodes.json:/app/config/nodes.json:ro
       - ./certs/ca.pem:/certs/ca.pem:ro
     depends_on:
       redis:
@@ -232,11 +233,12 @@ services:
       - "${ORCHESTRATOR_HTTPS_PORT}:${ORCHESTRATOR_PORT}"
       # - "${REDIS_PORT}:${REDIS_PORT}"
     # All runtime config (REDIS_URL, DAEMON_POLL_INTERVAL_S, scoring weights,
-    # NODE_*_BASE/USER/PASS, REQUESTS_CA_BUNDLE, ...) comes from .env via
+    # NODE_*_USER/PASS, REQUESTS_CA_BUNDLE, ...) comes from .env via
     # env_file below.
     env_file: .env
 
     volumes:
+      - ./config/nodes.json:/app/config/nodes.json:ro
       - ./certs/orchestrator/server.crt:/certs/server.crt:ro
       - ./certs/orchestrator/server.key:/certs/server.key:ro
       - ./certs/ca.pem:/certs/ca.pem:ro
@@ -277,11 +279,12 @@ services:
     env_file: .env
     volumes:
       - ./config/orthanc/edge.template.json:/etc/orthanc/orthanc.template.json:ro
+      - ./config/nodes.json:/app/config/nodes.json:ro
       - ./certs/agent-001:/etc/orthanc/certs:ro
       - ./certs/ca.pem:/certs/ca.pem:ro
       - orthanc-edge-data:/var/lib/orthanc/db
     environment:
-      # EDGE_USER/PASS, NODE_*_BASE/USER/PASS, ORCHESTRATOR_API_KEY,
+      # EDGE_USER/PASS, NODE_*_USER/PASS, ORCHESTRATOR_API_KEY,
       # FORWARDER_POLL_INTERVAL_S, PROBE_INTERVAL_S, and REQUESTS_CA_BUNDLE
       # come from .env via env_file above. Only names that differ from
       # their .env property key, or that are composed from one, need an

@@ -18,6 +18,7 @@ from redis.backoff import NoBackoff
 
 from src.utils.env import env_non_negative_float, require_env
 from src.utils.logging_config import get_logger
+from src.utils.nodes import NodeConfig, load_nodes
 
 log = get_logger(__name__, "DAEMON")
 load_dotenv()
@@ -35,40 +36,7 @@ CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
 MIN_FREE_MB = env_non_negative_float("MIN_FREE_MB", 0.0)
 
 
-NODES: dict[str, dict[str, str | tuple[str, str]]] = {
-    require_env("REGION1_NAME"): {
-        "base": require_env("NODE_US_BASE"),
-        "ae_title": require_env("REGION1_AET"),
-        "auth": (
-            require_env("NODE_US_USER"),
-            require_env("NODE_US_PASS"),
-        ),
-    },
-    require_env("REGION2_NAME"): {
-        "base": require_env("NODE_EU_BASE"),
-        "ae_title": require_env("REGION2_AET"),
-        "auth": (
-            require_env("NODE_EU_USER"),
-            require_env("NODE_EU_PASS"),
-        ),
-    },
-    require_env("REGION3_NAME"): {
-        "base": require_env("NODE_ASIA_BASE"),
-        "ae_title": require_env("REGION3_AET"),
-        "auth": (
-            require_env("NODE_ASIA_USER"),
-            require_env("NODE_ASIA_PASS"),
-        ),
-    },
-    require_env("REGION4_NAME"): {
-        "base": require_env("NODE_AF_BASE"),
-        "ae_title": require_env("REGION4_AET"),
-        "auth": (
-            require_env("NODE_AF_USER"),
-            require_env("NODE_AF_PASS"),
-        ),
-    },
-}
+NODES = load_nodes()
 
 node_quota_map: dict[str, int | None] = {}
 
@@ -80,12 +48,11 @@ async def poll_node(
     client: httpx.AsyncClient,
     redis: aioredis.Redis[str],  # type: ignore[type-arg]
     node_id: str,
-    cfg: dict[str, str | tuple[str, str]],
+    cfg: NodeConfig,
 ) -> None:
     """Get /statistics and /jobs?expand from one node and write to Redis."""
     base = cfg["base"]
     auth = cfg["auth"]
-    assert isinstance(auth, tuple)
 
     try:
         async with asyncio.timeout(POLL_DEADLINE_S):
@@ -171,7 +138,7 @@ async def poll_node(
 
 
 def _warn_default_creds() -> None:
-    if os.getenv("NODE_US_PASS", "orthanc") == "orthanc":
+    if any(cfg["auth"][1] == "orthanc" for cfg in NODES.values()):
         log.warning(
             "NODE_*_PASS is using the insecure default 'orthanc'. "
             "Set NODE_*_PASS env vars before deploying outside local dev."

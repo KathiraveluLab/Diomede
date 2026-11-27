@@ -289,7 +289,14 @@ async def test_redis_write_failure_is_logged_not_raised(monkeypatch, caplog):
 
 def test_warns_when_default_node_password_is_used(monkeypatch, caplog):
     monkeypatch.setattr(daemon_module.log, "propagate", True)
-    monkeypatch.setenv("NODE_US_PASS", "orthanc")
+    monkeypatch.setattr(
+        daemon_module,
+        "NODES",
+        {
+            "eu-west1": {**_cfg(), "auth": ("u", "strong")},
+            "us-east1": {**_cfg(), "auth": ("u", "orthanc")},
+        },
+    )
 
     daemon_module._warn_default_creds()
 
@@ -298,7 +305,7 @@ def test_warns_when_default_node_password_is_used(monkeypatch, caplog):
 
 def test_no_credential_warning_when_password_is_changed(monkeypatch, caplog):
     monkeypatch.setattr(daemon_module.log, "propagate", True)
-    monkeypatch.setenv("NODE_US_PASS", "a-strong-password")
+    monkeypatch.setattr(daemon_module, "NODES", {"us-east1": {**_cfg(), "auth": ("u", "strong")}})
 
     daemon_module._warn_default_creds()
 

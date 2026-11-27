@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 
 from src.orchestrator.weighted_scorer import WeightedScorer
 from src.utils.logging_config import get_logger
+from src.utils.nodes import load_nodes
 
 load_dotenv()
 log = get_logger(__name__, "BENCHMARK_CORRECTNESS")
@@ -42,12 +43,7 @@ DAEMON_CONTAINER = "telemetry-daemon"
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "certs/ca.pem")
 VERIFY_SSL: str | bool = CA_CERT if os.path.exists(CA_CERT) else False
 
-REGIONS = [
-    os.getenv("REGION1_NAME", "us-east1"),
-    os.getenv("REGION2_NAME", "eu-west1"),
-    os.getenv("REGION3_NAME", "asia-northeast1"),
-    os.getenv("REGION4_NAME", "af-south1"),
-]
+REGIONS = list(load_nodes())
 
 
 def generate_permutations(num_trials: int = 35) -> list[dict[str, int]]:
