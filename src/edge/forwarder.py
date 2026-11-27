@@ -67,9 +67,7 @@ PROBE_MODE = os.getenv("FORWARDER_PROBE_MODE", "http").strip().lower()
 ALLOWED_REGIONS = [
     r.strip() for r in os.getenv("FORWARDER_ALLOWED_REGIONS", "").split(",") if r.strip()
 ]
-JURISDICTIONS = [
-    j.strip() for j in os.getenv("FORWARDER_JURISDICTION", "").split(",") if j.strip()
-]
+JURISDICTIONS = [j.strip() for j in os.getenv("FORWARDER_JURISDICTION", "").split(",") if j.strip()]
 
 # Optional fallback node used ONLY if the orchestrator is unreachable (default unset = buffer).
 FALLBACK_NODE = os.getenv("FORWARDER_FALLBACK_NODE", "").strip() or None

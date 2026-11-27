@@ -211,9 +211,7 @@ def _run_diomede_strategy(
         deadline = time.monotonic() + drain_timeout_s
         while pending and time.monotonic() < deadline:
             try:
-                edge_ids = set(
-                    client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json()
-                )
+                edge_ids = set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json())
             except Exception:
                 time.sleep(0.5)
                 continue
