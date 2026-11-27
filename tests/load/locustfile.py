@@ -203,7 +203,7 @@ def _check_kpis(environment, **_kwargs) -> None:
                 f"from before this burst started"
             )
         delivered = max(accepted - stuck, 0)
-        ratio = (ingest.num_requests - delivered) / ingest.num_requestss
+        ratio = (ingest.num_requests - delivered) / ingest.num_requests
         verdict = "PASS" if ratio <= MAX_FAIL_RATIO else "FAIL"
         if ratio > MAX_FAIL_RATIO:
             failures.append(f"ingest failure ratio {ratio:.4f} > {MAX_FAIL_RATIO:.4f}")
