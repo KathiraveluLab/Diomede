@@ -1007,6 +1007,27 @@ async def test_latency_probe_waits_the_full_interval_when_every_node_answers(mon
 
 @respx.mock
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "hb_mock",
+    [
+        {"return_value": Response(503)},
+        {"side_effect": ConnectError("orchestrator down")},
+    ],
+)
+async def test_latency_probe_retries_soon_when_heartbeat_delivery_fails(monkeypatch, hb_mock):
+    """A failed heartbeat POST must be retried soon instead of waiting a full PROBE_INTERVAL_S."""
+    for cfg in CLOUD_NODES.values():
+        respx.get(f"{cfg['base']}/system").mock(return_value=Response(200, json={}))
+    respx.post(_ORCH_HB_URL).mock(**hb_mock)
+
+    delay = await _delay_after_one_probe_round(monkeypatch)
+
+    assert forwarder_module._probe_failed == set()
+    assert delay < 3600
+
+
+@respx.mock
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status", [401, 422, 503])
 async def test_latency_probe_logs_a_heartbeat_the_orchestrator_refuses(monkeypatch, caplog, status):
     monkeypatch.setattr(forwarder_module.log, "propagate", True)

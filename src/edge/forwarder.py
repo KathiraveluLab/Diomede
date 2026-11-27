@@ -292,6 +292,7 @@ async def latency_probe_loop() -> None:
                         "node=%-15s probe failed: %s; excluding it from routing", node_id, exc
                     )
 
+            heartbeat_failed = False
             if rtt_dict:
                 try:
                     hb_resp = await client.post(
@@ -302,10 +303,13 @@ async def latency_probe_loop() -> None:
                     )
                     hb_resp.raise_for_status()
                 except Exception as exc:
+                    heartbeat_failed = True
                     log.warning("heartbeat failed: %s", exc)
 
         await asyncio.sleep(
-            min(PROBE_INTERVAL_S, _PROBE_RETRY_S) if _probe_failed else PROBE_INTERVAL_S
+            min(PROBE_INTERVAL_S, _PROBE_RETRY_S)
+            if (_probe_failed or heartbeat_failed)
+            else PROBE_INTERVAL_S
         )
 
 
