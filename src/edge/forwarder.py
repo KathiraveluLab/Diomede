@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import Any, TypedDict
+from typing import Any
 
 import httpx
 from dotenv import load_dotenv
@@ -12,6 +12,7 @@ from src.edge.orthanc_source import OrthancSource
 from src.edge.transport import DicomSource
 from src.utils.env import require_env
 from src.utils.logging_config import get_logger
+from src.utils.nodes import NodeConfig, load_nodes
 
 log = get_logger(__name__, "FORWARDER")
 load_dotenv()
@@ -31,29 +32,7 @@ CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
 _VERIFY = CA_CERT if CA_CERT else True
 
 
-class _NodeCfg(TypedDict):
-    base: str
-    auth: tuple[str, str]
-
-
-CLOUD_NODES: dict[str, _NodeCfg] = {
-    require_env("REGION1_NAME"): {
-        "base": require_env("NODE_US_BASE"),
-        "auth": (require_env("NODE_US_USER"), require_env("NODE_US_PASS")),
-    },
-    require_env("REGION2_NAME"): {
-        "base": require_env("NODE_EU_BASE"),
-        "auth": (require_env("NODE_EU_USER"), require_env("NODE_EU_PASS")),
-    },
-    require_env("REGION3_NAME"): {
-        "base": require_env("NODE_ASIA_BASE"),
-        "auth": (require_env("NODE_ASIA_USER"), require_env("NODE_ASIA_PASS")),
-    },
-    require_env("REGION4_NAME"): {
-        "base": require_env("NODE_AF_BASE"),
-        "auth": (require_env("NODE_AF_USER"), require_env("NODE_AF_PASS")),
-    },
-}
+CLOUD_NODES = load_nodes()
 
 
 # Nodes whose last latency probe failed. The orchestrator scores a node with no measurement at a
@@ -67,6 +46,9 @@ _pending_ack: set[str] = set()
 _REJECTED_STATUSES = {400, 413, 415, 422}
 _REJECTED_RETRY_S = 3600
 _rejected: dict[str, float] = {}
+
+# A node that failed its latency probe is probed again after this long, not PROBE_INTERVAL_S later.
+_PROBE_RETRY_S = 60
 
 # Limited per node, so a node that stops answering only ties up its own uploads.
 _node_slots: dict[str, asyncio.Semaphore] = {}
@@ -185,7 +167,7 @@ async def route_study(
 
 async def _pick_destination(
     client: httpx.AsyncClient, study_id: str, failed: set[str]
-) -> tuple[str, _NodeCfg, dict[str, Any]] | None:
+) -> tuple[str, NodeConfig, dict[str, Any]] | None:
     """Ask where the study goes, skipping nodes that failed an upload and, if another node
     is left, nodes that failed their latency probe.
 
@@ -201,7 +183,7 @@ async def _pick_destination(
 
 async def _destination(
     client: httpx.AsyncClient, study_id: str, exclude: list[str]
-) -> tuple[str, _NodeCfg, dict[str, Any]] | None:
+) -> tuple[str, NodeConfig, dict[str, Any]] | None:
     """Ask the orchestrator where the study goes, skipping nodes in exclude."""
     try:
         best_resp = await client.get(
@@ -287,7 +269,8 @@ async def forward_loop(source: DicomSource) -> None:
 async def latency_probe_loop() -> None:
     """GET /system on each cloud node once per hour, report RTT to /heartbeat.
 
-    A node that cannot be probed is left out of the report and excluded from routing.
+    A node that cannot be probed is left out of the report and excluded from routing, and the
+    probes are repeated after _PROBE_RETRY_S until it answers.
     """
     while True:
         rtt_dict: dict[str, float] = {}
@@ -311,16 +294,19 @@ async def latency_probe_loop() -> None:
 
             if rtt_dict:
                 try:
-                    await client.post(
+                    hb_resp = await client.post(
                         ORCH_HEARTBEAT_URL,
                         json={"agent_id": AGENT_ID, "rtt_dict": rtt_dict},
                         headers=_orch_headers(),
                         timeout=5,
                     )
+                    hb_resp.raise_for_status()
                 except Exception as exc:
                     log.warning("heartbeat failed: %s", exc)
 
-        await asyncio.sleep(PROBE_INTERVAL_S)
+        await asyncio.sleep(
+            min(PROBE_INTERVAL_S, _PROBE_RETRY_S) if _probe_failed else PROBE_INTERVAL_S
+        )
 
 
 async def run(source: DicomSource | None = None) -> None:

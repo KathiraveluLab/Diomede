@@ -959,6 +959,74 @@ async def test_latency_probe_clears_a_node_that_answers_again(monkeypatch):
     assert forwarder_module._probe_failed == set()
 
 
+async def _delay_after_one_probe_round(monkeypatch) -> float:
+    """Run one round of latency_probe_loop and return how long it waits before the next."""
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "ORCH_HEARTBEAT_URL", _ORCH_HB_URL)
+    monkeypatch.setattr(forwarder_module, "PROBE_INTERVAL_S", 3600)
+    delays: list[float] = []
+
+    async def stop_at_sleep(delay: float) -> None:
+        delays.append(delay)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(forwarder_module.asyncio, "sleep", stop_at_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        await forwarder_module.latency_probe_loop()
+    return delays[0]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_latency_probe_retries_a_failed_node_before_the_next_interval(monkeypatch):
+    """A node that missed one probe must not stay out of routing for a whole PROBE_INTERVAL_S."""
+    node_ids = list(CLOUD_NODES)
+    respx.get(f"{CLOUD_NODES[node_ids[0]]['base']}/system").mock(side_effect=ConnectError("down"))
+    for nid in node_ids[1:]:
+        respx.get(f"{CLOUD_NODES[nid]['base']}/system").mock(return_value=Response(200, json={}))
+    respx.post(_ORCH_HB_URL).mock(return_value=Response(204))
+
+    delay = await _delay_after_one_probe_round(monkeypatch)
+
+    assert forwarder_module._probe_failed == {node_ids[0]}
+    assert delay < 3600
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_latency_probe_waits_the_full_interval_when_every_node_answers(monkeypatch):
+    for cfg in CLOUD_NODES.values():
+        respx.get(f"{cfg['base']}/system").mock(return_value=Response(200, json={}))
+    respx.post(_ORCH_HB_URL).mock(return_value=Response(204))
+
+    delay = await _delay_after_one_probe_round(monkeypatch)
+
+    assert forwarder_module._probe_failed == set()
+    assert delay == 3600
+
+
+@respx.mock
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 422, 503])
+async def test_latency_probe_logs_a_heartbeat_the_orchestrator_refuses(monkeypatch, caplog, status):
+    monkeypatch.setattr(forwarder_module.log, "propagate", True)
+    monkeypatch.setattr(forwarder_module, "_VERIFY", True)
+    monkeypatch.setattr(forwarder_module, "ORCH_HEARTBEAT_URL", _ORCH_HB_URL)
+    monkeypatch.setattr(forwarder_module, "PROBE_INTERVAL_S", 0)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", _US_ONLY)
+    respx.get("http://orthanc-us:8042/system").mock(return_value=Response(200, json={}))
+    respx.post(_ORCH_HB_URL).mock(return_value=Response(status))
+
+    task = asyncio.create_task(forwarder_module.latency_probe_loop())
+    await asyncio.sleep(0.1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("heartbeat failed" in m and f"'{status} " in m for m in warnings)
+
+
 @respx.mock
 @pytest.mark.asyncio
 async def test_route_study_asks_for_a_node_other_than_the_probe_failed_one(monkeypatch):

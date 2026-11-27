@@ -86,7 +86,7 @@ without reinstalling. The groups after the dot pull in optional dependencies:
 - `edge` — httpx
 - `scripts` — httpx, pydicom, pynetdicom, python-dotenv (for the simulator scripts)
 - `test` — pytest, fakeredis, respx, pytest-cov, and friends
-- `dev` — ruff, mypy, types-redis, pre-commit
+- `dev` — ruff, mypy, pre-commit
 - `load` — locust (add `,load` if you plan to run the load tests in Step 11)
 
 ## Step 4 — Configure `.env`
@@ -135,7 +135,53 @@ ORCHESTRATOR_API_KEY=your-strong-api-key-here
   quota free is unhealthy. `0` turns the extra check off. Must be a finite,
   non-negative number; the daemon refuses to start otherwise.
 
+- **`CLOUD_NODES`** (optional): the cloud nodes as a JSON list. When it is not
+  set, the Telemetry Daemon, Orchestrator and Forwarder read `config/nodes.json`,
+  which lists the four compose nodes. See [Changing the cloud nodes](#changing-the-cloud-nodes).
+
 `.env` is gitignored and must never be committed.
+
+### Changing the cloud nodes
+
+Each entry in `config/nodes.json` looks like this:
+
+```json
+{
+  "name": "us-east1",
+  "base": "https://orthanc-us:8042",
+  "ae_title": "Orthanc_US",
+  "auth_env": "NODE_US"
+}
+```
+
+`auth_env` is the prefix of the variables in `.env` that hold the node's login,
+here `NODE_US_USER` and `NODE_US_PASS`, so the list itself has no passwords. After
+changing the list, run `docker compose up -d --force-recreate telemetry-daemon
+orchestrator agent-001`; a plain `restart` does not pick up a new `CLOUD_NODES`. A
+missing login or a bad list stops them at startup with an error that says what to fix.
+
+`docker-compose.yml` still names the node containers from `REGIONn_HOST` and serves
+Orthanc on `ORTHANC_HTTPS_PORT`, both from `.env`. The `base` URLs in the list are not
+built from those values, so if you change `REGION1_HOST` or `ORTHANC_HTTPS_PORT`, change
+the matching `base` in `config/nodes.json` too. Nothing warns you when they differ; the
+daemon and forwarder just can't reach the node.
+
+A new node also needs its own service in `docker-compose.yml` and its own
+`config/orthanc/<name>.template.json`. Run `scripts/gen_certs.sh` to get its certificate:
+it signs one for the host of every node in the list. It also replaces the CA and all the
+other certificates, so run `docker compose up -d --force-recreate` for the whole stack
+afterwards and copy the new certificates to any node outside it. If it fails, the
+existing certificates stay as they were.
+
+To remove a node, also remove its service and its `depends_on` entries, since
+`gen_certs.sh` no longer signs a certificate for it. Keep the list in `.env` or
+`config/nodes.json` for the compose stack: a `CLOUD_NODES` set only in your shell reaches
+`gen_certs.sh` but not the containers. IPv6 addresses aren't supported in the list yet.
+
+`REGION*_NAME`, `REGION*_AET` and `NODE_*_BASE` no longer do anything. If your `.env`
+changed them, move those values to the list; the services log a warning until they
+are removed. `src/benchmark/success_rate.py` and `failover_time.py` only measure the
+four compose nodes.
 
 ## Step 5 — Generate TLS certificates
 
@@ -187,9 +233,10 @@ docker compose ps          # wait for all four to show Up (healthy)
 docker compose up -d --build orchestrator agent-001
 ```
 
-The orchestrator waits (`depends_on: service_healthy`) for the four nodes, and the
-edge agent waits for the orchestrator — so starting them in this order avoids
-startup races.
+The telemetry daemon waits (`depends_on: service_healthy`) for Redis and the four
+nodes, the orchestrator waits for Redis, and the edge agent waits for the
+orchestrator and for the telemetry daemon to start — so starting them in this order
+avoids startup races, and starting the edge agent also starts the daemon.
 
 ## Step 7 — Verify it's running
 
@@ -264,9 +311,27 @@ so to send a real study use the verifier. It uploads the file to the edge, waits
 for the forwarder to route it, downloads it back from whichever cloud node won, and
 diffs every header tag and pixel against the original (exit `0` = lossless).
 
+Files without pixel data, including Grayscale Softcopy Presentation States, still
+undergo the metadata audit. Missing, added, or altered header tags make verification
+fail with exit `1`, even when pixel comparison is skipped.
+
 ```bash
 python -m src.utils.verify_pipeline --local-path data/sample_dicom/IM_0001
 ```
+
+To check non-pixel objects against the running stack, run:
+
+```bash
+python -m pytest tests/integration/test_verify_pipeline.py -v -m integration
+```
+
+Both cases generate synthetic DICOM files (one without PixelData and one GSPS),
+invoke the real verifier CLI, and require exit `0` with no metadata drift after
+Edge Orthanc storage, forwarding, and cloud Orthanc retrieval. Transport and
+comparison are not mocked. A failure includes the verifier's tag-drift output;
+review any Orthanc changes before treating them as harmless. These cases also run
+in the Integration Tests workflow. A skipped test is not evidence of a successful
+round trip: the stack must be running with the generated CA certificate available.
 
 `data/sample_dicom/IM_0001` is a real anonymized MR slice (Philips Ingenia, 480×480,
 ~460 KB) included in the repo. Drop in any other anonymized DICOM from
@@ -318,11 +383,11 @@ python -m pytest tests/unit/ -v -m unit --cov=src --cov-fail-under=80
 ruff check src/
 ruff format --check src/
 
-# mypy runs from inside each service dir because they use bare imports
-# (e.g. `from scorer import ...`) that only resolve on that dir's path — the
-# same way the containers import at runtime.
+# mypy runs from the repo root, as CI does. Run from inside a service dir, the
+# modules lose their `src.<package>` names, so the `src.` and relative imports
+# resolve to Any and report errors that CI does not.
 for src_dir in src/orchestrator src/edge src/simulator; do
-  (cd "$src_dir" && mypy .)
+  mypy "$src_dir"
 done
 ```
 
@@ -388,7 +453,7 @@ docker compose logs --tail=50 <service>  # last 50 lines
 ```
 
 Service names: `orthanc-us`, `orthanc-eu`, `orthanc-asia`, `orthanc-af`,
-`orchestrator`, `agent-001`.
+`redis`, `telemetry-daemon`, `orchestrator`, `agent-001`.
 
 **Inspect health-check output** (`docker compose logs` only shows the main process —
 Orthanc or Uvicorn — not the individual health probes):

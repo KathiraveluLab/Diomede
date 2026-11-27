@@ -18,7 +18,7 @@ jobs:
           cache: pip
 
       - name: Install type-check deps
-        run: pip install mypy types-redis pydantic fastapi httpx
+        run: pip install mypy 'redis>=8' pydantic fastapi httpx
 
       - name: mypy
         run: |

@@ -1,0 +1,26 @@
+[
+  {
+    "name": "us-east1",
+    "base": "https://orthanc-us:8042",
+    "ae_title": "Orthanc_US",
+    "auth_env": "NODE_US"
+  },
+  {
+    "name": "eu-west1",
+    "base": "https://orthanc-eu:8042",
+    "ae_title": "Orthanc_EU",
+    "auth_env": "NODE_EU"
+  },
+  {
+    "name": "asia-northeast1",
+    "base": "https://orthanc-asia:8042",
+    "ae_title": "Orthanc_ASIA",
+    "auth_env": "NODE_ASIA"
+  },
+  {
+    "name": "af-south1",
+    "base": "https://orthanc-af:8042",
+    "ae_title": "Orthanc_AF",
+    "auth_env": "NODE_AF"
+  }
+]

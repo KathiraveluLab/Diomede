@@ -35,14 +35,10 @@ CLOUD_AUTH = (
     os.getenv("ORTHANC_PASSWORD", "orthanc"),
 )
 CLOUD_URLS: dict[str, str] = {
-    os.getenv("REGION1_NAME", "us-east1"): os.getenv("NODE_US_HTTPS_URL", "https://localhost:8042"),
-    os.getenv("REGION2_NAME", "eu-west1"): os.getenv("NODE_EU_HTTPS_URL", "https://localhost:8043"),
-    os.getenv("REGION3_NAME", "asia-northeast1"): os.getenv(
-        "NODE_ASIA_HTTPS_URL", "https://localhost:8044"
-    ),
-    os.getenv("REGION4_NAME", "af-south1"): os.getenv(
-        "NODE_AF_HTTPS_URL", "https://localhost:8045"
-    ),
+    "us-east1": os.getenv("NODE_US_HTTPS_URL", "https://localhost:8042"),
+    "eu-west1": os.getenv("NODE_EU_HTTPS_URL", "https://localhost:8043"),
+    "asia-northeast1": os.getenv("NODE_ASIA_HTTPS_URL", "https://localhost:8044"),
+    "af-south1": os.getenv("NODE_AF_HTTPS_URL", "https://localhost:8045"),
 }
 
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "certs/ca.pem")

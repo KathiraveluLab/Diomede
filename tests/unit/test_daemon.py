@@ -122,7 +122,9 @@ async def test_http_401_writes_unhealthy_payload():
 async def test_jobs_endpoint_failure_writes_unhealthy_payload():
     """/statistics succeeds but /jobs fails — whole poll is treated as unhealthy."""
     respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=STATS_OK))
-    respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(500))
+    respx.get(f"{BASE}/system").mock(return_value=Response(200, json=SYSTEM_OK))
+    # A 500 with a parseable body: the status code alone must trip the failure path.
+    respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(500, json=[]))
 
     redis = await _redis()
     async with httpx.AsyncClient() as client:
@@ -181,11 +183,16 @@ def test_no_ttl_warning_with_default_settings(monkeypatch, caplog):
 @pytest.mark.asyncio
 async def test_redis_key_written_with_correct_ttl():
     respx.get(f"{BASE}/statistics").mock(return_value=Response(200, json=STATS_OK))
+    respx.get(f"{BASE}/system").mock(return_value=Response(200, json=SYSTEM_OK))
     respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=[]))
 
     redis = await _redis()
     async with httpx.AsyncClient() as client:
         await poll_node(client, redis, "us-east1", _cfg())
+
+    # The successful payload is the one whose TTL is being checked here.
+    payload = json.loads(await redis.get("node:us-east1"))
+    assert payload["healthy"] is True
 
     ttl = await redis.ttl("node:us-east1")
     assert 0 < ttl <= REDIS_TTL_S
@@ -277,7 +284,7 @@ async def test_redis_write_failure_is_logged_not_raised(monkeypatch, caplog):
     respx.get(f"{BASE}/jobs?expand").mock(return_value=Response(200, json=JOBS_MIXED))
 
     redis = await _redis()
-    monkeypatch.setattr(redis, "setex", AsyncMock(side_effect=ConnectionError("redis down")))
+    monkeypatch.setattr(redis, "set", AsyncMock(side_effect=ConnectionError("redis down")))
     async with httpx.AsyncClient() as client:
         await poll_node(client, redis, "us-east1", _cfg())
 
@@ -289,7 +296,14 @@ async def test_redis_write_failure_is_logged_not_raised(monkeypatch, caplog):
 
 def test_warns_when_default_node_password_is_used(monkeypatch, caplog):
     monkeypatch.setattr(daemon_module.log, "propagate", True)
-    monkeypatch.setenv("NODE_US_PASS", "orthanc")
+    monkeypatch.setattr(
+        daemon_module,
+        "NODES",
+        {
+            "eu-west1": {**_cfg(), "auth": ("u", "strong")},
+            "us-east1": {**_cfg(), "auth": ("u", "orthanc")},
+        },
+    )
 
     daemon_module._warn_default_creds()
 
@@ -298,7 +312,7 @@ def test_warns_when_default_node_password_is_used(monkeypatch, caplog):
 
 def test_no_credential_warning_when_password_is_changed(monkeypatch, caplog):
     monkeypatch.setattr(daemon_module.log, "propagate", True)
-    monkeypatch.setenv("NODE_US_PASS", "a-strong-password")
+    monkeypatch.setattr(daemon_module, "NODES", {"us-east1": {**_cfg(), "auth": ("u", "strong")}})
 
     daemon_module._warn_default_creds()
 
@@ -333,7 +347,7 @@ async def test_run_polls_every_node_then_closes_redis(monkeypatch):
 
     assert poll.await_count == len(NODES)
     assert {call.args[2] for call in poll.await_args_list} == set(NODES)
-    fake_redis.close.assert_awaited_once()
+    fake_redis.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
