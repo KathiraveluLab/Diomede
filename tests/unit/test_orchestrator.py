@@ -561,6 +561,7 @@ async def test_heartbeat_returns_503_when_redis_unreachable(monkeypatch):
 
 # Scoring weights from environment
 
+
 @pytest.mark.parametrize("value", [0.0, -1.0, float("nan"), float("inf"), float("-inf")])
 def test_invalid_rtt_reference_rejected(value):
     with pytest.raises(ValueError, match="rtt_ref_ms"):
