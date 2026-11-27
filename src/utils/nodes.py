@@ -1,10 +1,12 @@
 """The cloud node list shared by the telemetry daemon, the orchestrator and the forwarder."""
 
+from __future__ import annotations
+
 import json
 import os
 import re
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 from urllib.parse import urlsplit
 
 from src.utils.env import require_env
@@ -21,13 +23,17 @@ class NodeConfig(TypedDict):
     base: str
     ae_title: str
     auth: tuple[str, str]
+    jurisdiction: NotRequired[str]
+    dicom_host: NotRequired[str]
+    dicom_port: NotRequired[int]
 
 
 def load_nodes() -> dict[str, NodeConfig]:
     """Return the nodes in the CLOUD_NODES env variable, or in config/nodes.json if it is unset.
 
     A node's auth_env names the variables that hold its login (NODE_US means NODE_US_USER and
-    NODE_US_PASS), which keeps passwords out of the list.
+    NODE_US_PASS), which keeps passwords out of the list. Optional fields (jurisdiction,
+    dicom_host, dicom_port) are preserved when specified in the list entry.
     """
     removed = sorted(name for name in os.environ if _REMOVED_VARS.fullmatch(name))
     if removed:
@@ -61,7 +67,7 @@ def load_nodes() -> dict[str, NodeConfig]:
         url = urlsplit(entry["base"])
         if url.scheme not in ("http", "https") or not url.netloc:
             raise RuntimeError(f"Node {entry['name']!r} in {source} needs an http(s) base URL")
-        nodes[entry["name"]] = {
+        node_cfg: NodeConfig = {
             "base": entry["base"].rstrip("/"),
             "ae_title": entry["ae_title"],
             "auth": (
@@ -69,4 +75,26 @@ def load_nodes() -> dict[str, NodeConfig]:
                 require_env(f"{entry['auth_env']}_PASS"),
             ),
         }
+        jurisdiction = entry.get("jurisdiction")
+        if jurisdiction is not None:
+            if not isinstance(jurisdiction, str) or not jurisdiction.strip():
+                raise RuntimeError(
+                    f"Node {entry['name']!r} in {source} has an invalid jurisdiction"
+                )
+            node_cfg["jurisdiction"] = jurisdiction.strip()
+        dicom_host = entry.get("dicom_host")
+        if dicom_host is not None:
+            if not isinstance(dicom_host, str) or not dicom_host.strip():
+                raise RuntimeError(f"Node {entry['name']!r} in {source} has an invalid dicom_host")
+            node_cfg["dicom_host"] = dicom_host.strip()
+        dicom_port = entry.get("dicom_port")
+        if dicom_port is not None:
+            if (
+                isinstance(dicom_port, bool)
+                or not isinstance(dicom_port, int)
+                or not (1 <= dicom_port <= 65535)
+            ):
+                raise RuntimeError(f"Node {entry['name']!r} in {source} has an invalid dicom_port")
+            node_cfg["dicom_port"] = dicom_port
+        nodes[entry["name"]] = node_cfg
     return nodes

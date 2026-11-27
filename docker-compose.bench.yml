@@ -1,6 +1,69 @@
-# Publishes Redis on the host's loopback only, for src/benchmark/routing_correctness.py.
-#   docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d
+# Benchmark & multi-edge override:
+#   - Publishes Redis on host loopback (127.0.0.1:6379) for benchmark harnesses
+#   - Adds a second Edge Agent (agent-002) for multi-edge WAN evaluation
+#   - Adds an HAProxy active-health-checked load balancer baseline on port 8049
+#
+# Usage:
+#   EDGE_AGENTS="agent-001 agent-002" bash scripts/gen_certs.sh
+#   docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d --build
+volumes:
+  orthanc-edge2-data:
+
 services:
   redis:
     ports:
       - "127.0.0.1:6379:6379"
+
+  agent-002:
+    build:
+      context: .
+      dockerfile: ./config/edge/Dockerfile
+    container_name: agent-002
+    ports:
+      - "8047:8042"
+      - "4247:4242"
+    env_file: .env
+    volumes:
+      - ./config/orthanc/edge.template.json:/etc/orthanc/orthanc.template.json:ro
+      - ./config/nodes.json:/app/config/nodes.json:ro
+      - ./certs/agent-002:/etc/orthanc/certs:ro
+      - ./certs/ca.pem:/certs/ca.pem:ro
+      - orthanc-edge2-data:/var/lib/orthanc/db
+    cap_add:
+      - NET_ADMIN
+    environment:
+      EDGE_BASE: "${NODE_INT_BASE}"
+      AGENT_ID: "agent-002"
+      ORCH_URL: "${ORCHESTRATOR_BASE}/get-best-node"
+      ORCH_HEARTBEAT_URL: "${ORCHESTRATOR_BASE}/heartbeat"
+      REQUESTS_CA_BUNDLE: ${REQUESTS_CA_BUNDLE}
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+      telemetry-daemon:
+        condition: service_started
+    networks:
+      - diomede-net
+    restart: unless-stopped
+
+  haproxy-baseline:
+    image: haproxy:2.9-alpine
+    container_name: haproxy-baseline
+    ports:
+      - "8049:8049"
+    volumes:
+      - ./config/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./certs/orchestrator/combined.pem:/certs/combined.pem:ro
+      - ./certs/ca.pem:/certs/ca.pem:ro
+    depends_on:
+      orthanc-us:
+        condition: service_healthy
+      orthanc-eu:
+        condition: service_healthy
+      orthanc-asia:
+        condition: service_healthy
+      orthanc-af:
+        condition: service_healthy
+    networks:
+      - diomede-net
+    restart: unless-stopped

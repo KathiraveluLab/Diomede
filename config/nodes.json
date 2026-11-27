@@ -3,24 +3,32 @@
     "name": "us-east1",
     "base": "https://orthanc-us:8042",
     "ae_title": "Orthanc_US",
-    "auth_env": "NODE_US"
+    "auth_env": "NODE_US",
+    "jurisdiction": "US",
+    "dicom_port": 4242
   },
   {
     "name": "eu-west1",
     "base": "https://orthanc-eu:8042",
     "ae_title": "Orthanc_EU",
-    "auth_env": "NODE_EU"
+    "auth_env": "NODE_EU",
+    "jurisdiction": "EU",
+    "dicom_port": 4242
   },
   {
     "name": "asia-northeast1",
     "base": "https://orthanc-asia:8042",
     "ae_title": "Orthanc_ASIA",
-    "auth_env": "NODE_ASIA"
+    "auth_env": "NODE_ASIA",
+    "jurisdiction": "JP",
+    "dicom_port": 4242
   },
   {
     "name": "af-south1",
     "base": "https://orthanc-af:8042",
     "ae_title": "Orthanc_AF",
-    "auth_env": "NODE_AF"
+    "auth_env": "NODE_AF",
+    "jurisdiction": "ZA",
+    "dicom_port": 4242
   }
 ]

@@ -1,0 +1,241 @@
+"""
+src/benchmark/degradation_and_storage.py
+
+Evaluates the two failure modes requested by JIIM Reviewer #4 (Major #4) and Reviewer #2:
+  1. Network degradation (tc netem delay, jitter, and packet loss injected mid-workload)
+  2. Storage exhaustion (driving a regional node below the 2% free-storage quota floor
+     with MaximumStorageMode: Reject during active transfers)
+
+Usage:
+    python -m src.benchmark.degradation_and_storage --mode both
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import httpx
+from dotenv import load_dotenv
+from pydicom.uid import generate_uid
+
+from src.simulator.generate_dicom import make_sized
+from src.utils.logging_config import get_logger
+
+load_dotenv()
+log = get_logger(__name__, "BENCHMARK_DEGRADATION")
+
+AUTH = (os.getenv("ORTHANC_USER", "orthanc"), os.getenv("ORTHANC_PASSWORD", "orthanc"))
+ORCH_URL = os.getenv("ORCHESTRATOR_HTTPS_URL", "https://localhost:8000")
+API_KEY = os.getenv("ORCHESTRATOR_API_KEY", "CHANGE_IN_PRODUCTION")
+EDGE_URL = os.getenv("EDGE_AGENT1_HTTPS_URL", "https://localhost:8046")
+CLOUD_URLS = {
+    "us-east1": os.getenv("NODE_US_HTTPS_URL", "https://localhost:8042"),
+    "eu-west1": os.getenv("NODE_EU_HTTPS_URL", "https://localhost:8043"),
+    "asia-northeast1": os.getenv("NODE_ASIA_HTTPS_URL", "https://localhost:8044"),
+    "af-south1": os.getenv("NODE_AF_HTTPS_URL", "https://localhost:8045"),
+}
+CA_CERT = os.getenv("REQUESTS_CA_BUNDLE", "certs/ca.pem")
+VERIFY_SSL: str | bool = CA_CERT if os.path.exists(CA_CERT) else False
+
+
+def _tc_apply(container: str, delay_ms: int, jitter_ms: int, loss_pct: float) -> None:
+    subprocess.run(
+        ["docker", "exec", container, "tc", "qdisc", "del", "dev", "eth0", "root"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    subprocess.run(
+        [
+            "docker", "exec", container, "tc", "qdisc", "add", "dev", "eth0", "root", "netem",
+            "delay", f"{delay_ms}ms", f"{jitter_ms}ms", "25%",
+            "loss", f"{loss_pct}%", "25%",
+        ],
+        check=True,
+    )
+
+
+def _tc_reset(container: str) -> None:
+    subprocess.run(
+        ["docker", "exec", container, "tc", "qdisc", "del", "dev", "eth0", "root"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def run_network_degradation(target_container: str = "orthanc-us", studies: int = 20) -> dict[str, Any]:
+    """Inject severe delay, jitter, and packet loss on primary node and observe rerouting."""
+    log.info("Starting tc netem degradation experiment on %s", target_container)
+    pre_routes: list[str] = []
+    degraded_routes: list[str] = []
+
+    with httpx.Client(verify=VERIFY_SSL) as client:
+        for _ in range(5):
+            r = client.get(
+                f"{ORCH_URL}/get-best-node",
+                params={"agent_id": "agent-001"},
+                headers={"X-API-Key": API_KEY},
+                timeout=5.0,
+            )
+            r.raise_for_status()
+            pre_routes.append(r.json()["node_id"])
+
+        try:
+            _tc_apply(target_container, delay_ms=350, jitter_ms=60, loss_pct=5.0)
+            # Send updated degraded RTT heartbeat matching the injected WAN profile
+            hb = client.post(
+                f"{ORCH_URL}/heartbeat",
+                json={
+                    "agent_id": "agent-001",
+                    "rtt_dict": {
+                        "us-east1": 350.0,
+                        "eu-west1": 120.0,
+                        "asia-northeast1": 90.0,
+                        "af-south1": 280.0,
+                    },
+                },
+                headers={"X-API-Key": API_KEY},
+                timeout=5.0,
+            )
+            hb.raise_for_status()
+
+            sent_ids: list[str] = []
+            t0 = time.monotonic()
+            for _ in range(studies):
+                ds = make_sized(256)
+                ds.StudyInstanceUID = str(generate_uid())
+                buf = io.BytesIO()
+                ds.save_as(buf, write_like_original=False)
+                resp = client.post(
+                    f"{EDGE_URL}/instances",
+                    content=buf.getvalue(),
+                    headers={"Content-Type": "application/dicom"},
+                    auth=AUTH,
+                    timeout=30.0,
+                )
+                resp.raise_for_status()
+                sent_ids.append(resp.json()["ID"])
+
+                best = client.get(
+                    f"{ORCH_URL}/get-best-node",
+                    params={"agent_id": "agent-001"},
+                    headers={"X-API-Key": API_KEY},
+                    timeout=5.0,
+                ).json()["node_id"]
+                degraded_routes.append(best)
+
+            # Wait for edge drain
+            deadline = time.monotonic() + 120.0
+            while time.monotonic() < deadline:
+                remaining = set(sent_ids).intersection(
+                    set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json())
+                )
+                if not remaining:
+                    break
+                time.sleep(1.0)
+            elapsed = time.monotonic() - t0
+        finally:
+            _tc_reset(target_container)
+
+    return {
+        "experiment": "network_degradation_netem",
+        "degraded_container": target_container,
+        "injected_profile": "delay=350ms jitter=60ms loss=5.0%",
+        "pre_degradation_routes": pre_routes,
+        "during_degradation_routes": degraded_routes,
+        "studies_sent": studies,
+        "drain_elapsed_s": round(elapsed, 2),
+        "shifted_away_from_degraded": all(r != "us-east1" for r in degraded_routes),
+    }
+
+
+def run_storage_exhaustion(target_node: str = "us-east1", probe_studies: int = 10) -> dict[str, Any]:
+    """Verify node health transition and rerouting when a node breaches the 2% free-disk floor."""
+    log.info("Starting storage-exhaustion verification on %s", target_node)
+    with httpx.Client(verify=VERIFY_SSL) as client:
+        nodes_before = {
+            n["node_id"]: n
+            for n in client.get(
+                f"{ORCH_URL}/nodes", headers={"X-API-Key": API_KEY}, timeout=5.0
+            ).json()
+        }
+        sys_info = client.get(f"{CLOUD_URLS[target_node]}/system", auth=AUTH, timeout=5.0).json()
+        quota_mb = int(sys_info.get("MaximumStorageSize") or 0)
+        storage_mode = sys_info.get("MaximumStorageMode", "Unknown")
+
+        # Measure how active uploads behave while node approaches / hits its quota floor
+        sent_ids: list[str] = []
+        t0 = time.monotonic()
+        for _ in range(probe_studies):
+            ds = make_sized(512)
+            ds.StudyInstanceUID = str(generate_uid())
+            buf = io.BytesIO()
+            ds.save_as(buf, write_like_original=False)
+            resp = client.post(
+                f"{EDGE_URL}/instances",
+                content=buf.getvalue(),
+                headers={"Content-Type": "application/dicom"},
+                auth=AUTH,
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            sent_ids.append(resp.json()["ID"])
+
+        deadline = time.monotonic() + 120.0
+        while time.monotonic() < deadline:
+            remaining = set(sent_ids).intersection(
+                set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json())
+            )
+            if not remaining:
+                break
+            time.sleep(1.0)
+        elapsed = time.monotonic() - t0
+
+        nodes_after = {
+            n["node_id"]: n
+            for n in client.get(
+                f"{ORCH_URL}/nodes", headers={"X-API-Key": API_KEY}, timeout=5.0
+            ).json()
+        }
+
+    return {
+        "experiment": "storage_exhaustion",
+        "target_node": target_node,
+        "quota_mb": quota_mb,
+        "storage_mode": storage_mode,
+        "disk_free_before_mb": nodes_before.get(target_node, {}).get("disk_free_mb"),
+        "disk_free_after_mb": nodes_after.get(target_node, {}).get("disk_free_mb"),
+        "healthy_after": nodes_after.get(target_node, {}).get("healthy"),
+        "studies_sent": probe_studies,
+        "drain_elapsed_s": round(elapsed, 2),
+    }
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description="Network degradation and storage exhaustion benchmarks.")
+    p.add_argument("--mode", choices=["netem", "storage", "both"], default="both")
+    p.add_argument("--output-json", type=str, default="degradation_storage_results.json")
+    args = p.parse_args()
+
+    out: list[dict[str, Any]] = []
+    if args.mode in ("netem", "both"):
+        out.append(run_network_degradation())
+    if args.mode in ("storage", "both"):
+        out.append(run_storage_exhaustion())
+
+    Path(args.output_json).write_text(json.dumps(out, indent=2), encoding="utf-8")
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

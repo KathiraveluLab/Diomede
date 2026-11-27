@@ -18,7 +18,8 @@ log = get_logger(__name__, "ORCHESTRATOR")
 
 class WeightedScorer(NodeScorer):
     """Ranks nodes by a weighted sum of three inverse-cost signals:
-    queue depth, disk space, and RTT.
+    effective queue depth (background jobs + live in-flight ingestion uploads),
+    disk space, and RTT.
 
     Default weights favour queue depth (0.5) and RTT (0.35) over disk (0.15), reflecting that
     a backlogged or slow node is a worse destination than a nearly-full one.
@@ -60,9 +61,18 @@ class WeightedScorer(NodeScorer):
         )
 
     def score(self, node: dict[str, Any]) -> float:
-        """Compute score = w_queue*(1/(q+1)) + w_disk*(free/total) + w_rtt*(1/(rtt+1))."""
-        q_size = node.get("queue_size")
-        q_score = 1.0 / (float(q_size if q_size is not None else 0) + 1)
+        """Compute score = w_queue*(1/(q+1)) + w_disk*(free/total) + w_rtt*(1/(rtt/rtt_ref+1)).
+
+        Effective queue depth combines Orthanc background jobs (``queue_size``) with active
+        in-flight ingestion uploads (``inflight_uploads``) so synchronous uploads are reflected
+        in load balancing.
+        """
+        q_jobs = node.get("queue_size")
+        q_inflight = node.get("inflight_uploads")
+        q_size = float(q_jobs if q_jobs is not None else 0) + float(
+            q_inflight if q_inflight is not None else 0
+        )
+        q_score = 1.0 / (q_size + 1.0)
         raw_free = node.get("disk_free_mb")
         raw_total = node.get("disk_total_mb")
         if raw_free is None or raw_total is None:
@@ -81,8 +91,8 @@ class WeightedScorer(NodeScorer):
 
         log.info(
             f"Scoring node {node.get('node_id', 'unknown')}:\n"
-            f"  q_size={q_size}, q_score={q_score:.4f}, disk_free={disk_free}, \n"
-            f"  disk_total={disk_total}, disk_score={disk_score:.4f},\n"
+            f"  q_jobs={q_jobs}, q_inflight={q_inflight}, q_score={q_score:.4f}, "
+            f"disk_free={disk_free}, disk_total={disk_total}, disk_score={disk_score:.4f},\n"
             f"  rtt_ms={rtt_ms}, rtt_score={rtt_score:.4f}"
         )
         log.info(f"TOTAL SCORE: {node.get('node_id', 'unknown')} = {total_score:.4f}")

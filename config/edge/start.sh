@@ -6,7 +6,7 @@
 set -e
 
 echo "[start.sh] Generating Orthanc config from template..."
-python3 -m src.utils.render_orthanc_config /etc/orthanc/orthanc.template.json /tmp/orthanc.json
+python3 -m src.utils.render_orthanc_config /etc/orthanc/orthanc.template.json /tmp/orthanc.json --nodes-file /app/config/nodes.json
 
 echo "[start.sh] Starting Orthanc..."
 Orthanc /tmp/orthanc.json &

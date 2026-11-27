@@ -109,6 +109,7 @@ async def poll_node(
             "disk_free_mb": disk_free_mb,
             "disk_total_mb": disk_total_mb,
             "instance_count": stats.get("CountInstances", 0),
+            "jurisdiction": cfg.get("jurisdiction"),
             "healthy": not is_disk_full,
             "ts": datetime.now(tz=UTC).isoformat(),
         }

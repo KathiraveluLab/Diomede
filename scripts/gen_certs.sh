@@ -59,7 +59,7 @@ sign_cert() {
   # Use a temp file instead of process substitution so set -euo pipefail works correctly
   local ext
   ext=$(mktemp)
-  printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\n' "$san" > "$ext"
+  printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth,clientAuth\n' "$san" > "$ext"
 
   openssl x509 -req \
     -in "$dir/server.csr" \
@@ -168,8 +168,9 @@ openssl req -x509 -new -nodes \
 echo "  CA → $CERTS/ca.pem"
 echo ""
 
-# Server certs ────────────────────────────────────────────────────────────────
-for name in orchestrator $hosts agent-001; do
+# Server + mutual-TLS peer certs ──────────────────────────────────────────────
+edge_agents="${EDGE_AGENTS:-agent-001}"
+for name in orchestrator $hosts $edge_agents; do
   sign_cert "$name"
   echo "$name done"
 done
