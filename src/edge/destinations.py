@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -49,7 +50,7 @@ async def forward_rest_instance(
 
     async with source.open_stream(client, instance_id) as body:
 
-        async def _counting_stream():  # type: ignore[no-untyped-def]
+        async def _counting_stream() -> AsyncIterator[bytes]:
             nonlocal bytes_sent
             async for chunk in body:
                 bytes_sent += len(chunk)

@@ -164,7 +164,13 @@ def _run_direct_strategy(
 
     elapsed = time.monotonic() - t_run_start
     return _summarize(
-        name, len(studies), study_times, failed_studies, total_retries, total_bytes, elapsed,
+        name,
+        len(studies),
+        study_times,
+        failed_studies,
+        total_retries,
+        total_bytes,
+        elapsed,
         list(per_target_counts.values()),
     )
 
@@ -306,9 +312,24 @@ def main() -> int:
     results: list[dict[str, Any]] = []
 
     scenarios = [
-        ("static_us", lambda: _run_direct_strategy("static_us", studies, [CLOUD_URLS["us-east1"]], args.concurrency)),
-        ("round_robin", lambda: _run_direct_strategy("round_robin", studies, list(CLOUD_URLS.values()), args.concurrency)),
-        ("haproxy_leastconn", lambda: _run_direct_strategy("haproxy_leastconn", studies, [HAPROXY_URL], args.concurrency)),
+        (
+            "static_us",
+            lambda: _run_direct_strategy(
+                "static_us", studies, [CLOUD_URLS["us-east1"]], args.concurrency
+            ),
+        ),
+        (
+            "round_robin",
+            lambda: _run_direct_strategy(
+                "round_robin", studies, list(CLOUD_URLS.values()), args.concurrency
+            ),
+        ),
+        (
+            "haproxy_leastconn",
+            lambda: _run_direct_strategy(
+                "haproxy_leastconn", studies, [HAPROXY_URL], args.concurrency
+            ),
+        ),
         ("diomede", lambda: _run_diomede_strategy("diomede", studies)),
     ]
 
@@ -316,7 +337,9 @@ def main() -> int:
         log.info("=== Running baseline scenario: %s (outage=%s) ===", label, args.simulate_outage)
         outage_thread = None
         if args.simulate_outage:
-            outage_thread = _schedule_outage(args.outage_node, delay_s=3.0, duration_s=args.outage_duration_s)
+            outage_thread = _schedule_outage(
+                args.outage_node, delay_s=3.0, duration_s=args.outage_duration_s
+            )
         res = fn()
         if outage_thread is not None:
             outage_thread.join()

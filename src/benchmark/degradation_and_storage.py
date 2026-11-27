@@ -55,9 +55,23 @@ def _tc_apply(container: str, delay_ms: int, jitter_ms: int, loss_pct: float) ->
     )
     subprocess.run(
         [
-            "docker", "exec", container, "tc", "qdisc", "add", "dev", "eth0", "root", "netem",
-            "delay", f"{delay_ms}ms", f"{jitter_ms}ms", "25%",
-            "loss", f"{loss_pct}%", "25%",
+            "docker",
+            "exec",
+            container,
+            "tc",
+            "qdisc",
+            "add",
+            "dev",
+            "eth0",
+            "root",
+            "netem",
+            "delay",
+            f"{delay_ms}ms",
+            f"{jitter_ms}ms",
+            "25%",
+            "loss",
+            f"{loss_pct}%",
+            "25%",
         ],
         check=True,
     )
@@ -72,7 +86,9 @@ def _tc_reset(container: str) -> None:
     )
 
 
-def run_network_degradation(target_container: str = "orthanc-us", studies: int = 20) -> dict[str, Any]:
+def run_network_degradation(
+    target_container: str = "orthanc-us", studies: int = 20
+) -> dict[str, Any]:
     """Inject severe delay, jitter, and packet loss on primary node and observe rerouting."""
     log.info("Starting tc netem degradation experiment on %s", target_container)
     pre_routes: list[str] = []
@@ -158,7 +174,9 @@ def run_network_degradation(target_container: str = "orthanc-us", studies: int =
     }
 
 
-def run_storage_exhaustion(target_node: str = "us-east1", probe_studies: int = 10) -> dict[str, Any]:
+def run_storage_exhaustion(
+    target_node: str = "us-east1", probe_studies: int = 10
+) -> dict[str, Any]:
     """Verify node health transition and rerouting when a node breaches the 2% free-disk floor."""
     log.info("Starting storage-exhaustion verification on %s", target_node)
     with httpx.Client(verify=VERIFY_SSL) as client:
@@ -221,7 +239,9 @@ def run_storage_exhaustion(target_node: str = "us-east1", probe_studies: int = 1
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Network degradation and storage exhaustion benchmarks.")
+    p = argparse.ArgumentParser(
+        description="Network degradation and storage exhaustion benchmarks."
+    )
     p.add_argument("--mode", choices=["netem", "storage", "both"], default="both")
     p.add_argument("--output-json", type=str, default="degradation_storage_results.json")
     args = p.parse_args()

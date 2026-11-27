@@ -27,7 +27,7 @@ services:
       - -c
       - |
         python3 /etc/orthanc/render_orthanc_config.py \
-          /etc/orthanc/orthanc.template.json /tmp/orthanc.json
+          /etc/orthanc/orthanc.template.json /tmp/orthanc.json --enable-dicomweb
         exec Orthanc /tmp/orthanc.json
     volumes:
       - ./config/orthanc/us.template.json:/etc/orthanc/orthanc.template.json:ro
@@ -69,7 +69,7 @@ services:
       - -c
       - |
         python3 /etc/orthanc/render_orthanc_config.py \
-          /etc/orthanc/orthanc.template.json /tmp/orthanc.json
+          /etc/orthanc/orthanc.template.json /tmp/orthanc.json --enable-dicomweb
         exec Orthanc /tmp/orthanc.json
     volumes:
       - ./config/orthanc/eu.template.json:/etc/orthanc/orthanc.template.json:ro
@@ -111,7 +111,7 @@ services:
       - -c
       - |
         python3 /etc/orthanc/render_orthanc_config.py \
-          /etc/orthanc/orthanc.template.json /tmp/orthanc.json
+          /etc/orthanc/orthanc.template.json /tmp/orthanc.json --enable-dicomweb
         exec Orthanc /tmp/orthanc.json
     volumes:
       - ./config/orthanc/asia.template.json:/etc/orthanc/orthanc.template.json:ro
@@ -153,7 +153,7 @@ services:
       - -c
       - |
         python3 /etc/orthanc/render_orthanc_config.py \
-          /etc/orthanc/orthanc.template.json /tmp/orthanc.json
+          /etc/orthanc/orthanc.template.json /tmp/orthanc.json --enable-dicomweb
         exec Orthanc /tmp/orthanc.json
     volumes:
       - ./config/orthanc/af.template.json:/etc/orthanc/orthanc.template.json:ro

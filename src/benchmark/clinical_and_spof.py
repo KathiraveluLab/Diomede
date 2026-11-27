@@ -256,7 +256,9 @@ def benchmark_spof_and_multi_outage() -> dict[str, Any]:
                 )
             )
         finally:
-            subprocess.run(["docker", "start", "orchestrator"], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(
+                ["docker", "start", "orchestrator"], check=True, stdout=subprocess.DEVNULL
+            )
 
         deadline = time.monotonic() + 120.0
         while time.monotonic() < deadline:
@@ -328,7 +330,9 @@ def benchmark_spof_and_multi_outage() -> dict[str, Any]:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Clinical integrity, baseline latency, and SPOF suite.")
-    p.add_argument("--dicom-dir", type=str, default=None, help="Directory of de-identified .dcm files")
+    p.add_argument(
+        "--dicom-dir", type=str, default=None, help="Directory of de-identified .dcm files"
+    )
     p.add_argument("--synth-slices", type=int, default=100)
     p.add_argument("--synth-slice-kb", type=int, default=512)
     p.add_argument("--skip-spof", action="store_true")

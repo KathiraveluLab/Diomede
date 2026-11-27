@@ -301,9 +301,10 @@ async def test_stow_rs_transport_sends_multipart_and_detects_failures():
     async with AsyncClient() as c:
         nbytes = await forward_stow_rs_instance(c, _MemSource(), "inst1", node_cfg)
     assert nbytes == len(b"DICM_inst1")
-    assert 'multipart/related; type="application/dicom"' in route.calls[0].request.headers[
-        "content-type"
-    ]
+    assert (
+        'multipart/related; type="application/dicom"'
+        in route.calls[0].request.headers["content-type"]
+    )
 
     respx.post("http://orthanc-us:8042/dicom-web/studies").mock(
         return_value=Response(200, json={"00081198": {"Value": [{"reason": "failed"}]}})

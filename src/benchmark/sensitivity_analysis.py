@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import csv
 import io
-import json
 import os
 import statistics
 import sys
@@ -58,22 +57,82 @@ WEIGHT_PROFILES: dict[str, tuple[float, float, float]] = {
 # Conflicting multi-factor state vectors: (queue_size, disk_free_mb, rtt_ms)
 CONFLICT_SCENARIOS: list[dict[str, dict[str, float | int]]] = [
     {
-        "us-east1": {"queue_size": 8, "disk_free_mb": 4000, "disk_total_mb": 10000, "rtt_ms": 45.0},
-        "eu-west1": {"queue_size": 1, "disk_free_mb": 7500, "disk_total_mb": 10000, "rtt_ms": 165.0},
-        "asia-northeast1": {"queue_size": 2, "disk_free_mb": 8500, "disk_total_mb": 10000, "rtt_ms": 115.0},
-        "af-south1": {"queue_size": 0, "disk_free_mb": 9800, "disk_total_mb": 10000, "rtt_ms": 300.0},
+        "us-east1": {
+            "queue_size": 8,
+            "disk_free_mb": 4000,
+            "disk_total_mb": 10000,
+            "rtt_ms": 45.0,
+        },
+        "eu-west1": {
+            "queue_size": 1,
+            "disk_free_mb": 7500,
+            "disk_total_mb": 10000,
+            "rtt_ms": 165.0,
+        },
+        "asia-northeast1": {
+            "queue_size": 2,
+            "disk_free_mb": 8500,
+            "disk_total_mb": 10000,
+            "rtt_ms": 115.0,
+        },
+        "af-south1": {
+            "queue_size": 0,
+            "disk_free_mb": 9800,
+            "disk_total_mb": 10000,
+            "rtt_ms": 300.0,
+        },
     },
     {
-        "us-east1": {"queue_size": 3, "disk_free_mb": 2000, "disk_total_mb": 10000, "rtt_ms": 85.0},
-        "eu-west1": {"queue_size": 0, "disk_free_mb": 5000, "disk_total_mb": 10000, "rtt_ms": 165.0},
-        "asia-northeast1": {"queue_size": 1, "disk_free_mb": 6000, "disk_total_mb": 10000, "rtt_ms": 115.0},
-        "af-south1": {"queue_size": 0, "disk_free_mb": 9500, "disk_total_mb": 10000, "rtt_ms": 300.0},
+        "us-east1": {
+            "queue_size": 3,
+            "disk_free_mb": 2000,
+            "disk_total_mb": 10000,
+            "rtt_ms": 85.0,
+        },
+        "eu-west1": {
+            "queue_size": 0,
+            "disk_free_mb": 5000,
+            "disk_total_mb": 10000,
+            "rtt_ms": 165.0,
+        },
+        "asia-northeast1": {
+            "queue_size": 1,
+            "disk_free_mb": 6000,
+            "disk_total_mb": 10000,
+            "rtt_ms": 115.0,
+        },
+        "af-south1": {
+            "queue_size": 0,
+            "disk_free_mb": 9500,
+            "disk_total_mb": 10000,
+            "rtt_ms": 300.0,
+        },
     },
     {
-        "us-east1": {"queue_size": 12, "disk_free_mb": 9000, "disk_total_mb": 10000, "rtt_ms": 85.0},
-        "eu-west1": {"queue_size": 4, "disk_free_mb": 9000, "disk_total_mb": 10000, "rtt_ms": 165.0},
-        "asia-northeast1": {"queue_size": 0, "disk_free_mb": 3000, "disk_total_mb": 10000, "rtt_ms": 115.0},
-        "af-south1": {"queue_size": 1, "disk_free_mb": 9500, "disk_total_mb": 10000, "rtt_ms": 300.0},
+        "us-east1": {
+            "queue_size": 12,
+            "disk_free_mb": 9000,
+            "disk_total_mb": 10000,
+            "rtt_ms": 85.0,
+        },
+        "eu-west1": {
+            "queue_size": 4,
+            "disk_free_mb": 9000,
+            "disk_total_mb": 10000,
+            "rtt_ms": 165.0,
+        },
+        "asia-northeast1": {
+            "queue_size": 0,
+            "disk_free_mb": 3000,
+            "disk_total_mb": 10000,
+            "rtt_ms": 115.0,
+        },
+        "af-south1": {
+            "queue_size": 1,
+            "disk_free_mb": 9500,
+            "disk_total_mb": 10000,
+            "rtt_ms": 300.0,
+        },
     },
 ]
 

@@ -26,9 +26,6 @@
     "StorageCompression": true,
     "StorageDirectory": "/var/lib/orthanc/db",
     "RestApiWriteToFileSystemEnabled": true,
-    "Plugins": [
-        "/usr/share/orthanc/plugins/libOrthancDicomWeb.so"
-    ],
     "DicomWeb": {
         "Enable": true,
         "Root": "/dicom-web/"
@@ -42,7 +39,7 @@
             "AllowStorageCommitment": true
         },
         "edge2": {
-            "AET": "Orthanc_Edge",
+            "AET": "Orthanc_Edge2",
             "Host": "agent-002",
             "Port": 4242,
             "UseDicomTls": true,

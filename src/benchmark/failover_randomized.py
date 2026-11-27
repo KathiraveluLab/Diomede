@@ -22,7 +22,6 @@ import math
 import os
 import random
 import statistics
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -31,7 +30,12 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
-from src.benchmark.failover_time import REGION_CONTAINERS, inject_failure, is_node_healthy, restore_node
+from src.benchmark.failover_time import (
+    REGION_CONTAINERS,
+    inject_failure,
+    is_node_healthy,
+    restore_node,
+)
 from src.utils.logging_config import get_logger
 
 load_dotenv()
@@ -141,7 +145,13 @@ def main() -> int:
                     react_vals.append(react)
                     log.info(
                         "[%s/%s] trial %d/%d: detect=%.2fs recover=%.2fs reactive=%.1fms",
-                        mode, region, idx, args.trials, fo, rec, react,
+                        mode,
+                        region,
+                        idx,
+                        args.trials,
+                        fo,
+                        rec,
+                        react,
                     )
                 summary[mode][region] = {
                     "failover_detect_s": _stats(fo_vals),

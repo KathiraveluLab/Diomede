@@ -5,13 +5,13 @@ inserted: any password, including one with quotes, backslashes, slashes or amper
 in the config exactly as it is written in .env. Uses the standard library only, so the cloud
 node containers can run it as a plain script.
 
-When invoked with ``--nodes-file PATH`` (or when ``CLOUD_NODES`` is provided with
-``--inject-dicom-modalities``), the renderer also populates TLS-enabled ``DicomModalities``
-entries (with ``UseDicomTls: true`` and ``AllowStorageCommitment: true``) for every regional
-node so Edge Orthanc can perform mutual-TLS DIMSE C-STORE, C-ECHO, and Storage Commitment.
+Optional flags:
+  --nodes-file PATH           Inject TLS-enabled DicomModalities from PATH (or CLOUD_NODES).
+  --inject-dicom-modalities   Inject TLS-enabled DicomModalities from CLOUD_NODES.
+  --enable-dicomweb           Auto-detect libOrthancDicomWeb.so and add it to Plugins if present.
 
 Usage:
-  render_orthanc_config.py TEMPLATE OUTPUT [--nodes-file NODES_JSON] [--inject-dicom-modalities]
+  render_orthanc_config.py TEMPLATE OUTPUT [--nodes-file PATH] [--enable-dicomweb]
 """
 
 from __future__ import annotations
@@ -22,6 +22,12 @@ import sys
 from string import Template
 from typing import Any
 from urllib.parse import urlsplit
+
+_DICOMWEB_CANDIDATES = (
+    "/usr/share/orthanc/plugins-available/libOrthancDicomWeb.so",
+    "/usr/share/orthanc/plugins/libOrthancDicomWeb.so",
+    "/usr/local/share/orthanc/plugins/libOrthancDicomWeb.so",
+)
 
 
 def _escape(value: str) -> str:
@@ -65,10 +71,28 @@ def inject_dicom_modalities(rendered_json: str, nodes_raw: str) -> str:
     return json.dumps(cfg, indent=4)
 
 
+def enable_dicomweb_plugin(
+    rendered_json: str,
+    candidates: tuple[str, ...] = _DICOMWEB_CANDIDATES,
+) -> str:
+    """Add the first existing libOrthancDicomWeb.so path to Orthanc's Plugins list."""
+    plugin_path = next((p for p in candidates if os.path.isfile(p)), None)
+    if plugin_path is None:
+        return rendered_json
+    cfg: dict[str, Any] = json.loads(rendered_json)
+    plugins: list[str] = list(cfg.get("Plugins", []))
+    if plugin_path not in plugins:
+        plugins.append(plugin_path)
+    cfg["Plugins"] = plugins
+    cfg.setdefault("DicomWeb", {"Enable": True, "Root": "/dicom-web/"})
+    return json.dumps(cfg, indent=4)
+
+
 def main(argv: list[str]) -> int:
     args = argv[1:]
     nodes_file: str | None = None
     inject_modalities = False
+    dicomweb = False
     positional: list[str] = []
 
     i = 0
@@ -80,6 +104,9 @@ def main(argv: list[str]) -> int:
         elif args[i] == "--inject-dicom-modalities":
             inject_modalities = True
             i += 1
+        elif args[i] == "--enable-dicomweb":
+            dicomweb = True
+            i += 1
         elif args[i].startswith("--"):
             print(f"unknown option: {args[i]}", file=sys.stderr)
             return 2
@@ -89,7 +116,7 @@ def main(argv: list[str]) -> int:
 
     if len(positional) != 2:
         print(
-            f"usage: {argv[0]} TEMPLATE OUTPUT [--nodes-file PATH] [--inject-dicom-modalities]",
+            f"usage: {argv[0]} TEMPLATE OUTPUT [--nodes-file PATH] [--enable-dicomweb]",
             file=sys.stderr,
         )
         return 2
@@ -109,6 +136,8 @@ def main(argv: list[str]) -> int:
                 nodes_raw = nf.read()
         if nodes_raw:
             rendered = inject_dicom_modalities(rendered, nodes_raw)
+    if dicomweb:
+        rendered = enable_dicomweb_plugin(rendered)
     with open(positional[1], "w", encoding="utf-8") as output_file:
         output_file.write(rendered)
     return 0
