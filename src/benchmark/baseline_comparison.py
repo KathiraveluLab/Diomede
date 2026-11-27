@@ -303,33 +303,42 @@ def main() -> int:
     p.add_argument("--simulate-outage", action="store_true")
     p.add_argument("--outage-node", type=str, default="orthanc-us")
     p.add_argument("--outage-duration-s", type=float, default=20.0)
+    p.add_argument(
+        "--diomede-only",
+        action="store_true",
+        help="Run only the Diomede scenario (for sweeping rest / stow-rs / dimse modes).",
+    )
+    p.add_argument("--label", type=str, default="diomede", help="Label for the Diomede run.")
     p.add_argument("--output-json", type=str, default="baseline_comparison_results.json")
     args = p.parse_args()
 
     studies = build_study_payloads(args.studies, args.slices_per_study, args.slice_kb)
     results: list[dict[str, Any]] = []
 
-    scenarios = [
-        (
-            "static_us",
-            lambda: _run_direct_strategy(
-                "static_us", studies, [CLOUD_URLS["us-east1"]], args.concurrency
+    if args.diomede_only:
+        scenarios = [(args.label, lambda: _run_diomede_strategy(args.label, studies))]
+    else:
+        scenarios = [
+            (
+                "static_us",
+                lambda: _run_direct_strategy(
+                    "static_us", studies, [CLOUD_URLS["us-east1"]], args.concurrency
+                ),
             ),
-        ),
-        (
-            "round_robin",
-            lambda: _run_direct_strategy(
-                "round_robin", studies, list(CLOUD_URLS.values()), args.concurrency
+            (
+                "round_robin",
+                lambda: _run_direct_strategy(
+                    "round_robin", studies, list(CLOUD_URLS.values()), args.concurrency
+                ),
             ),
-        ),
-        (
-            "haproxy_leastconn",
-            lambda: _run_direct_strategy(
-                "haproxy_leastconn", studies, [HAPROXY_URL], args.concurrency
+            (
+                "haproxy_leastconn",
+                lambda: _run_direct_strategy(
+                    "haproxy_leastconn", studies, [HAPROXY_URL], args.concurrency
+                ),
             ),
-        ),
-        ("diomede", lambda: _run_diomede_strategy("diomede", studies)),
-    ]
+            (args.label, lambda: _run_diomede_strategy(args.label, studies)),
+        ]
 
     for label, fn in scenarios:
         log.info("=== Running baseline scenario: %s (outage=%s) ===", label, args.simulate_outage)

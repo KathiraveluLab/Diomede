@@ -1,0 +1,14 @@
+# Storage-exhaustion benchmark override:
+# Mounts a 10 MB uncompressed quota (MaximumStorageMode: Reject) onto orthanc-us so
+# src/benchmark/degradation_and_storage.py genuinely breaches the 2% free-disk floor.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.storage-test.yml up -d --force-recreate orthanc-us
+#   python -m src.benchmark.degradation_and_storage --mode storage --slice-kb 512
+services:
+  orthanc-us:
+    volumes:
+      - ./config/orthanc/us_low_quota.template.json:/etc/orthanc/orthanc.template.json:ro
+      - ./src/utils/render_orthanc_config.py:/etc/orthanc/render_orthanc_config.py:ro
+      - ./certs/orthanc-us:/etc/orthanc/certs:ro
+      - orthanc-us-data:/var/lib/orthanc/db

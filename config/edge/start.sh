@@ -6,7 +6,13 @@
 set -e
 
 echo "[start.sh] Generating Orthanc config from template..."
-python3 -m src.utils.render_orthanc_config /etc/orthanc/orthanc.template.json /tmp/orthanc.json --nodes-file /app/config/nodes.json
+AET_ARGS=()
+if [ -n "${EDGE_AET:-}" ]; then
+  AET_ARGS=(--aet "$EDGE_AET")
+fi
+python3 -m src.utils.render_orthanc_config \
+  /etc/orthanc/orthanc.template.json /tmp/orthanc.json \
+  --nodes-file /app/config/nodes.json "${AET_ARGS[@]}"
 
 echo "[start.sh] Starting Orthanc..."
 Orthanc /tmp/orthanc.json &

@@ -9,9 +9,10 @@ Optional flags:
   --nodes-file PATH           Inject TLS-enabled DicomModalities from PATH (or CLOUD_NODES).
   --inject-dicom-modalities   Inject TLS-enabled DicomModalities from CLOUD_NODES.
   --enable-dicomweb           Auto-detect libOrthancDicomWeb.so and add it to Plugins if present.
+  --aet AET                   Override Orthanc Name and DicomAet (e.g. Orthanc_Edge2).
 
 Usage:
-  render_orthanc_config.py TEMPLATE OUTPUT [--nodes-file PATH] [--enable-dicomweb]
+  render_orthanc_config.py TEMPLATE OUTPUT [--nodes-file PATH] [--enable-dicomweb] [--aet AET]
 """
 
 from __future__ import annotations
@@ -88,11 +89,20 @@ def enable_dicomweb_plugin(
     return json.dumps(cfg, indent=4)
 
 
+def override_dicom_aet(rendered_json: str, aet: str) -> str:
+    """Override Orthanc's Name and DicomAet fields for multi-edge deployments."""
+    cfg: dict[str, Any] = json.loads(rendered_json)
+    cfg["Name"] = aet
+    cfg["DicomAet"] = aet
+    return json.dumps(cfg, indent=4)
+
+
 def main(argv: list[str]) -> int:
     args = argv[1:]
     nodes_file: str | None = None
     inject_modalities = False
     dicomweb = False
+    aet: str | None = None
     positional: list[str] = []
 
     i = 0
@@ -107,6 +117,9 @@ def main(argv: list[str]) -> int:
         elif args[i] == "--enable-dicomweb":
             dicomweb = True
             i += 1
+        elif args[i] == "--aet" and i + 1 < len(args):
+            aet = args[i + 1].strip()
+            i += 2
         elif args[i].startswith("--"):
             print(f"unknown option: {args[i]}", file=sys.stderr)
             return 2
@@ -116,7 +129,7 @@ def main(argv: list[str]) -> int:
 
     if len(positional) != 2:
         print(
-            f"usage: {argv[0]} TEMPLATE OUTPUT [--nodes-file PATH] [--enable-dicomweb]",
+            f"usage: {argv[0]} TEMPLATE OUTPUT [--nodes-file PATH] [--enable-dicomweb] [--aet AET]",
             file=sys.stderr,
         )
         return 2
@@ -138,6 +151,8 @@ def main(argv: list[str]) -> int:
             rendered = inject_dicom_modalities(rendered, nodes_raw)
     if dicomweb:
         rendered = enable_dicomweb_plugin(rendered)
+    if aet:
+        rendered = override_dicom_aet(rendered, aet)
     with open(positional[1], "w", encoding="utf-8") as output_file:
         output_file.write(rendered)
     return 0

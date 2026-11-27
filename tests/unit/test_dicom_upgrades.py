@@ -29,7 +29,11 @@ from src.orchestrator.baseline_scorers import LeastConnectionsScorer, RoundRobin
 from src.orchestrator.main import app
 from src.orchestrator.weighted_scorer import WeightedScorer
 from src.utils.nodes import load_nodes
-from src.utils.render_orthanc_config import inject_dicom_modalities
+from src.utils.render_orthanc_config import (
+    enable_dicomweb_plugin,
+    inject_dicom_modalities,
+    override_dicom_aet,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -132,6 +136,20 @@ def test_inject_dicom_modalities_adds_tls_and_storage_commitment():
         "UseDicomTls": True,
         "AllowStorageCommitment": True,
     }
+
+
+def test_override_dicom_aet_and_enable_dicomweb_plugin(tmp_path):
+    base = json.dumps({"Name": "Orthanc_Edge", "DicomAet": "Orthanc_Edge"})
+    updated = json.loads(override_dicom_aet(base, "Orthanc_Edge2"))
+    assert updated["Name"] == "Orthanc_Edge2"
+    assert updated["DicomAet"] == "Orthanc_Edge2"
+
+    fake_so = tmp_path / "libOrthancDicomWeb.so"
+    fake_so.write_bytes(b"")
+    with_plugin = json.loads(enable_dicomweb_plugin(base, candidates=(str(fake_so),)))
+    assert with_plugin["Plugins"] == [str(fake_so)]
+    assert with_plugin["DicomWeb"]["Enable"] is True
+    assert enable_dicomweb_plugin(base, candidates=("/nonexistent/libOrthancDicomWeb.so",)) == base
 
 
 # --- 2. In-Flight Ingestion Load & Baseline Scorers ---

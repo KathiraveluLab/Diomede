@@ -4,10 +4,14 @@ src/benchmark/degradation_and_storage.py
 Evaluates the two failure modes requested by JIIM Reviewer #4 (Major #4) and Reviewer #2:
   1. Network degradation (tc netem delay, jitter, and packet loss injected mid-workload)
   2. Storage exhaustion (driving a regional node below the 2% free-storage quota floor
-     with MaximumStorageMode: Reject during active transfers)
+     with MaximumStorageMode: Reject during active transfers using incompressible DICOM
+     payloads and docker-compose.storage-test.yml)
 
 Usage:
-    python -m src.benchmark.degradation_and_storage --mode both
+    python -m src.benchmark.degradation_and_storage --mode netem
+    docker compose -f docker-compose.yml -f docker-compose.storage-test.yml up -d \
+        --force-recreate orthanc-us
+    python -m src.benchmark.degradation_and_storage --mode storage --slice-kb 512
 """
 
 from __future__ import annotations
@@ -107,7 +111,6 @@ def run_network_degradation(
 
         try:
             _tc_apply(target_container, delay_ms=350, jitter_ms=60, loss_pct=5.0)
-            # Send updated degraded RTT heartbeat matching the injected WAN profile
             hb = client.post(
                 f"{ORCH_URL}/heartbeat",
                 json={
@@ -149,7 +152,6 @@ def run_network_degradation(
                 ).json()["node_id"]
                 degraded_routes.append(best)
 
-            # Wait for edge drain
             deadline = time.monotonic() + 120.0
             while time.monotonic() < deadline:
                 remaining = set(sent_ids).intersection(
@@ -175,9 +177,12 @@ def run_network_degradation(
 
 
 def run_storage_exhaustion(
-    target_node: str = "us-east1", probe_studies: int = 10
+    target_node: str = "us-east1",
+    slice_kb: int = 512,
+    max_studies: int = 40,
 ) -> dict[str, Any]:
-    """Verify node health transition and rerouting when a node breaches the 2% free-disk floor."""
+    """Drive target_node past its 2% free-storage floor using incompressible DICOM payloads
+    and confirm telemetry unhealthy transition + lossless rerouting to healthy peers."""
     log.info("Starting storage-exhaustion verification on %s", target_node)
     with httpx.Client(verify=VERIFY_SSL) as client:
         nodes_before = {
@@ -190,11 +195,33 @@ def run_storage_exhaustion(
         quota_mb = int(sys_info.get("MaximumStorageSize") or 0)
         storage_mode = sys_info.get("MaximumStorageMode", "Unknown")
 
-        # Measure how active uploads behave while node approaches / hits its quota floor
+        # Favor target_node initially via low RTT so incoming studies fill it until the 2% floor.
+        client.post(
+            f"{ORCH_URL}/heartbeat",
+            json={
+                "agent_id": "agent-001",
+                "rtt_dict": {
+                    "us-east1": 5.0,
+                    "eu-west1": 200.0,
+                    "asia-northeast1": 220.0,
+                    "af-south1": 300.0,
+                },
+            },
+            headers={"X-API-Key": API_KEY},
+            timeout=5.0,
+        ).raise_for_status()
+
+        free_before = nodes_before.get(target_node, {}).get("disk_free_mb")
+        if free_before is not None and free_before > 0:
+            needed = int((float(free_before) * 1.25) / (slice_kb / 1024.0)) + 4
+            num_studies = max(10, min(max_studies, needed))
+        else:
+            num_studies = min(max_studies, 24)
+
         sent_ids: list[str] = []
         t0 = time.monotonic()
-        for _ in range(probe_studies):
-            ds = make_sized(512)
+        for _ in range(num_studies):
+            ds = make_sized(slice_kb, random_pixels=True)
             ds.StudyInstanceUID = str(generate_uid())
             buf = io.BytesIO()
             ds.save_as(buf, write_like_original=False)
@@ -207,8 +234,9 @@ def run_storage_exhaustion(
             )
             resp.raise_for_status()
             sent_ids.append(resp.json()["ID"])
+            time.sleep(0.25)
 
-        deadline = time.monotonic() + 120.0
+        deadline = time.monotonic() + 180.0
         while time.monotonic() < deadline:
             remaining = set(sent_ids).intersection(
                 set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json())
@@ -218,6 +246,8 @@ def run_storage_exhaustion(
             time.sleep(1.0)
         elapsed = time.monotonic() - t0
 
+        # Allow one telemetry poll cycle so daemon updates healthy status after final uploads.
+        time.sleep(11.0)
         nodes_after = {
             n["node_id"]: n
             for n in client.get(
@@ -225,15 +255,35 @@ def run_storage_exhaustion(
             ).json()
         }
 
+        per_node_found: dict[str, int] = {r: 0 for r in CLOUD_URLS}
+        missing = 0
+        for iid in sent_ids:
+            found = False
+            for region, url in CLOUD_URLS.items():
+                try:
+                    r = client.get(f"{url}/instances/{iid}", auth=AUTH, timeout=5.0)
+                    if r.status_code == 200:
+                        per_node_found[region] += 1
+                        found = True
+                        break
+                except Exception:
+                    continue
+            if not found:
+                missing += 1
+
     return {
         "experiment": "storage_exhaustion",
         "target_node": target_node,
         "quota_mb": quota_mb,
         "storage_mode": storage_mode,
-        "disk_free_before_mb": nodes_before.get(target_node, {}).get("disk_free_mb"),
+        "disk_free_before_mb": free_before,
         "disk_free_after_mb": nodes_after.get(target_node, {}).get("disk_free_mb"),
         "healthy_after": nodes_after.get(target_node, {}).get("healthy"),
-        "studies_sent": probe_studies,
+        "studies_sent": num_studies,
+        "confirmed_on_cloud": len(sent_ids) - missing,
+        "missing_from_cloud": missing,
+        "per_node_distribution": per_node_found,
+        "rerouted_to_peers": sum(v for k, v in per_node_found.items() if k != target_node),
         "drain_elapsed_s": round(elapsed, 2),
     }
 
@@ -243,6 +293,8 @@ def main() -> int:
         description="Network degradation and storage exhaustion benchmarks."
     )
     p.add_argument("--mode", choices=["netem", "storage", "both"], default="both")
+    p.add_argument("--slice-kb", type=int, default=512)
+    p.add_argument("--max-studies", type=int, default=40)
     p.add_argument("--output-json", type=str, default="degradation_storage_results.json")
     args = p.parse_args()
 
@@ -250,7 +302,7 @@ def main() -> int:
     if args.mode in ("netem", "both"):
         out.append(run_network_degradation())
     if args.mode in ("storage", "both"):
-        out.append(run_storage_exhaustion())
+        out.append(run_storage_exhaustion(slice_kb=args.slice_kb, max_studies=args.max_studies))
 
     Path(args.output_json).write_text(json.dumps(out, indent=2), encoding="utf-8")
     print(json.dumps(out, indent=2))

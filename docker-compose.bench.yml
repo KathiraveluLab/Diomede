@@ -34,6 +34,7 @@ services:
     environment:
       EDGE_BASE: "${NODE_INT_BASE}"
       AGENT_ID: "agent-002"
+      EDGE_AET: "Orthanc_Edge2"
       ORCH_URL: "${ORCHESTRATOR_BASE}/get-best-node"
       ORCH_HEARTBEAT_URL: "${ORCHESTRATOR_BASE}/heartbeat"
       REQUESTS_CA_BUNDLE: ${REQUESTS_CA_BUNDLE}

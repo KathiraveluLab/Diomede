@@ -1,0 +1,48 @@
+{
+    "Name": "Orthanc_US",
+    "DicomAet": "Orthanc_US",
+    "DicomCheckCalledAet": true,
+    "DicomCheckCallingAet": true,
+    "RemoteAccessAllowed": true,
+    "AuthenticationEnabled": true,
+    "RegisteredUsers": {"${orthanc_user}": "${orthanc_password}"},
+    "DicomPort": 4242,
+    "HttpPort": 8042,
+    "HttpServerEnabled": true,
+    "DicomServerEnabled": true,
+    "DicomTlsEnabled": true,
+    "SslEnabled": true,
+    "DicomTlsCertificate": "/etc/orthanc/certs/server.crt",
+    "DicomTlsPrivateKey": "/etc/orthanc/certs/server.key",
+    "DicomTlsTrustedCertificates": "/etc/orthanc/certs/ca.pem",
+    "SslCertificate": "/etc/orthanc/certs/combined.pem",
+    "DicomTlsRemoteCertificateRequired": true,
+    "HttpCompressionEnabled": true,
+    "MaximumStorageSize": 10,
+    "MaximumStorageMode": "Reject",
+    "IngestTranscodingEnabled": false,
+    "StorageCompression": false,
+    "StorageDirectory": "/var/lib/orthanc/db",
+    "RestApiWriteToFileSystemEnabled": true,
+    "DicomWeb": {
+        "Enable": true,
+        "Root": "/dicom-web/"
+    },
+    "DicomModalities": {
+        "edge": {
+            "AET": "Orthanc_Edge",
+            "Host": "agent-001",
+            "Port": 4242,
+            "UseDicomTls": true,
+            "AllowStorageCommitment": true
+        },
+        "edge2": {
+            "AET": "Orthanc_Edge2",
+            "Host": "agent-002",
+            "Port": 4242,
+            "UseDicomTls": true,
+            "AllowStorageCommitment": true
+        },
+        "simulator": ["Simulator", "host.docker.internal", 11112]
+    }
+}
