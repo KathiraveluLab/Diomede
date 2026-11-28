@@ -306,6 +306,13 @@ curl -k -u orthanc:your-password https://localhost:8042/instances           # ar
 curl -k -u orthanc:your-password https://localhost:8046/instances           # [] — edge copy deleted
 ```
 
+With `FORWARDER_TRANSPORT=stow-rs`, a successful HTTP status alone does not allow
+deleting the edge copy. The destination must return a DICOM JSON storage report
+with one stored SOP reference, valid SOP UIDs, and no entries in either failure sequence. A `202`
+response with a confirmed storage warning is accepted. Empty or malformed reports
+leave the instance on the edge for retry on the next poll; explicit storage failures
+retain the existing one-hour rejection retry interval.
+
 **8d. Real DICOM file** — the simulator scripts only generate synthetic 8×8 images,
 so to send a real study use the verifier. It uploads the file to the edge, waits
 for the forwarder to route it, downloads it back from whichever cloud node won, and

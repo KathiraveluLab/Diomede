@@ -20,6 +20,7 @@ import src.orchestrator.scorer as scorer_module
 from src.edge.destinations import (
     StorageCommitmentError,
     StowRsRejectedError,
+    StowRsResponseError,
     forward_dimse_study,
     forward_stow_rs_instance,
     probe_dimse_echo,
@@ -43,6 +44,16 @@ _ORCH_START = "http://orchestrator:8000/transfers/start"
 _ORCH_FINISH = "http://orchestrator:8000/transfers/finish"
 _ORCH_COMMIT = "http://orchestrator:8000/studies/{study_id}/commit"
 _EDGE_BASE = "http://edge-orthanc:8042"
+_STOW_NODE = {"base": "http://orthanc-us:8042", "ae_title": "Orthanc_US", "auth": ("u", "p")}
+_STOW_REFERENCE = {
+    "00081150": {"vr": "UI", "Value": ["1.2.840.10008.5.1.4.1.1.7"]},
+    "00081155": {"vr": "UI", "Value": ["1.2.3.4"]},
+    "00081190": {"vr": "UR"},
+}
+_STOW_SUCCESS = {
+    "00081190": {"vr": "UR"},
+    "00081199": {"vr": "SQ", "Value": [_STOW_REFERENCE]},
+}
 
 
 class _MemSource(DicomSource):
@@ -309,12 +320,213 @@ async def test_dicom_rtt_heartbeat_preferred_in_auto_mode(client, fake_redis):
 # --- 4. Edge Transports (STOW-RS, DIMSE + Storage Commitment, Atomic Study Commit) ---
 
 
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param(Response(200, content=b""), id="empty-200"),
+        pytest.param(Response(202, content=b""), id="empty-202"),
+        pytest.param(Response(200, text="<html>proxy error</html>"), id="invalid-json"),
+        pytest.param(Response(200, content=b"null"), id="null-json"),
+        pytest.param(Response(200, json=[]), id="array-json"),
+        pytest.param(Response(200, json={}), id="missing-reference"),
+        pytest.param(Response(200, json={"00081199": {"vr": "SQ"}}), id="empty-reference"),
+        pytest.param(
+            Response(200, json={"00081199": {"vr": "SQ", "Value": [{}]}}),
+            id="missing-sop-identifiers",
+        ),
+        pytest.param(
+            Response(
+                200, json={"00081199": {"vr": "SQ", "Value": [_STOW_REFERENCE, _STOW_REFERENCE]}}
+            ),
+            id="multiple-references-for-one-instance",
+        ),
+    ],
+)
+@respx.mock
+async def test_stow_rs_requires_storage_acknowledgement(response):
+    respx.post("http://orthanc-us:8042/dicom-web/studies").mock(return_value=response)
+
+    async with AsyncClient() as client:
+        with pytest.raises(StowRsResponseError, match="STOW-RS"):
+            await forward_stow_rs_instance(client, _MemSource(), "inst1", _STOW_NODE)
+
+
+@pytest.mark.parametrize("tag", ["00081198", "0008119A", "00081199"])
+@pytest.mark.parametrize(
+    "sequence", [None, {"vr": "SQ", "Value": "invalid"}, {"vr": "SQ", "Value": [None]}]
+)
+@respx.mock
+async def test_stow_rs_rejects_malformed_response_sequences(tag, sequence):
+    respx.post("http://orthanc-us:8042/dicom-web/studies").mock(
+        return_value=Response(200, json={**_STOW_SUCCESS, tag: sequence})
+    )
+
+    async with AsyncClient() as client:
+        with pytest.raises(StowRsResponseError, match="STOW-RS"):
+            await forward_stow_rs_instance(client, _MemSource(), "inst1", _STOW_NODE)
+
+
+@pytest.mark.parametrize("tag", ["00081198", "0008119A", "00081199"])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("vr", None), ("vr", "OB"), ("InlineBinary", "YQ=="), ("BulkDataURI", "https://node/bulk")],
+)
+@respx.mock
+async def test_stow_rs_rejects_invalid_sequence_representations(tag, field, value):
+    sequence = {"vr": "SQ", "Value": [_STOW_REFERENCE] if tag == "00081199" else []}
+    sequence[field] = value
+    respx.post("http://orthanc-us:8042/dicom-web/studies").mock(
+        return_value=Response(202, json={**_STOW_SUCCESS, tag: sequence})
+    )
+
+    async with AsyncClient() as client:
+        with pytest.raises(StowRsResponseError):
+            await forward_stow_rs_instance(client, _MemSource(), "inst1", _STOW_NODE)
+
+
+@pytest.mark.parametrize("tag", ["00081150", "00081155"])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("vr", None), ("vr", "LO"), ("InlineBinary", "YQ=="), ("BulkDataURI", "https://node/bulk")],
+)
+@respx.mock
+async def test_stow_rs_rejects_invalid_uid_representations(tag, field, value):
+    attribute = {**_STOW_REFERENCE[tag], field: value}
+    reference = {**_STOW_REFERENCE, tag: attribute}
+    respx.post("http://orthanc-us:8042/dicom-web/studies").mock(
+        return_value=Response(202, json={"00081199": {"vr": "SQ", "Value": [reference]}})
+    )
+
+    async with AsyncClient() as client:
+        with pytest.raises(StowRsResponseError):
+            await forward_stow_rs_instance(client, _MemSource(), "inst1", _STOW_NODE)
+
+
+@pytest.mark.parametrize("tag", ["00081150", "00081155"])
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        None,
+        {"vr": "UI", "Value": []},
+        {"vr": "UI", "Value": [""]},
+        {"vr": "UI", "Value": [123]},
+        {"vr": "UI", "Value": ["unknown"]},
+        {"vr": "UI", "Value": ["1..2"]},
+        {"vr": "UI", "Value": ["1.02.3"]},
+        {"vr": "UI", "Value": ["1.2."]},
+        {"vr": "UI", "Value": ["1.2\n"]},
+        {"vr": "UI", "Value": ["\u0661.\u0662"]},
+        {"vr": "UI", "Value": ["2.25." + "1" * 60]},
+    ],
+)
+@respx.mock
+async def test_stow_rs_requires_sop_identifiers_in_storage_reference(tag, attribute):
+    reference = {**_STOW_REFERENCE, tag: attribute}
+    respx.post("http://orthanc-us:8042/dicom-web/studies").mock(
+        return_value=Response(200, json={"00081199": {"vr": "SQ", "Value": [reference]}})
+    )
+
+    async with AsyncClient() as client:
+        with pytest.raises(StowRsResponseError, match="STOW-RS"):
+            await forward_stow_rs_instance(client, _MemSource(), "inst1", _STOW_NODE)
+
+
+@pytest.mark.parametrize("sop_uid", ["0.1.0", "1.2.3.4", "2.25." + "1" * 59])
+@respx.mock
+async def test_stow_rs_accepts_valid_uid_syntax(sop_uid):
+    reference = {**_STOW_REFERENCE, "00081155": {"vr": "UI", "Value": [sop_uid]}}
+    respx.post("http://orthanc-us:8042/dicom-web/studies").mock(
+        return_value=Response(200, json={"00081199": {"vr": "SQ", "Value": [reference]}})
+    )
+
+    async with AsyncClient() as client:
+        result = await forward_stow_rs_instance(client, _MemSource(), "inst1", _STOW_NODE)
+
+    assert result == len(b"DICM_inst1")
+
+
+@pytest.mark.parametrize("tag", ["00081198", "0008119A"])
+@pytest.mark.parametrize("status_code", [200, 202])
+@respx.mock
+async def test_stow_rs_detects_storage_failures_even_with_a_success_reference(tag, status_code):
+    failure = {"00081197": {"vr": "US", "Value": [0xA900]}}
+    respx.post("http://orthanc-us:8042/dicom-web/studies").mock(
+        return_value=Response(
+            status_code, json={**_STOW_SUCCESS, tag: {"vr": "SQ", "Value": [failure]}}
+        )
+    )
+
+    async with AsyncClient() as client:
+        with pytest.raises(StowRsRejectedError):
+            await forward_stow_rs_instance(client, _MemSource(), "inst1", _STOW_NODE)
+
+
+@pytest.fixture
+def stow_forwarder(monkeypatch):
+    monkeypatch.setattr(forwarder_module, "ORCH_URL", _ORCH_URL)
+    monkeypatch.setattr(forwarder_module, "CLOUD_NODES", {"us-east1": _STOW_NODE})
+    monkeypatch.setattr(forwarder_module, "FORWARDER_TRANSPORT", "stow-rs")
+    monkeypatch.setattr(forwarder_module, "REPORT_INFLIGHT", False)
+    monkeypatch.setattr(forwarder_module, "_pending_ack", set())
+    monkeypatch.setattr(forwarder_module, "_rejected", {})
+    monkeypatch.setattr(forwarder_module, "_probe_failed", set())
+    monkeypatch.setattr(forwarder_module, "_node_slots", {})
+
+
+@pytest.mark.parametrize("atomic", [False, True])
+@pytest.mark.parametrize("invalid_body", [b"", b"<html>proxy error</html>"])
+@respx.mock
+async def test_stow_rs_keeps_unconfirmed_instances_and_retries_next_poll(
+    stow_forwarder, monkeypatch, atomic, invalid_body
+):
+    monkeypatch.setattr(forwarder_module, "STUDY_ATOMIC_COMMIT", atomic)
+    respx.get(_ORCH_URL).mock(return_value=Response(200, json={"node_id": "us-east1"}))
+    respx.post("http://orthanc-us:8042/dicom-web/studies").mock(
+        side_effect=[Response(202, content=invalid_body), Response(200, json=_STOW_SUCCESS)]
+    )
+    source = _MemSource()
+
+    async with AsyncClient() as client:
+        await forwarder_module.route_study(client, source, "study-stow", ["inst1"])
+        assert source.acknowledged == []
+
+        await forwarder_module.route_study(client, source, "study-stow", ["inst1"])
+        assert source.acknowledged == ["inst1"]
+
+
+@pytest.mark.parametrize("atomic", [False, True])
+@pytest.mark.parametrize("status_code", [200, 202])
+@respx.mock
+async def test_stow_rs_acknowledges_confirmed_storage_including_warnings(
+    stow_forwarder, monkeypatch, atomic, status_code
+):
+    monkeypatch.setattr(forwarder_module, "STUDY_ATOMIC_COMMIT", atomic)
+    reference = {**_STOW_REFERENCE, "00081196": {"vr": "US", "Value": [0xB000]}}
+    respx.get(_ORCH_URL).mock(return_value=Response(200, json={"node_id": "us-east1"}))
+    respx.post("http://orthanc-us:8042/dicom-web/studies").mock(
+        return_value=Response(
+            status_code,
+            json={
+                "00081198": {"vr": "SQ"},
+                "0008119A": {"vr": "SQ", "Value": []},
+                "00081199": {"vr": "SQ", "Value": [reference]},
+            },
+        )
+    )
+    source = _MemSource()
+
+    async with AsyncClient() as client:
+        await forwarder_module.route_study(client, source, "study-stow", ["inst1"])
+
+    assert source.acknowledged == ["inst1"]
+
+
 @respx.mock
 @pytest.mark.asyncio
 async def test_stow_rs_transport_sends_multipart_and_detects_failures():
     node_cfg = {"base": "http://orthanc-us:8042", "ae_title": "Orthanc_US", "auth": ("u", "p")}
     route = respx.post("http://orthanc-us:8042/dicom-web/studies").mock(
-        return_value=Response(200, json={"00081199": {"Value": [{}]}})
+        return_value=Response(200, json=_STOW_SUCCESS)
     )
     async with AsyncClient() as c:
         nbytes = await forward_stow_rs_instance(c, _MemSource(), "inst1", node_cfg)
@@ -325,7 +537,12 @@ async def test_stow_rs_transport_sends_multipart_and_detects_failures():
     )
 
     respx.post("http://orthanc-us:8042/dicom-web/studies").mock(
-        return_value=Response(200, json={"00081198": {"Value": [{"reason": "failed"}]}})
+        return_value=Response(
+            200,
+            json={
+                "00081198": {"vr": "SQ", "Value": [{"00081197": {"vr": "US", "Value": [0xA900]}}]}
+            },
+        )
     )
     async with AsyncClient() as c:
         with pytest.raises(StowRsRejectedError):
