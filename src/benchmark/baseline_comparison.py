@@ -131,6 +131,16 @@ def _audit_cloud_studies(
             except Exception:
                 cloud_sets[region] = set()
         for _suid, inst_ids in sent_by_study.items():
+            # A study is complete (not split) if at least one single cloud node holds all slices.
+            complete_nodes = [
+                region
+                for region, ids in cloud_sets.items()
+                if len(inst_ids) >= expected_slices_per_study
+                and all(iid in ids for iid in inst_ids)
+            ]
+            if complete_nodes:
+                per_node_studies[complete_nodes[0]] += 1
+                continue
             nodes_seen: set[str] = set()
             found_count = 0
             for iid in inst_ids:
