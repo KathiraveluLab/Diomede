@@ -2,8 +2,8 @@
 src/benchmark/success_rate.py
 
 Benchmark script for evaluating end-to-end DICOM transfer success rate.
-Reproduces the 1,000 baseline transfers and 1,000 mid-transfer outage transfers
-described in Section 4.4 (End-to-End Transfer Success) of the paper.
+Executes 1,000 baseline transfers and 1,000 mid-transfer outage transfers to measure
+end-to-end delivery reliability.
 """
 
 from __future__ import annotations

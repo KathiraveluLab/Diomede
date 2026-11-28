@@ -2,8 +2,7 @@
 src/benchmark/clinical_and_spof.py
 
 Comprehensive clinical dataset, clinical integrity, extended-outage, orchestrator/Redis
-SPOF, and repeated control-plane baseline latency benchmark addressing JIIM Reviewer #1
-(#2, #5, #6), Reviewer #2 (#1, #4), and Reviewer #4 (Major #6, #8, #10, #11):
+SPOF, and repeated control-plane baseline latency benchmark:
 
   1. Repeated single-client control-plane baseline latency (N=1000 sequential requests:
      mean +/- SD, median, p95, p99) replacing the previous single-request 4 ms figure.
@@ -187,16 +186,27 @@ def benchmark_clinical_integrity(
             time.sleep(0.5)
         transfer_elapsed = time.monotonic() - t0
 
-        # Download back from whichever cloud node holds each instance and verify integrity
+        # Index cloud instances once (4 GETs) so verification fetches directly from the owner node.
+        cloud_sets: dict[str, set[str]] = {}
+        for region, url in CLOUD_URLS.items():
+            try:
+                cloud_sets[region] = set(
+                    client.get(f"{url}/instances", auth=AUTH, timeout=15.0).json()
+                )
+            except Exception:
+                cloud_sets[region] = set()
+
         verified_ok = 0
         gsps_verified = 0
         failed_integrity = 0
         for inst_id, local_fp in sent_map.items():
             remote_ds = None
-            for url in CLOUD_URLS.values():
-                r = client.get(f"{url}/instances/{inst_id}/file", auth=AUTH, timeout=30.0)
-                if r.status_code == 200:
-                    remote_ds = pydicom.dcmread(io.BytesIO(r.content))
+            for region, ids in cloud_sets.items():
+                if inst_id in ids:
+                    url = CLOUD_URLS[region]
+                    r = client.get(f"{url}/instances/{inst_id}/file", auth=AUTH, timeout=30.0)
+                    if r.status_code == 200:
+                        remote_ds = pydicom.dcmread(io.BytesIO(r.content))
                     break
             if remote_ds is None:
                 failed_integrity += 1

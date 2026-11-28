@@ -2,8 +2,8 @@
 src/benchmark/routing_correctness.py
 
 Benchmark script for validating routing decision correctness across synthetic load permutations.
-Reproduces the 35 load permutations across the 4 Orthanc nodes described in
-Section 4.2 (Routing Correctness) of the paper, validating 100% routing accuracy.
+Evaluates 35 load permutations across the four regional Orthanc nodes to validate
+deterministic scoring accuracy.
 
 It writes synthetic telemetry straight to Redis, which the stack does not publish to the
 host, so start it with the benchmark override first:

@@ -1,8 +1,7 @@
 """
 src/benchmark/baseline_comparison.py
 
-Four-way baseline comparison benchmark addressing JIIM Reviewer #1 (#1),
-Reviewer #2 (#4), and Reviewer #4 (Major #1):
+Four-way comparative routing benchmark evaluating:
   (a) Static endpoint (direct fixed cloud Orthanc node)
   (b) Round-robin dynamic routing across the 4 cloud nodes
   (c) Least-connections / HAProxy active-health-checked reverse proxy (port 8049)
@@ -123,19 +122,23 @@ def _audit_cloud_studies(
     split_studies = 0
     missing_studies = 0
     with httpx.Client(verify=VERIFY_SSL) as client:
+        cloud_sets: dict[str, set[str]] = {}
+        for region, url in CLOUD_URLS.items():
+            try:
+                cloud_sets[region] = set(
+                    client.get(f"{url}/instances", auth=AUTH, timeout=15.0).json()
+                )
+            except Exception:
+                cloud_sets[region] = set()
         for _suid, inst_ids in sent_by_study.items():
             nodes_seen: set[str] = set()
             found_count = 0
             for iid in inst_ids:
-                for region, url in CLOUD_URLS.items():
-                    try:
-                        r = client.get(f"{url}/instances/{iid}", auth=AUTH, timeout=5.0)
-                        if r.status_code == 200:
-                            nodes_seen.add(region)
-                            found_count += 1
-                            break
-                    except Exception:
-                        continue
+                for region, ids in cloud_sets.items():
+                    if iid in ids:
+                        nodes_seen.add(region)
+                        found_count += 1
+                        break
             if found_count < expected_slices_per_study:
                 missing_studies += 1
             elif len(nodes_seen) > 1:

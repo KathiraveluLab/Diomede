@@ -1,8 +1,7 @@
 """
 src/benchmark/sensitivity_analysis.py
 
-Non-circular multi-factor weight sensitivity analysis addressing JIIM Reviewer #1 (#3),
-Reviewer #2 (#3), and Reviewer #4 (Major #3).
+Multi-factor scoring weight sensitivity analysis.
 
 Varies queue/in-flight load, network RTT (via tc netem), and disk headroom simultaneously
 across conflicting trade-offs (e.g., idle high-latency node vs. busy low-latency node) and

@@ -2,8 +2,8 @@
 src/benchmark/failover_time.py
 
 Benchmark script for quantifying failover detection time and recovery detection time.
-Reproduces the 40 experimental trials across 4 regions and 2 failure modes
-(process stop vs. network partition) described in Section 4.3 of the paper.
+Executes repeated trials across all four regional nodes and two failure modes
+(process stop vs. network partition).
 """
 
 from __future__ import annotations

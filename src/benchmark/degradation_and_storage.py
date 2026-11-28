@@ -1,7 +1,7 @@
 """
 src/benchmark/degradation_and_storage.py
 
-Evaluates the two failure modes requested by JIIM Reviewer #4 (Major #4) and Reviewer #2:
+Evaluates WAN degradation and storage exhaustion failure modes under active transfers:
   1. Network degradation (tc netem delay, jitter, and packet loss injected mid-workload)
   2. Storage exhaustion (driving a regional node below the 2% free-storage quota floor
      with MaximumStorageMode: Reject during active transfers using incompressible DICOM
@@ -255,19 +255,24 @@ def run_storage_exhaustion(
             ).json()
         }
 
+        cloud_sets: dict[str, set[str]] = {}
+        for region, url in CLOUD_URLS.items():
+            try:
+                cloud_sets[region] = set(
+                    client.get(f"{url}/instances", auth=AUTH, timeout=15.0).json()
+                )
+            except Exception:
+                cloud_sets[region] = set()
+
         per_node_found: dict[str, int] = {r: 0 for r in CLOUD_URLS}
         missing = 0
         for iid in sent_ids:
             found = False
-            for region, url in CLOUD_URLS.items():
-                try:
-                    r = client.get(f"{url}/instances/{iid}", auth=AUTH, timeout=5.0)
-                    if r.status_code == 200:
-                        per_node_found[region] += 1
-                        found = True
-                        break
-                except Exception:
-                    continue
+            for region, ids in cloud_sets.items():
+                if iid in ids:
+                    per_node_found[region] += 1
+                    found = True
+                    break
             if not found:
                 missing += 1
 

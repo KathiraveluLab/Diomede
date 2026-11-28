@@ -1,8 +1,7 @@
 """
 src/benchmark/failover_randomized.py
 
-Randomized-phase failover and recovery benchmark addressing JIIM Reviewer #1 (#4)
-and Reviewer #4 (Major #7):
+Randomized-phase failover, recovery, and reactive in-band rerouting benchmark:
   - Injects faults after a uniform random jitter U[0, DAEMON_POLL_INTERVAL_S) so
     detection latency is sampled uniformly across the polling phase rather than phase-locked.
   - Runs N >= 15 trials per region and failure mode (process_stop, network_partition).
