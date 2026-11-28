@@ -50,7 +50,7 @@ Follow in this order:
 | `src/benchmark/` | Reproducible benchmarks for routing correctness, failover, success rate, comparative baselines, sensitivity analysis, link degradation, storage exhaustion, and clinical integrity |
 | `src/utils/` | Shared helpers: node registry (`nodes.py`), Orthanc config renderer (`render_orthanc_config.py`), clinical integrity verifier (`verify_pipeline.py`), environment and logging utilities |
 | `config/` | Declarative cloud node registry (`nodes.json`), container build contexts (`edge/`, `orchestrator/`), Orthanc config templates (`orthanc/*.template.json`), and HAProxy baseline config (`haproxy/`) |
-| `scripts/` | `gen_certs.sh` (CA + dual-EKU TLS certs), `inject_latency.sh` (`tc netem` WAN shaping), and `simulate_partition.sh` (network partition testing) |
+| `scripts/` | `gen_certs.sh` (CA + dual-EKU TLS certs), `inject_latency.sh` (`tc netem` WAN shaping), `simulate_partition.sh` (network partition testing), `fetch_tcia_sample.py` (public TCIA LIDC-IDRI Chest CT fetcher), and `run_benchmarks.sh` (end-to-end benchmark runner) |
 | `tests/` | `unit/`, `integration/`, and `load/` (Locust) suites |
 | `docs/` | `setup.md`, `architecture.md`, and diagrams |
 
