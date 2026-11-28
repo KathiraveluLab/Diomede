@@ -260,3 +260,24 @@ def test_wait_for_cloud_nodes_reports_a_node_that_never_answers():
 
     with patch.object(sr.time, "sleep"), httpx.Client() as client:
         assert sr.wait_for_cloud_nodes(client, attempts=3) == [down]
+
+
+@respx.mock
+def test_locate_on_cloud_retries_transient_remote_protocol_error():
+    target = REGIONS[0]
+    calls = iter([httpx.RemoteProtocolError("Server disconnected"), Response(200)])
+
+    def reply(_request):
+        item = next(calls)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    respx.get(f"{sr.CLOUD_URLS[target]}/instances/a").mock(side_effect=reply)
+
+    with httpx.Client() as client:
+        per_node, missing, unreadable = sr.locate_on_cloud(client, ["a"])
+
+    assert per_node[target] == 1
+    assert missing == []
+    assert unreadable == set()
