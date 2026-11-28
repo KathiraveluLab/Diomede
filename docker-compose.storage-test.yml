@@ -1,9 +1,11 @@
 # Storage-exhaustion benchmark override:
-# Mounts a 10 MB uncompressed quota (MaximumStorageMode: Reject) onto orthanc-us so
-# src/benchmark/degradation_and_storage.py genuinely breaches the 2% free-disk floor.
+# Mounts a 10 MB uncompressed quota (MaximumStorageMode: Reject) onto orthanc-us and disables
+# the absolute MIN_FREE_MB floor on telemetry-daemon so src/benchmark/degradation_and_storage.py
+# genuinely breaches the 2% relative free-disk floor (0.2 MB free).
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.storage-test.yml up -d --force-recreate orthanc-us
+#   docker compose -f docker-compose.yml -f docker-compose.storage-test.yml up -d \
+#     --force-recreate orthanc-us telemetry-daemon
 #   python -m src.benchmark.degradation_and_storage --mode storage --slice-kb 512
 services:
   orthanc-us:
@@ -12,3 +14,7 @@ services:
       - ./src/utils/render_orthanc_config.py:/etc/orthanc/render_orthanc_config.py:ro
       - ./certs/orthanc-us:/etc/orthanc/certs:ro
       - orthanc-us-data:/var/lib/orthanc/db
+
+  telemetry-daemon:
+    environment:
+      MIN_FREE_MB: "0"

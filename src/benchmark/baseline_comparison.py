@@ -99,10 +99,53 @@ def _schedule_outage(container: str, delay_s: float, duration_s: float) -> threa
         time.sleep(duration_s)
         log.info("Restoring %s", container)
         subprocess.run(["docker", "start", container], check=False, stdout=subprocess.DEVNULL)
+        time.sleep(2.0)
+        # Re-apply WAN tc netem profile wiped when the container stopped.
+        if Path("scripts/inject_latency.sh").exists():
+            subprocess.run(
+                ["bash", "scripts/inject_latency.sh"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
     return t
+
+
+def _audit_cloud_studies(
+    sent_by_study: dict[str, list[str]],
+    expected_slices_per_study: int,
+) -> tuple[dict[str, int], int, int]:
+    """Inspect all 4 cloud Orthanc nodes to count per-node distribution and split studies."""
+    per_node_studies: dict[str, int] = {r: 0 for r in CLOUD_URLS}
+    split_studies = 0
+    missing_studies = 0
+    with httpx.Client(verify=VERIFY_SSL) as client:
+        for _suid, inst_ids in sent_by_study.items():
+            nodes_seen: set[str] = set()
+            found_count = 0
+            for iid in inst_ids:
+                for region, url in CLOUD_URLS.items():
+                    try:
+                        r = client.get(f"{url}/instances/{iid}", auth=AUTH, timeout=5.0)
+                        if r.status_code == 200:
+                            nodes_seen.add(region)
+                            found_count += 1
+                            break
+                    except Exception:
+                        continue
+            if found_count < expected_slices_per_study:
+                missing_studies += 1
+            elif len(nodes_seen) > 1:
+                split_studies += 1
+                for r in nodes_seen:
+                    per_node_studies[r] += 1
+            elif len(nodes_seen) == 1:
+                only = next(iter(nodes_seen))
+                per_node_studies[only] += 1
+    return per_node_studies, split_studies, missing_studies
 
 
 def _run_direct_strategy(
@@ -111,20 +154,23 @@ def _run_direct_strategy(
     target_urls: list[str],
     concurrency: int,
     max_retries: int = 2,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, list[str]]]:
     """Run static, round-robin, or HAProxy strategy by posting study slices over HTTPS."""
     study_times: list[float] = []
-    per_target_counts: dict[str, int] = {u: 0 for u in target_urls}
+    sent_by_study: dict[str, list[str]] = {}
     failed_studies = 0
     total_retries = 0
     total_bytes = 0
     t_run_start = time.monotonic()
 
-    def _send_one_study(idx: int, slices: list[bytes]) -> tuple[bool, float, int, int, str]:
+    def _send_one_study(
+        idx: int, study_uid: str, slices: list[bytes]
+    ) -> tuple[str, bool, float, int, int, list[str]]:
         target = target_urls[idx % len(target_urls)]
         t0 = time.monotonic()
         retries = 0
         sent_bytes = 0
+        inst_ids: list[str] = []
         ok = True
         with httpx.Client(verify=VERIFY_SSL) as client:
             for payload in slices:
@@ -141,6 +187,9 @@ def _run_direct_strategy(
                         resp.raise_for_status()
                         delivered = True
                         sent_bytes += len(payload)
+                        iid = resp.json().get("ID")
+                        if iid:
+                            inst_ids.append(iid)
                         break
                     except Exception:
                         if attempt < max_retries:
@@ -148,22 +197,25 @@ def _run_direct_strategy(
                             time.sleep(0.5)
                 if not delivered:
                     ok = False
-        return ok, time.monotonic() - t0, retries, sent_bytes, target
+        return study_uid, ok, time.monotonic() - t0, retries, sent_bytes, inst_ids
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        futs = [pool.submit(_send_one_study, i, slices) for i, (_, slices) in enumerate(studies)]
+        futs = [
+            pool.submit(_send_one_study, i, suid, slices)
+            for i, (suid, slices) in enumerate(studies)
+        ]
         for fut in as_completed(futs):
-            ok, dt, retries, nbytes, target = fut.result()
+            suid, ok, dt, retries, nbytes, inst_ids = fut.result()
             total_retries += retries
             total_bytes += nbytes
+            sent_by_study[suid] = inst_ids
             if ok:
                 study_times.append(dt)
-                per_target_counts[target] = per_target_counts.get(target, 0) + 1
             else:
                 failed_studies += 1
 
     elapsed = time.monotonic() - t_run_start
-    return _summarize(
+    summary = _summarize(
         name,
         len(studies),
         study_times,
@@ -171,15 +223,16 @@ def _run_direct_strategy(
         total_retries,
         total_bytes,
         elapsed,
-        list(per_target_counts.values()),
+        [0] * len(CLOUD_URLS),
     )
+    return summary, sent_by_study
 
 
 def _run_diomede_strategy(
     name: str,
     studies: list[tuple[str, list[bytes]]],
-    drain_timeout_s: float = 180.0,
-) -> dict[str, Any]:
+    drain_timeout_s: float = 240.0,
+) -> tuple[dict[str, Any], dict[str, list[str]]]:
     """Ingest studies into Edge Orthanc and measure full end-to-end delivery across cloud nodes."""
     sent_by_study: dict[str, list[str]] = {}
     t_submit: dict[str, float] = {}
@@ -223,47 +276,18 @@ def _run_diomede_strategy(
             if pending:
                 time.sleep(0.5)
 
-        # Verify cloud locations and check for split studies
-        per_node_studies: dict[str, int] = {r: 0 for r in CLOUD_URLS}
-        split_studies = 0
-        missing_studies = 0
-        for _suid, inst_ids in sent_by_study.items():
-            nodes_seen: set[str] = set()
-            found_count = 0
-            for iid in inst_ids:
-                for region, url in CLOUD_URLS.items():
-                    try:
-                        r = client.get(f"{url}/instances/{iid}", auth=AUTH, timeout=5.0)
-                        if r.status_code == 200:
-                            nodes_seen.add(region)
-                            found_count += 1
-                            break
-                    except Exception:
-                        continue
-            if found_count < len(inst_ids):
-                missing_studies += 1
-            elif len(nodes_seen) > 1:
-                split_studies += 1
-                for r in nodes_seen:
-                    per_node_studies[r] += 1
-            elif len(nodes_seen) == 1:
-                only = next(iter(nodes_seen))
-                per_node_studies[only] += 1
-
     elapsed = time.monotonic() - t_run_start
     summary = _summarize(
         name,
         len(studies),
         completed_times,
-        missing_studies,
+        len(pending),
         0,
         total_bytes,
         elapsed,
-        list(per_node_studies.values()),
+        [0] * len(CLOUD_URLS),
     )
-    summary["split_studies"] = split_studies
-    summary["per_node_studies"] = per_node_studies
-    return summary
+    return summary, sent_by_study
 
 
 def _summarize(
@@ -312,45 +336,53 @@ def main() -> int:
     p.add_argument("--output-json", type=str, default="baseline_comparison_results.json")
     args = p.parse_args()
 
-    studies = build_study_payloads(args.studies, args.slices_per_study, args.slice_kb)
     results: list[dict[str, Any]] = []
 
     if args.diomede_only:
-        scenarios = [(args.label, lambda: _run_diomede_strategy(args.label, studies))]
+        scenarios = [(args.label, lambda s: _run_diomede_strategy(args.label, s))]
     else:
         scenarios = [
             (
                 "static_us",
-                lambda: _run_direct_strategy(
-                    "static_us", studies, [CLOUD_URLS["us-east1"]], args.concurrency
+                lambda s: _run_direct_strategy(
+                    "static_us", s, [CLOUD_URLS["us-east1"]], args.concurrency
                 ),
             ),
             (
                 "round_robin",
-                lambda: _run_direct_strategy(
-                    "round_robin", studies, list(CLOUD_URLS.values()), args.concurrency
+                lambda s: _run_direct_strategy(
+                    "round_robin", s, list(CLOUD_URLS.values()), args.concurrency
                 ),
             ),
             (
                 "haproxy_leastconn",
-                lambda: _run_direct_strategy(
-                    "haproxy_leastconn", studies, [HAPROXY_URL], args.concurrency
+                lambda s: _run_direct_strategy(
+                    "haproxy_leastconn", s, [HAPROXY_URL], args.concurrency
                 ),
             ),
-            (args.label, lambda: _run_diomede_strategy(args.label, studies)),
+            (args.label, lambda s: _run_diomede_strategy(args.label, s)),
         ]
 
     for label, fn in scenarios:
+        # Build fresh Study/SOP UIDs per scenario so cloud audit never collides across strategies.
+        scenario_studies = build_study_payloads(args.studies, args.slices_per_study, args.slice_kb)
         log.info("=== Running baseline scenario: %s (outage=%s) ===", label, args.simulate_outage)
         outage_thread = None
         if args.simulate_outage:
             outage_thread = _schedule_outage(
                 args.outage_node, delay_s=3.0, duration_s=args.outage_duration_s
             )
-        res = fn()
+        res, sent_by_study = fn(scenario_studies)
         if outage_thread is not None:
             outage_thread.join()
-            time.sleep(5.0)
+            time.sleep(8.0)
+        per_node, split_studies, missing = _audit_cloud_studies(
+            sent_by_study, args.slices_per_study
+        )
+        res["split_studies"] = split_studies
+        res["per_node_studies"] = per_node
+        res["jains_fairness"] = round(jains_fairness(list(per_node.values())), 4)
+        res["verified_missing_studies"] = missing
         results.append(res)
         print(json.dumps(res, indent=2))
 
