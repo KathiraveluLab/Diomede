@@ -11,6 +11,7 @@ Supports three forwarding protocols between an Edge Agent and regional cloud Ort
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -32,7 +33,28 @@ class StorageCommitmentError(RuntimeError):
 
 
 class StowRsRejectedError(RuntimeError):
-    """Raised when a DICOMweb STOW-RS server reports failed SOP instances."""
+    """Raised when a DICOMweb STOW-RS server reports storage failures."""
+
+
+class StowRsResponseError(RuntimeError):
+    """Raised when a STOW-RS response does not confirm instance storage."""
+
+
+def _stow_sequence(payload: dict[str, Any], tag: str) -> list[Any]:
+    if tag not in payload:
+        return []
+    attribute = payload[tag]
+    if (
+        not isinstance(attribute, dict)
+        or attribute.get("vr") != "SQ"
+        or "InlineBinary" in attribute
+        or "BulkDataURI" in attribute
+    ):
+        raise StowRsResponseError(f"STOW-RS response has an invalid sequence at {tag}")
+    items = attribute.get("Value", [])
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise StowRsResponseError(f"STOW-RS response has an invalid sequence at {tag}")
+    return items
 
 
 async def forward_rest_instance(
@@ -77,8 +99,9 @@ async def forward_stow_rs_instance(
     """Transmit one DICOM instance via standard DICOMweb STOW-RS (POST /dicom-web/studies).
 
     Wraps the raw DICOM Part-10 payload in an RFC 2387 ``multipart/related`` envelope
-    with ``type="application/dicom"`` and validates that the DICOMweb JSON response
-    reports no entries in the Failed SOP Sequence (0008,1198).
+    with ``type="application/dicom"``. Requires a single stored SOP reference and no
+    entries in the Failed SOP Sequence (0008,1198) or Other Failures Sequence (0008,119A)
+    before the caller can acknowledge the edge copy.
     """
     chunks: list[bytes] = []
     async with source.open_stream(client, instance_id) as body:
@@ -105,17 +128,39 @@ async def forward_stow_rs_instance(
     )
     resp.raise_for_status()
 
-    # Validate DICOMweb STOW-RS response payload if JSON is returned.
-    if resp.content:
-        try:
-            payload: dict[str, Any] = resp.json()
-        except ValueError:
-            payload = {}
-        failed_seq = payload.get("00081198", {}).get("Value", [])
-        if failed_seq:
+    # A 2xx status alone is insufficient: 202 can include storage failures.
+    try:
+        payload = resp.json()
+    except ValueError as exc:
+        raise StowRsResponseError(f"STOW-RS response is not valid JSON for {instance_id}") from exc
+    if not isinstance(payload, dict):
+        raise StowRsResponseError(f"STOW-RS response is not a JSON object for {instance_id}")
+
+    for tag in ("00081198", "0008119A"):
+        failures = _stow_sequence(payload, tag)
+        if failures:
             raise StowRsRejectedError(
-                f"STOW-RS rejected {len(failed_seq)} SOP instance(s) for {instance_id}"
+                f"STOW-RS reported {len(failures)} storage failure(s) in {tag} for {instance_id}"
             )
+
+    stored = _stow_sequence(payload, "00081199")
+    if len(stored) != 1:
+        raise StowRsResponseError(f"STOW-RS response must confirm one stored SOP for {instance_id}")
+    for tag in ("00081150", "00081155"):
+        attribute = stored[0].get(tag, {})
+        identifiers = attribute.get("Value") if isinstance(attribute, dict) else None
+        if (
+            not isinstance(attribute, dict)
+            or attribute.get("vr") != "UI"
+            or "InlineBinary" in attribute
+            or "BulkDataURI" in attribute
+            or not isinstance(identifiers, list)
+            or len(identifiers) != 1
+            or not isinstance(identifiers[0], str)
+            or len(identifiers[0]) > 64
+            or re.fullmatch(r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))*", identifiers[0]) is None
+        ):
+            raise StowRsResponseError(f"STOW-RS response has no valid SOP identifier at {tag}")
 
     return len(dicom_bytes)
 
