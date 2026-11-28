@@ -208,9 +208,17 @@ def benchmark_clinical_integrity(
             for region, ids in cloud_sets.items():
                 if inst_id in ids:
                     url = CLOUD_URLS[region]
-                    r = client.get(f"{url}/instances/{inst_id}/file", auth=AUTH, timeout=30.0)
-                    if r.status_code == 200:
-                        remote_ds = pydicom.dcmread(io.BytesIO(r.content))
+                    for attempt in range(3):
+                        try:
+                            r = client.get(
+                                f"{url}/instances/{inst_id}/file", auth=AUTH, timeout=30.0
+                            )
+                            if r.status_code == 200:
+                                remote_ds = pydicom.dcmread(io.BytesIO(r.content))
+                                break
+                        except httpx.HTTPError:
+                            if attempt < 2:
+                                time.sleep(0.3)
                     break
             if remote_ds is None:
                 failed_integrity += 1
