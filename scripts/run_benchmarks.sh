@@ -108,6 +108,7 @@ REQUESTS_CA_BUNDLE=certs/ca.pem "$PY" -m src.benchmark.success_rate \
 REQUESTS_CA_BUNDLE=certs/ca.pem "$PY" -m src.benchmark.success_rate \
   --burst-count 1000 --file-size-kb 50 --simulate-outage --outage-duration-s 15 --timeout-s 240 \
   | tee "$OUT/success_rate_outage.txt"
+bash scripts/inject_latency.sh
 
 # 9. Randomized-phase failover & recovery (N=15 trials x 4 regions x 2 modes = 120 trials)
 REQUESTS_CA_BUNDLE=certs/ca.pem "$PY" -m src.benchmark.failover_randomized \

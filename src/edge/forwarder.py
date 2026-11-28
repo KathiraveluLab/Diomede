@@ -39,6 +39,9 @@ PROBE_INTERVAL_S = int(require_env("PROBE_INTERVAL_S"))
 MAX_UPLOADS_PER_NODE = int(os.getenv("FORWARDER_MAX_UPLOADS_PER_NODE", "4"))
 if MAX_UPLOADS_PER_NODE < 1:
     raise ValueError("FORWARDER_MAX_UPLOADS_PER_NODE must be at least 1")
+MAX_CONCURRENT_STUDIES = int(os.getenv("FORWARDER_MAX_CONCURRENT_STUDIES", "16"))
+if MAX_CONCURRENT_STUDIES < 1:
+    raise ValueError("FORWARDER_MAX_CONCURRENT_STUDIES must be at least 1")
 CA_CERT = os.getenv("REQUESTS_CA_BUNDLE")
 
 # Pluggable edge-to-cloud transport: "rest" (default), "stow-rs", or "dimse"
@@ -352,7 +355,7 @@ async def route_study(
                     study_id,
                     instance_id,
                     node_id,
-                    exc,
+                    exc or repr(exc),
                     len(to_forward) - i,
                 )
                 return
@@ -491,16 +494,25 @@ async def forward_loop(source: DicomSource) -> None:
     sent twice.
     """
     in_flight: set[str] = set()
+    study_slots = asyncio.Semaphore(MAX_CONCURRENT_STUDIES)
 
     async def _route(client: httpx.AsyncClient, study_id: str, instance_ids: list[str]) -> None:
         try:
-            await route_study(client, source, study_id, instance_ids)
+            async with study_slots:
+                await route_study(client, source, study_id, instance_ids)
         except Exception as exc:
-            log.warning("study=%s routing error: %s", study_id, exc)
+            log.warning("study=%s routing error: %s", study_id, exc or repr(exc))
         finally:
             in_flight.discard(study_id)
 
-    async with httpx.AsyncClient(verify=_VERIFY) as client, asyncio.TaskGroup() as tasks:
+    limits = httpx.Limits(
+        max_connections=max(100, MAX_CONCURRENT_STUDIES * 4),
+        max_keepalive_connections=MAX_CONCURRENT_STUDIES * 2,
+    )
+    async with (
+        httpx.AsyncClient(verify=_VERIFY, limits=limits) as client,
+        asyncio.TaskGroup() as tasks,
+    ):
         while True:
             try:
                 studies = await source.poll_new(client)

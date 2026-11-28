@@ -88,19 +88,26 @@ def parse_args() -> argparse.Namespace:
 
 
 def upload_instance(client: httpx.Client, edge_url: str, instance_bytes: bytes) -> str | None:
-    try:
-        resp = client.post(
-            f"{edge_url}/instances",
-            content=instance_bytes,
-            headers={"Content-Type": "application/dicom"},
-            auth=EDGE_AUTH,
-            timeout=30.0,
-        )
-        resp.raise_for_status()
-        return resp.json().get("ID")
-    except Exception as exc:
-        log.error("Failed to upload instance to edge: %s", exc)
-        return None
+    for attempt in range(2):
+        try:
+            resp = client.post(
+                f"{edge_url}/instances",
+                content=instance_bytes,
+                headers={"Content-Type": "application/dicom"},
+                auth=EDGE_AUTH,
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            return resp.json().get("ID")
+        except httpx.RemoteProtocolError as exc:
+            if attempt == 0:
+                continue
+            log.error("Failed to upload instance to edge: %s", exc)
+            return None
+        except Exception as exc:
+            log.error("Failed to upload instance to edge: %s", exc)
+            return None
+    return None
 
 
 def wait_for_cloud_nodes(client: httpx.Client, attempts: int = 10) -> list[str]:
@@ -142,12 +149,21 @@ def locate_on_cloud(
     unreadable: set[str] = set()
     for instance_id in instance_ids:
         for region, base_url in CLOUD_URLS.items():
-            try:
-                resp = client.get(
-                    f"{base_url}/instances/{instance_id}", auth=CLOUD_AUTH, timeout=5.0
-                )
-            except Exception:
-                unreadable.add(region)
+            resp: httpx.Response | None = None
+            for attempt in range(2):
+                try:
+                    resp = client.get(
+                        f"{base_url}/instances/{instance_id}", auth=CLOUD_AUTH, timeout=5.0
+                    )
+                    break
+                except httpx.RemoteProtocolError:
+                    if attempt == 0:
+                        continue
+                    unreadable.add(region)
+                except Exception:
+                    unreadable.add(region)
+                    break
+            if resp is None:
                 continue
             if resp.status_code == 200:
                 found_per_node[region] += 1
