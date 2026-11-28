@@ -276,7 +276,7 @@ async def _get_nodes() -> list[dict[str, Any]]:
     except RedisError as exc:
         log.warning("Redis unavailable: %s", exc)
         raise HTTPException(status_code=503, detail="Telemetry store unavailable") from exc
-    log.info(f"Fetched raw nodes: {raw}")
+    log.debug("Fetched raw nodes: %s", raw)
 
     nodes = [json.loads(node) for node in raw if node is not None]
     inflight = await _get_inflight_counts([n["node_id"] for n in nodes])
@@ -321,7 +321,7 @@ def _apply_residency_policy(
 async def get_nodes(api_key: str = Depends(validate_api_key)) -> list[NodeResponse]:
     """Return the latest telemetry for all nodes"""
     node_list = await _get_nodes()
-    log.info(f"Node list: {node_list}")
+    log.debug("Node list: %s", node_list)
 
     node_responses: list[NodeResponse] = []
     for node in node_list:
@@ -386,10 +386,10 @@ async def get_best_node(
             selected_rtt = http_rtt
         else:
             selected_rtt = dicom_rtt if dicom_rtt is not None else http_rtt
-        log.info(f"Node {nid} has RTT {selected_rtt} ms for agent {agent_id}")
+        log.debug("Node %s has RTT %s ms for agent %s", nid, selected_rtt, agent_id)
         if selected_rtt is not None:
             node["rtt_ms"] = selected_rtt
-            log.info(f"Node rtt_ms: {nid} = {node['rtt_ms']}")
+            log.debug("Node rtt_ms: %s = %s", nid, node["rtt_ms"])
 
     best_node = max(healthy, key=scorer.score)
     if isinstance(scorer, RoundRobinScorer):

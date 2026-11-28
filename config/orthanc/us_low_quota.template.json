@@ -5,7 +5,9 @@
     "DicomCheckCallingAet": true,
     "RemoteAccessAllowed": true,
     "AuthenticationEnabled": true,
-    "RegisteredUsers": {"${orthanc_user}": "${orthanc_password}"},
+    "RegisteredUsers": {
+        "${orthanc_user}": "${orthanc_password}"
+    },
     "DicomPort": 4242,
     "HttpPort": 8042,
     "HttpServerEnabled": true,
@@ -18,7 +20,7 @@
     "SslCertificate": "/etc/orthanc/certs/combined.pem",
     "DicomTlsRemoteCertificateRequired": true,
     "HttpCompressionEnabled": true,
-    "MaximumStorageSize": 10,
+    "MaximumStorageSize": 60,
     "MaximumStorageMode": "Reject",
     "IngestTranscodingEnabled": false,
     "StorageCompression": false,
@@ -43,6 +45,10 @@
             "UseDicomTls": true,
             "AllowStorageCommitment": true
         },
-        "simulator": ["Simulator", "host.docker.internal", 11112]
+        "simulator": [
+            "Simulator",
+            "host.docker.internal",
+            11112
+        ]
     }
 }

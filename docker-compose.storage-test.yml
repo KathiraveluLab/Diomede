@@ -1,7 +1,7 @@
 # Storage-exhaustion benchmark override:
-# Mounts a 10 MB uncompressed quota (MaximumStorageMode: Reject) onto orthanc-us and disables
+# Mounts a 60 MB uncompressed quota (MaximumStorageMode: Reject) onto orthanc-us and disables
 # the absolute MIN_FREE_MB floor on telemetry-daemon so src/benchmark/degradation_and_storage.py
-# genuinely breaches the 2% relative free-disk floor (0.2 MB free).
+# genuinely breaches the 2% relative free-disk floor (<= 1 MB / 60 MB = 1.67% free).
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.storage-test.yml up -d \

@@ -111,16 +111,23 @@ def run_network_degradation(
 
         try:
             _tc_apply(target_container, delay_ms=350, jitter_ms=60, loss_pct=5.0)
+            # Measure real HTTP RTTs across all 4 nodes under the injected tc netem profile
+            # and update both HTTP and DICOM RTT maps so RTT_SOURCE=auto reflects the fault.
+            degraded_rtts: dict[str, float] = {}
+            for region, url in CLOUD_URLS.items():
+                t_probe = time.perf_counter()
+                try:
+                    pr = client.get(f"{url}/system", auth=AUTH, timeout=5.0)
+                    pr.raise_for_status()
+                    degraded_rtts[region] = round((time.perf_counter() - t_probe) * 1000.0, 2)
+                except Exception:
+                    degraded_rtts[region] = 5000.0
             hb = client.post(
                 f"{ORCH_URL}/heartbeat",
                 json={
                     "agent_id": "agent-001",
-                    "rtt_dict": {
-                        "us-east1": 350.0,
-                        "eu-west1": 120.0,
-                        "asia-northeast1": 90.0,
-                        "af-south1": 280.0,
-                    },
+                    "rtt_dict": degraded_rtts,
+                    "dicom_rtt_dict": degraded_rtts,
                 },
                 headers={"X-API-Key": API_KEY},
                 timeout=5.0,
@@ -183,7 +190,7 @@ def run_network_degradation(
 def run_storage_exhaustion(
     target_node: str = "us-east1",
     slice_kb: int = 512,
-    max_studies: int = 40,
+    max_studies: int = 160,
 ) -> dict[str, Any]:
     """Drive target_node past its 2% free-storage floor using incompressible DICOM payloads
     and confirm telemetry unhealthy transition + lossless rerouting to healthy peers."""
@@ -200,16 +207,18 @@ def run_storage_exhaustion(
         storage_mode = sys_info.get("MaximumStorageMode", "Unknown")
 
         # Favor target_node initially via low RTT so incoming studies fill it until the 2% floor.
+        favored_rtts = {
+            "us-east1": 5.0,
+            "eu-west1": 200.0,
+            "asia-northeast1": 220.0,
+            "af-south1": 300.0,
+        }
         client.post(
             f"{ORCH_URL}/heartbeat",
             json={
                 "agent_id": "agent-001",
-                "rtt_dict": {
-                    "us-east1": 5.0,
-                    "eu-west1": 200.0,
-                    "asia-northeast1": 220.0,
-                    "af-south1": 300.0,
-                },
+                "rtt_dict": favored_rtts,
+                "dicom_rtt_dict": favored_rtts,
             },
             headers={"X-API-Key": API_KEY},
             timeout=5.0,

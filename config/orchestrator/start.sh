@@ -3,7 +3,10 @@
 # Redis and the Telemetry Daemon run as their own services (see docker-compose.yml).
 set -e
 
-echo "[start.sh] Starting Uvicorn for FastAPI endpoints..."
+WORKERS="${ORCHESTRATOR_WORKERS:-4}"
+echo "[start.sh] Starting Uvicorn for FastAPI endpoints (workers=${WORKERS})..."
 exec uvicorn src.orchestrator.main:app --host 0.0.0.0 --port 8000 \
+    --workers "${WORKERS}" \
+    --no-access-log \
     --ssl-keyfile  /certs/server.key \
     --ssl-certfile /certs/server.crt
