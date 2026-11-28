@@ -180,7 +180,11 @@ def benchmark_clinical_integrity(
         # Wait for full edge drain
         deadline = time.monotonic() + 300.0
         while time.monotonic() < deadline:
-            edge_ids = set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=10.0).json())
+            try:
+                edge_ids = set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=10.0).json())
+            except Exception:
+                time.sleep(0.5)
+                continue
             if not set(sent_map).intersection(edge_ids):
                 break
             time.sleep(0.5)
@@ -272,9 +276,13 @@ def benchmark_spof_and_multi_outage() -> dict[str, Any]:
 
         deadline = time.monotonic() + 120.0
         while time.monotonic() < deadline:
-            rem = set(orch_ids).intersection(
-                set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json())
-            )
+            try:
+                rem = set(orch_ids).intersection(
+                    set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json())
+                )
+            except Exception:
+                time.sleep(0.5)
+                continue
             if not rem:
                 break
             time.sleep(1.0)
@@ -312,9 +320,13 @@ def benchmark_spof_and_multi_outage() -> dict[str, Any]:
                 two_node_ids.append(r.json()["ID"])
             deadline = time.monotonic() + 120.0
             while time.monotonic() < deadline:
-                rem = set(two_node_ids).intersection(
-                    set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json())
-                )
+                try:
+                    rem = set(two_node_ids).intersection(
+                        set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json())
+                    )
+                except Exception:
+                    time.sleep(0.5)
+                    continue
                 if not rem:
                     break
                 time.sleep(1.0)

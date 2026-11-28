@@ -154,10 +154,14 @@ def run_network_degradation(
 
             deadline = time.monotonic() + 120.0
             while time.monotonic() < deadline:
-                remaining = set(sent_ids).intersection(
-                    set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json())
-                )
-                if not remaining:
+                try:
+                    edge_ids = set(
+                        client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json()
+                    )
+                except Exception:
+                    time.sleep(0.5)
+                    continue
+                if not set(sent_ids).intersection(edge_ids):
                     break
                 time.sleep(1.0)
             elapsed = time.monotonic() - t0
@@ -238,10 +242,12 @@ def run_storage_exhaustion(
 
         deadline = time.monotonic() + 180.0
         while time.monotonic() < deadline:
-            remaining = set(sent_ids).intersection(
-                set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json())
-            )
-            if not remaining:
+            try:
+                edge_ids = set(client.get(f"{EDGE_URL}/instances", auth=AUTH, timeout=5.0).json())
+            except Exception:
+                time.sleep(0.5)
+                continue
+            if not set(sent_ids).intersection(edge_ids):
                 break
             time.sleep(1.0)
         elapsed = time.monotonic() - t0
